@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <title>Trace Bench</title>
+    <link rel="stylesheet" href="/styles.css">
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to investigation</a>
+    <header class="masthead">
+      <div>
+        <p class="kicker">Engineering knowledge instrument</p>
+        <h1>Trace Bench</h1>
+      </div>
+      <div class="connection" aria-label="Live connection">
+        <span id="live-dot" class="live-dot" aria-hidden="true"></span>
+        <span id="live-status" aria-live="polite">Connecting</span>
+        <button id="reconnect-button" class="quiet-button" type="button">Reconnect</button>
+      </div>
+    </header>
+
+    <main id="main" tabindex="-1">
+      <section class="control-bench" aria-labelledby="scope-heading">
+        <div class="scope-control">
+          <h2 id="scope-heading">Current project</h2>
+          <label for="project-select">Project</label>
+          <select id="project-select"></select>
+        </div>
+        <form id="search-form" role="search">
+          <label for="search-input">Search this project</label>
+          <div class="search-row">
+            <input id="search-input" name="q" type="search" autocomplete="off" placeholder="Case, command, file, error, test">
+            <button type="submit">Search</button>
+          </div>
+        </form>
+        <fieldset aria-labelledby="type-filter-label">
+          <legend id="type-filter-label">Type</legend>
+          <div id="type-filters" class="filter-row"></div>
+        </fieldset>
+        <fieldset aria-labelledby="status-filter-label">
+          <legend id="status-filter-label">Status</legend>
+          <div id="status-filters" class="filter-row"></div>
+        </fieldset>
+        <label>Domain <input id="domain-filter" type="search" maxlength="100" placeholder="build, database..."></label>
+        <label>Minimum confidence
+          <select id="confidence-filter">
+            <option value="0">Any</option>
+            <option value="0.5">50%</option>
+            <option value="0.8">80%</option>
+          </select>
+        </label>
+      </section>
+
+      <div id="view-state" class="view-state" role="status" aria-live="polite"></div>
+
+      <section class="case-strip" aria-labelledby="case-results-heading">
+        <div class="section-heading">
+          <div>
+            <p class="section-code">Index</p>
+            <h2 id="case-results-heading">Case results</h2>
+          </div>
+          <span id="result-count" class="count"></span>
+        </div>
+        <div id="case-results" class="case-results"></div>
+      </section>
+
+      <div class="trace-layout">
+        <section class="graph-panel" aria-labelledby="graph-panel-heading">
+          <div class="section-heading">
+            <div>
+              <p class="section-code">Causal field</p>
+              <h2 id="graph-panel-heading">Case graph</h2>
+            </div>
+            <span id="case-state" class="status-stamp"></span>
+          </div>
+          <div id="graph-stage" class="graph-stage">
+            <svg id="causal-graph" role="img" aria-labelledby="graph-title graph-description">
+              <title id="graph-title">Causal Case graph</title>
+              <desc id="graph-description">Directed relationships between the selected Case nodes. Use the semantic trace for a text alternative.</desc>
+              <defs>
+                <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path d="M 0 0 L 10 5 L 0 10 z"></path>
+                </marker>
+              </defs>
+              <g id="edge-layer"></g>
+            </svg>
+            <div id="node-layer" class="node-layer"></div>
+          </div>
+        </section>
+
+        <section class="semantic-panel" aria-labelledby="semantic-heading">
+          <div class="section-heading compact">
+            <div>
+              <p class="section-code">Text equivalent</p>
+              <h2 id="semantic-heading">Semantic trace</h2>
+            </div>
+          </div>
+          <ol id="semantic-trace" class="semantic-trace"></ol>
+        </section>
+      </div>
+
+      <div class="detail-layout">
+        <section class="timeline-panel" aria-labelledby="timeline-heading">
+          <div class="section-heading compact">
+            <div>
+              <p class="section-code">Sequence</p>
+              <h2 id="timeline-heading">Attempt timeline</h2>
+            </div>
+          </div>
+          <ol id="attempt-timeline" class="attempt-timeline"></ol>
+        </section>
+
+        <section id="evidence-inspector" class="inspector-panel" aria-labelledby="inspector-heading" tabindex="-1">
+          <div class="section-heading compact">
+            <div>
+              <p class="section-code">Selected node</p>
+              <h2 id="inspector-heading">Evidence inspector</h2>
+            </div>
+          </div>
+          <div id="inspector-content" class="inspector-content">
+            <p>Select a graph node or semantic trace item to inspect its evidence.</p>
+          </div>
+        </section>
+
+        <aside class="activity-panel" aria-labelledby="activity-heading">
+          <div class="section-heading compact">
+            <div>
+              <p class="section-code">Live journal</p>
+              <h2 id="activity-heading">Activity</h2>
+            </div>
+          </div>
+          <ol id="activity-list" class="activity-list"></ol>
+        </aside>
+      </div>
+    </main>
+  </body>
+</html>

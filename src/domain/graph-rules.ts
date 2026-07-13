@@ -80,26 +80,22 @@ export function assertAcyclic(
     }
   }
 
-  const visiting = new Set<string>()
-  const visited = new Set<string>()
-
-  const visit = (nodeId: string): void => {
-    if (visiting.has(nodeId)) {
-      throw new InvalidGraphError('Relation would create a cycle inside the Case')
-    }
-    if (visited.has(nodeId)) {
-      return
-    }
-
-    visiting.add(nodeId)
-    for (const targetId of adjacency.get(nodeId) ?? []) {
-      visit(targetId)
-    }
-    visiting.delete(nodeId)
-    visited.add(nodeId)
+  const indegree = new Map<string, number>([...adjacency.keys()].map((id) => [id, 0]))
+  for (const targets of adjacency.values()) {
+    for (const target of targets) indegree.set(target, (indegree.get(target) ?? 0) + 1)
   }
-
-  for (const nodeId of adjacency.keys()) {
-    visit(nodeId)
+  const ready = [...indegree].filter(([, degree]) => degree === 0).map(([id]) => id)
+  let visited = 0
+  while (ready.length > 0) {
+    const nodeId = ready.pop()!
+    visited += 1
+    for (const target of adjacency.get(nodeId) ?? []) {
+      const degree = (indegree.get(target) ?? 0) - 1
+      indegree.set(target, degree)
+      if (degree === 0) ready.push(target)
+    }
+  }
+  if (visited !== indegree.size) {
+    throw new InvalidGraphError('Relation would create a cycle inside the Case')
   }
 }

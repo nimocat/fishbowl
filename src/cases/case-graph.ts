@@ -225,10 +225,10 @@ export class CaseGraph {
     }
 
     const nodes = this.database
-      .prepare('SELECT * FROM nodes WHERE case_id = ? ORDER BY rowid')
+      .prepare('SELECT * FROM nodes WHERE case_id = ? ORDER BY rowid LIMIT 1000')
       .all(caseId) as NodeRow[]
     const edges = this.database
-      .prepare('SELECT * FROM edges WHERE case_id = ? ORDER BY rowid')
+      .prepare('SELECT * FROM edges WHERE case_id = ? ORDER BY rowid LIMIT 2000')
       .all(caseId) as EdgeRow[]
 
     return {

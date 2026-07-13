@@ -114,12 +114,36 @@ export class ProjectRegistry {
     })()
   }
 
+  update(
+    projectId: string,
+    input: { name?: string; description?: string | null },
+  ): Project {
+    const current = this.findById(projectId)
+    if (!current) {
+      throw new ProjectNotFoundError(projectId)
+    }
+    const project: Project = {
+      ...current,
+      name: input.name === undefined ? current.name : input.name.trim(),
+      description:
+        input.description === undefined ? current.description : input.description?.trim() || null,
+    }
+
+    return this.database.transaction(() => {
+      this.database
+        .prepare('UPDATE projects SET name = ?, description = ? WHERE id = ?')
+        .run(project.name, project.description, project.id)
+      this.appendEvent(project.id, 'project.updated', project.id, project)
+      return project
+    })()
+  }
+
   list(): ProjectWithAliases[] {
     const projects = this.database
-      .prepare('SELECT * FROM projects ORDER BY created_at, id')
+      .prepare('SELECT * FROM projects ORDER BY created_at, rowid')
       .all() as ProjectRow[]
     const aliases = this.database
-      .prepare('SELECT * FROM project_aliases ORDER BY created_at, id')
+      .prepare('SELECT * FROM project_aliases ORDER BY created_at, rowid')
       .all() as AliasRow[]
 
     return projects.map((row) => {
