@@ -3,7 +3,7 @@
 Build EKG before configuring a client:
 
 ```bash
-cd /Users/eric/engineering-knowledge-graph/.worktrees/complete-project
+cd /Users/eric/engineering-knowledge-graph
 npm install
 npm run build
 ```
@@ -11,7 +11,7 @@ npm run build
 Every example starts the same local stdio process with an absolute built entry-point path and a shared `EKG_DATA_DIR`:
 
 ```text
-node /Users/eric/engineering-knowledge-graph/.worktrees/complete-project/dist/cli/main.js mcp --stdio
+node /Users/eric/engineering-knowledge-graph/dist/cli/main.js mcp --stdio
 ```
 
 The client must keep stdin/stdout attached for MCP protocol traffic. EKG does not print startup diagnostics to stdout.
@@ -26,7 +26,7 @@ Add this server under `mcpServers` in the client's JSON configuration, then rest
     "engineering-knowledge-graph": {
       "command": "node",
       "args": [
-        "/Users/eric/engineering-knowledge-graph/.worktrees/complete-project/dist/cli/main.js",
+        "/Users/eric/engineering-knowledge-graph/dist/cli/main.js",
         "mcp",
         "--stdio"
       ],
@@ -45,7 +45,7 @@ Codex's native configuration is TOML, not JSON. The equivalent `~/.codex/config.
 ```toml
 [mcp_servers.engineering-knowledge-graph]
 command = "node"
-args = ["/Users/eric/engineering-knowledge-graph/.worktrees/complete-project/dist/cli/main.js", "mcp", "--stdio"]
+args = ["/Users/eric/engineering-knowledge-graph/dist/cli/main.js", "mcp", "--stdio"]
 
 [mcp_servers.engineering-knowledge-graph.env]
 EKG_DATA_DIR = "/Users/eric/.engineering-knowledge-graph/data"
@@ -54,7 +54,7 @@ EKG_DATA_DIR = "/Users/eric/.engineering-knowledge-graph/data"
 The same configuration can be added without editing a file:
 
 ```bash
-codex mcp add engineering-knowledge-graph --env EKG_DATA_DIR=/Users/eric/.engineering-knowledge-graph/data -- node /Users/eric/engineering-knowledge-graph/.worktrees/complete-project/dist/cli/main.js mcp --stdio
+codex mcp add engineering-knowledge-graph --env EKG_DATA_DIR=/Users/eric/.engineering-knowledge-graph/data -- node /Users/eric/engineering-knowledge-graph/dist/cli/main.js mcp --stdio
 ```
 
 For a Codex-compatible host that asks for a generic JSON stdio descriptor, use:
@@ -65,7 +65,7 @@ For a Codex-compatible host that asks for a generic JSON stdio descriptor, use:
   "transport": "stdio",
   "command": "node",
   "args": [
-    "/Users/eric/engineering-knowledge-graph/.worktrees/complete-project/dist/cli/main.js",
+    "/Users/eric/engineering-knowledge-graph/dist/cli/main.js",
     "mcp",
     "--stdio"
   ],
@@ -87,7 +87,7 @@ Add this entry to `opencode.json` or `opencode.jsonc`:
       "type": "local",
       "command": [
         "node",
-        "/Users/eric/engineering-knowledge-graph/.worktrees/complete-project/dist/cli/main.js",
+        "/Users/eric/engineering-knowledge-graph/dist/cli/main.js",
         "mcp",
         "--stdio"
       ],
@@ -108,8 +108,8 @@ If startup fails, verify all three directly:
 
 ```bash
 node --version
-test -f /Users/eric/engineering-knowledge-graph/.worktrees/complete-project/dist/cli/main.js
-EKG_DATA_DIR=/Users/eric/.engineering-knowledge-graph/data node /Users/eric/engineering-knowledge-graph/.worktrees/complete-project/dist/cli/main.js integrity
+test -f /Users/eric/engineering-knowledge-graph/dist/cli/main.js
+EKG_DATA_DIR=/Users/eric/.engineering-knowledge-graph/data node /Users/eric/engineering-knowledge-graph/dist/cli/main.js integrity
 ```
 
 Do not point a client at a database reporting corruption or a newer incompatible schema. Follow the recovery procedure in [README.md](../README.md) first.
