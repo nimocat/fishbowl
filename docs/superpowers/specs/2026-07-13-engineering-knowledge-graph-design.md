@@ -1,7 +1,7 @@
 # Engineering Knowledge Graph Design
 
 **Date:** 2026-07-13  
-**Status:** Proposed — awaiting written review  
+**Status:** Approved — delivery slice 1 implemented
 **Target repository:** `/Users/eric/engineering-knowledge-graph`
 
 ## 1. Purpose
