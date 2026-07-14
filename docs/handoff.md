@@ -2,11 +2,11 @@
 
 ## Current Objective
 
-Integrate the completed first local release plus all review fix waves on `feat/complete-project`. No commit was created.
+Implement the approved compatibility-focused EKG query/write efficiency plan on `main`. The design is committed as `4d92625`; the implementation plan is `docs/superpowers/plans/2026-07-14-query-write-efficiency.md`.
 
 ## Status
 
-All prior review items and the final two path-boundary findings are addressed. The complete required gate matrix passes.
+The first local release remains verified. Performance diagnosis and design are complete; production implementation has not started. Begin with schema-v6 indexed Case history using red-green TDD.
 
 ## Final Path-Boundary Disposition
 

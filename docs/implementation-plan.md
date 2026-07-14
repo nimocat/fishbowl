@@ -1,5 +1,11 @@
 # Complete First Release Implementation Plan
 
+## Active Follow-up: Query and Write Efficiency
+
+**Status:** Approved; implementation planned (2026-07-14)
+
+The compatibility-focused performance design is approved and decomposed into seven TDD tasks: schema-v6 indexed Case history, compact/paged Case projections, FTS-backed candidate retrieval, indexed graph reachability, atomic checkpoint writes, content-safe operation metrics, and adapter/documentation/runtime-alias completion. The executable plan is `docs/superpowers/plans/2026-07-14-query-write-efficiency.md`.
+
 **Status:** Complete and release-verified (2026-07-13)
 
 **Goal:** Complete delivery slices 2-6 from the approved design so a developer can register a project, capture or import command evidence, query it through MCP/CLI, inspect it live in a browser, and export/import a redacted graph.

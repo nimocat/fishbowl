@@ -1,5 +1,14 @@
 # Agent Log
 
+## 2026-07-14 CST - Query/Write Efficiency Plan Approved
+
+- Goal: Resolve the end-to-end efficiency problems observed in the `s1-pro-compact` workload while preserving existing EKG contracts and history.
+- Evidence: The largest Case returns about 337 KiB although its SQLite read is sub-millisecond; current FTS uses `%LIKE%`; preflight scans all project nodes; CLI cold starts add about 100 ms.
+- Decisions: Use schema-v6 indexed Case history, compact default Case reads with explicit full pages, FTS candidate retrieval, indexed reachability, atomic checkpoint writes, and process-local content-safe metrics.
+- Documentation: Approved design committed as `4d92625`; implementation plan saved at `docs/superpowers/plans/2026-07-14-query-write-efficiency.md`.
+- Blockers: None. Inline execution in the current worktree is approved; no subagents or extra worktrees.
+- Next: Execute Task 1 with a failing migration/history regression test.
+
 ## 2026-07-13 23:59 Local - First Release Verified
 
 - Goal: Complete and independently verify delivery slices 2 through 6.
