@@ -120,6 +120,9 @@ describe('Trace Bench HTTP server', () => {
     expect(JSON.parse(ownCase.body)).toMatchObject({
       id: caseA,
       projectId: projectA.id,
+      detail: 'full',
+      history: expect.any(Array),
+      historyNextBeforeSequence: null,
       asOfSequence: expect.any(Number),
     })
     expect(foreignCase.status).toBe(404)

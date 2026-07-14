@@ -156,3 +156,12 @@
 - Verification: `npm run typecheck` passed; `npm test` passed 126/126 across 21 files; `npm run test:acceptance` passed 1/1; `npm run build` passed; built-bin integrity returned `ok: true` with `quick_check`; built project list returned `[]`; and the documented client workflow completed through capture, manual Case verification/close, query, preflight, import preview/apply, export, and graph import. Final diff checks are recorded in the handoff.
 - Blockers: None.
 - Next: Add CLI help if desired, or integrate the branch without changing the local-only first-release boundary.
+## 2026-07-14 09:48 CST - Query/Write Compatibility Refactor Implemented
+
+- Goal: Resolve the observed `s1-pro-compact` EKG query/write efficiency risks without breaking existing callers or moving away from local SQLite.
+- Completed: Added transactional schema-v6 migration with explicit Case event ownership and adjacency indexes; compact/summary/full Case projections and indexed history cursors; project-scoped FTS5 query/preflight candidates; recursive Case-local cycle detection; atomic idempotent checkpoints; bounded content-free MCP operation metrics; and explicit imported-event Case ownership.
+- TDD: Every behavior slice was introduced with a focused failing test. Added deterministic response-size and SQLite query-plan regression coverage.
+- Review fixes: Added event Case/project ownership enforcement, explicit Case IDs for all Case-scoped events, explicit project scope in count/reachability SQL, bounded preflight fallback with direct fingerprint candidates, service-level checkpoint kind validation, minimized batch error details, and safe-integer metric clamping.
+- Final verification: `npm run typecheck` passed; `npm test` passed 157/157 across 24 files; `npm run build` and `git diff --check` passed; `npm run test:browser` passed 2/2 outside the macOS sandbox after the sandbox-only Chromium launch denial. The runtime alias registered and resolved to project `fafff939-4e7a-42da-afc7-5782dde8947a`.
+- Privacy and ownership: Metrics are in-memory scalar aggregates only. No request bodies, response bodies, raw logs, environment values, or excerpts were added to SQLite. All new database access remains explicitly project/Case scoped.
+- Blockers: None. Final implementation commit pending.

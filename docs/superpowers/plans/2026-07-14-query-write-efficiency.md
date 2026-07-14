@@ -4,6 +4,8 @@
 
 **Goal:** Make large EKG Cases cheap to retrieve, use indexed candidate search, preserve correct cycle checks, support atomic checkpoint writes, and expose content-safe performance aggregates.
 
+**Execution status (2026-07-14):** Tasks 1-7 are implemented and verified with focused red-green evidence, the complete release gate, review, and successful `s1-pro-compact` alias resolution. The final source commit is pending.
+
 **Architecture:** Schema v6 adds indexed Case ownership to events and adjacency indexes. `KnowledgeService` gains compact Case projections, FTS candidate retrieval, indexed history paging, transactional checkpoint dispatch, and an isolated in-memory metrics collector. MCP and HTTP remain adapters over the same contract and explicitly request only the projection they need.
 
 **Tech Stack:** Node.js 22, TypeScript 5.8, better-sqlite3, SQLite STRICT tables/FTS5/WAL, Zod 3, Vitest, MCP SDK 1.29.0.
@@ -533,4 +535,3 @@ Expected: project ID `fafff939-4e7a-42da-afc7-5782dde8947a` is returned and no s
 Stage only plan-owned files. Preserve the unrelated untracked agent-knowledge specification.
 
 Commit: `feat: improve EKG query and write efficiency`
-

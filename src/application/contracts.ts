@@ -88,6 +88,20 @@ export interface KnowledgeQueryResult {
 export interface GetCaseInput {
   project: ProjectReference
   caseId: string
+  detail?: CaseDetailLevel
+  historyLimit?: number
+  historyBeforeSequence?: number
+}
+
+export type CaseDetailLevel = 'summary' | 'graph' | 'full'
+
+export interface CaseCounts {
+  nodes: number
+  edges: number
+  evidence: number
+  artifacts: number
+  commandRuns: number
+  history: number
 }
 
 export interface EvidenceRecord {
@@ -131,10 +145,13 @@ export interface CommandRunRecord {
 }
 
 export interface CaseDetail extends CaseSnapshot {
+  detail: CaseDetailLevel
+  counts: CaseCounts
   evidence: EvidenceRecord[]
   artifacts: ArtifactRecord[]
   commandRuns: CommandRunRecord[]
   history: KnowledgeEvent[]
+  historyNextBeforeSequence: number | null
 }
 
 export interface RecentActivityInput {
@@ -239,6 +256,26 @@ export interface RecordGuardrailInput extends OperationIdentity {
   data: GuardrailData
 }
 
+export type CheckpointWrite =
+  | { kind: 'problem'; input: Omit<RecordProblemInput, 'project'> }
+  | { kind: 'attempt'; input: Omit<RecordAttemptInput, 'project'> }
+  | { kind: 'rootCause'; input: Omit<RecordRootCauseInput, 'project'> }
+  | { kind: 'solution'; input: Omit<RecordSolutionInput, 'project'> }
+  | { kind: 'verification'; input: Omit<RecordVerificationInput, 'project'> }
+  | { kind: 'artifact'; input: Omit<RecordArtifactInput, 'project'> }
+  | { kind: 'guardrail'; input: Omit<RecordGuardrailInput, 'project'> }
+
+export interface RecordCheckpointInput {
+  project: ProjectReference
+  operationId: string
+  writes: CheckpointWrite[]
+}
+
+export interface RecordCheckpointResult {
+  results: Array<NodeWriteResult | ArtifactWriteResult>
+  created: boolean
+}
+
 export interface RecordCommandResultInput {
   project: ProjectReference
   commandRunId?: string
@@ -319,6 +356,7 @@ export interface KnowledgeServiceContract {
   recordVerification(input: RecordVerificationInput): NodeWriteResult
   recordArtifactReference(input: RecordArtifactInput): ArtifactWriteResult
   recordGuardrail(input: RecordGuardrailInput): NodeWriteResult
+  recordCheckpoint(input: RecordCheckpointInput): RecordCheckpointResult
   recordCommandStarted(input: RecordCommandStartedInput): CommandStartedResult
   recordCommandResult(input: RecordCommandResultInput): CommandResultWriteResult
   closeCase(input: CloseCaseInput): CloseCaseResult

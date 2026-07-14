@@ -192,6 +192,8 @@ EKG_DATA_DIR="$HOME/.engineering-knowledge-graph/data" node /absolute/path/to/en
 
 The process writes MCP protocol frames to stdout, so do not wrap it with commands that print banners there. See [docs/mcp-client-configuration.md](docs/mcp-client-configuration.md) for client configurations.
 
+Large Case reads are projection-aware: `get_case` accepts `detail` as `summary`, `graph` (the default), or `full`; full history is paged with `historyLimit` and `historyBeforeSequence`. Text search is backed by project-scoped FTS5 candidates. Writers may use `record_checkpoint` to commit up to 25 existing write commands atomically and idempotently. `get_operation_metrics` returns only bounded in-memory latency, error-count, and response-size aggregates; it never stores request or response bodies.
+
 ## Raw Logs And Retention
 
 `ekg run` stores complete, unredacted child stdout and stderr in mode-`0600` files under `logs/<project-id>/`. Defaults are:

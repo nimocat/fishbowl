@@ -33,6 +33,7 @@ describe('Trace Bench static application', () => {
 
     expect(script).toContain("document.createElement('button')")
     expect(script).toContain("params.set('project_id', state.projectId)")
+    expect(script).toContain("params.set('history_limit', '50')")
     expect(script).toContain("new EventSource")
     expect(script).toContain("snapshot_required")
     expect(script).toMatch(/eventSource\.close\(\)[\s\S]*projectId = event\.target\.value/)

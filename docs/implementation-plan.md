@@ -2,9 +2,9 @@
 
 ## Active Follow-up: Query and Write Efficiency
 
-**Status:** Approved; implementation planned (2026-07-14)
+**Status:** Complete and release-verified (2026-07-14)
 
-The compatibility-focused performance design is approved and decomposed into seven TDD tasks: schema-v6 indexed Case history, compact/paged Case projections, FTS-backed candidate retrieval, indexed graph reachability, atomic checkpoint writes, content-safe operation metrics, and adapter/documentation/runtime-alias completion. The executable plan is `docs/superpowers/plans/2026-07-14-query-write-efficiency.md`.
+The seven compatibility-focused TDD tasks are complete: schema-v6 indexed Case history, compact/paged Case projections, FTS-backed candidate retrieval, indexed graph reachability, atomic checkpoint writes, content-safe operation metrics, and adapter/import compatibility. The deterministic performance suite, full Vitest suite, build, browser suite, two-axis review, and runtime worktree-alias verification pass. The executable plan is `docs/superpowers/plans/2026-07-14-query-write-efficiency.md`.
 
 **Status:** Complete and release-verified (2026-07-13)
 

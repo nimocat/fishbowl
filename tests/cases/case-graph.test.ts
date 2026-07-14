@@ -2,7 +2,7 @@ import type Database from 'better-sqlite3'
 import { mkdtempSync, mkdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { CaseGraph } from '../../src/cases/case-graph.js'
 import { CaseNotFoundError, InvalidGraphError } from '../../src/domain/errors.js'
@@ -119,6 +119,7 @@ describe('CaseGraph', () => {
       relation: 'SUPERSEDES',
       targetId: secondSolution.id,
     })
+    const prepare = vi.spyOn(database, 'prepare')
     const before = database.prepare('SELECT count(*) AS count FROM events').get() as {
       count: number
     }
@@ -144,6 +145,9 @@ describe('CaseGraph', () => {
         targetId: firstSolution.id,
       }),
     ).toThrow(InvalidGraphError)
+    expect(prepare.mock.calls.map(([sql]) => sql)).not.toContain(
+      'SELECT source_id, target_id FROM edges WHERE case_id = ?',
+    )
 
     const after = database.prepare('SELECT count(*) AS count FROM events').get() as {
       count: number

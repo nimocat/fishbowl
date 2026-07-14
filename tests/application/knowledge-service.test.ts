@@ -74,6 +74,140 @@ describe('KnowledgeService', () => {
     ).toHaveLength(1)
   })
 
+  it('returns compact Case graphs by default and pages full indexed history', () => {
+    const registered = service.registerProject({ name: 'Project A', root: rootA })
+    const project = { projectId: registered.id }
+    const problem = service.recordProblem({
+      project,
+      caseTitle: 'Large diagnostic Case',
+      data: { summary: 'Streaming analysis is slow', domain: 'performance' },
+    })
+    for (let index = 0; index < 30; index += 1) {
+      service.recordAttempt({
+        project,
+        caseId: problem.caseId,
+        problemId: problem.nodeId,
+        data: {
+          hypothesis: `Probe ${index}`,
+          change: 'Measure one bounded window',
+          outcome: 'failed',
+          failureExplanation: 'Synthetic performance fixture',
+        },
+      })
+    }
+
+    const graph = service.getCase({ project, caseId: problem.caseId })
+    expect(graph.detail).toBe('graph')
+    expect(graph.nodes).toHaveLength(31)
+    expect(graph.history).toEqual([])
+    expect(graph.historyNextBeforeSequence).toBeNull()
+    expect(graph.counts).toMatchObject({ nodes: 31, edges: 30 })
+    expect(Buffer.byteLength(JSON.stringify(graph))).toBeLessThan(128 * 1024)
+
+    const full = service.getCase({
+      project,
+      caseId: problem.caseId,
+      detail: 'full',
+      historyLimit: 10,
+    })
+    expect(full.history).toHaveLength(10)
+    expect(full.historyNextBeforeSequence).toBe(full.history[0]?.sequence)
+
+    const older = service.getCase({
+      project,
+      caseId: problem.caseId,
+      detail: 'full',
+      historyLimit: 10,
+      historyBeforeSequence: full.historyNextBeforeSequence as number,
+    })
+    expect(older.history.at(-1)?.sequence).toBeLessThan(full.history[0]?.sequence as number)
+
+    const summary = service.getCase({
+      project,
+      caseId: problem.caseId,
+      detail: 'summary',
+    })
+    expect(summary.nodes).toEqual([])
+    expect(summary.edges).toEqual([])
+    expect(summary.counts.nodes).toBe(31)
+  })
+
+  it('records bounded checkpoints atomically and retries them idempotently', () => {
+    const projectA = service.registerProject({ name: 'Project A', root: rootA })
+    const projectB = service.registerProject({ name: 'Project B', root: rootB })
+    const problemA = service.recordProblem({
+      project: { projectId: projectA.id },
+      data: { summary: 'A failure' },
+    })
+    const problemB = service.recordProblem({
+      project: { projectId: projectB.id },
+      data: { summary: 'B failure' },
+    })
+    const before = countKnowledgeRows()
+
+    const checkpointFailure = expectServiceError(() => service.recordCheckpoint({
+      project: { projectId: projectA.id },
+      operationId: 'invalid-checkpoint',
+      writes: [
+        {
+          kind: 'attempt',
+          input: {
+            caseId: problemA.caseId,
+            problemId: problemA.nodeId,
+            data: { hypothesis: 'A1', change: 'Probe A1', outcome: 'failed' },
+          },
+        },
+        {
+          kind: 'attempt',
+          input: {
+            caseId: problemB.caseId,
+            problemId: problemB.nodeId,
+            data: { hypothesis: 'B1', change: 'Probe B1', outcome: 'failed' },
+          },
+        },
+      ],
+    }), 'OWNERSHIP_MISMATCH')
+    expect(checkpointFailure.details).toEqual({ itemIndex: 1, kind: 'attempt' })
+    expect(countKnowledgeRows()).toEqual(before)
+
+    const unsupportedFailure = expectServiceError(() => service.recordCheckpoint({
+      project: { projectId: projectA.id },
+      operationId: 'unsupported-checkpoint',
+      writes: [{ kind: 'token=checkpoint-secret', input: {} }],
+    } as never), 'VALIDATION_FAILED')
+    expect(unsupportedFailure.details).toEqual({ itemIndex: 0, kind: 'unknown' })
+    expect(countKnowledgeRows()).toEqual(before)
+
+    const input = {
+      project: { projectId: projectA.id },
+      operationId: 'valid-checkpoint',
+      writes: [
+        {
+          kind: 'attempt' as const,
+          input: {
+            caseId: problemA.caseId,
+            problemId: problemA.nodeId,
+            operationId: 'checkpoint-attempt-1',
+            data: { hypothesis: 'A1', change: 'Probe A1', outcome: 'failed' as const },
+          },
+        },
+        {
+          kind: 'attempt' as const,
+          input: {
+            caseId: problemA.caseId,
+            problemId: problemA.nodeId,
+            operationId: 'checkpoint-attempt-2',
+            data: { hypothesis: 'A2', change: 'Probe A2', outcome: 'inconclusive' as const },
+          },
+        },
+      ],
+    }
+    const created = service.recordCheckpoint(input)
+    expect(created.created).toBe(true)
+    expect(created.results).toHaveLength(2)
+    expect(service.recordCheckpoint(input)).toEqual({ ...created, created: false })
+  })
+
   it('records a complete two-project troubleshooting journey and preserves history on regression', () => {
     const projectA = service.registerProject({ name: 'Project A', root: rootA })
     const projectB = service.registerProject({ name: 'Project B', root: rootB })
@@ -722,13 +856,14 @@ describe('KnowledgeService', () => {
     )
   }
 
-  function expectServiceError(callback: () => unknown, code: string): void {
+  function expectServiceError(callback: () => unknown, code: string): KnowledgeServiceError {
     try {
       callback()
       throw new Error('Expected KnowledgeServiceError')
     } catch (error) {
       expect(error).toBeInstanceOf(KnowledgeServiceError)
       expect((error as KnowledgeServiceError).code).toBe(code)
+      return error as KnowledgeServiceError
     }
   }
 })

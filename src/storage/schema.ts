@@ -1,4 +1,4 @@
-export const schemaVersion = 5
+export const schemaVersion = 6
 
 const coreSchema = `
   CREATE TABLE IF NOT EXISTS projects (
@@ -278,6 +278,61 @@ const ownershipSchema = `
   BEGIN SELECT RAISE(ABORT, 'source key project ownership mismatch'); END;
 `
 
-export const schemaMigrations = [coreSchema, platformSchema, serviceSchema, importSchema, ownershipSchema] as const
+const efficiencySchema = `
+  DROP TRIGGER events_reject_update;
+
+  ALTER TABLE events ADD COLUMN case_id TEXT REFERENCES cases(id) ON DELETE RESTRICT;
+
+  UPDATE events
+  SET case_id = CASE
+    WHEN EXISTS (
+      SELECT 1 FROM cases
+      WHERE cases.id = events.aggregate_id
+        AND cases.project_id = events.project_id
+    ) THEN aggregate_id
+    ELSE json_extract(payload, '$.caseId')
+  END
+  WHERE case_id IS NULL
+    AND (
+      EXISTS (
+        SELECT 1 FROM cases
+        WHERE cases.id = events.aggregate_id
+          AND cases.project_id = events.project_id
+      )
+      OR EXISTS (
+        SELECT 1 FROM cases
+        WHERE cases.id = json_extract(events.payload, '$.caseId')
+          AND cases.project_id = events.project_id
+      )
+    );
+
+  CREATE INDEX events_project_case_sequence_idx
+  ON events(project_id, case_id, sequence);
+
+  CREATE INDEX edges_case_source_idx ON edges(case_id, source_id);
+  CREATE INDEX edges_case_target_idx ON edges(case_id, target_id);
+
+  CREATE TRIGGER events_case_ownership_insert BEFORE INSERT ON events
+  WHEN NEW.case_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM cases
+    WHERE cases.id = NEW.case_id AND cases.project_id = NEW.project_id
+  )
+  BEGIN SELECT RAISE(ABORT, 'event case project ownership mismatch'); END;
+
+  CREATE TRIGGER events_reject_update
+  BEFORE UPDATE ON events
+  BEGIN
+    SELECT RAISE(ABORT, 'events are append-only');
+  END;
+`
+
+export const schemaMigrations = [
+  coreSchema,
+  platformSchema,
+  serviceSchema,
+  importSchema,
+  ownershipSchema,
+  efficiencySchema,
+] as const
 
 export const schema = schemaMigrations.join('\n')

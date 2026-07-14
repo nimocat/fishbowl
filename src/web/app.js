@@ -174,7 +174,9 @@ async function selectCase(caseId, focusInspector = true, projectId = state.proje
   if (signal?.aborted) controller.abort()
   signal?.addEventListener('abort', () => controller.abort(), { once: true })
   try {
-    const result = await readJson(`/api/v1/cases/${encodeURIComponent(caseId)}?${scopedParams()}`, controller.signal)
+    const params = scopedParams()
+    params.set('history_limit', '50')
+    const result = await readJson(`/api/v1/cases/${encodeURIComponent(caseId)}?${params}`, controller.signal)
     if (projectId !== state.projectId || selectionToken !== state.selectionToken) return
     state.caseDetail = result
     state.cursor = Math.max(state.cursor, result.asOfSequence || 0)

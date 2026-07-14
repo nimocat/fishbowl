@@ -356,7 +356,7 @@ export class ImportService {
                VALUES (?, ?, ?, 'candidate', ?)`,
             )
             .run(caseId, project.id, payload.caseTitle, timestamp)
-          this.appendEvent(project.id, 'case.created', caseId, { caseId, source: 'import' }, timestamp)
+          this.appendEvent(project.id, caseId, 'case.created', caseId, { caseId, source: 'import' }, timestamp)
         }
         const nodeId = randomUUID()
         this.database
@@ -377,6 +377,7 @@ export class ImportService {
           .run(randomUUID(), project.id, `${preview.id}:${row.source_key}`, nodeId, timestamp)
         this.appendEvent(
           project.id,
+          caseId,
           'node.added',
           nodeId,
           { caseId, nodeId, type: row.node_type, status: 'candidate', source: 'import' },
@@ -395,7 +396,7 @@ export class ImportService {
           `INSERT INTO edges (id, case_id, source_id, relation, target_id, created_at)
            VALUES (?, ?, ?, 'ATTEMPTS_TO_SOLVE', ?, ?)`,
         ).run(edgeId, attempt.caseId, attempt.nodeId, problem.nodeId, timestamp)
-        this.appendEvent(project.id, 'edge.added', edgeId, {
+        this.appendEvent(project.id, attempt.caseId, 'edge.added', edgeId, {
           caseId: attempt.caseId,
           sourceId: attempt.nodeId,
           relation: 'ATTEMPTS_TO_SOLVE',
@@ -568,6 +569,7 @@ export class ImportService {
 
   private appendEvent(
     projectId: string,
+    caseId: string,
     type: string,
     aggregateId: string,
     payload: unknown,
@@ -575,9 +577,9 @@ export class ImportService {
   ): void {
     this.database
       .prepare(
-        `INSERT INTO events (project_id, type, aggregate_id, payload, occurred_at)
-         VALUES (?, ?, ?, ?, ?)`,
+        `INSERT INTO events (project_id, case_id, type, aggregate_id, payload, occurred_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
       )
-      .run(projectId, type, aggregateId, JSON.stringify(payload), timestamp)
+      .run(projectId, caseId, type, aggregateId, JSON.stringify(payload), timestamp)
   }
 }

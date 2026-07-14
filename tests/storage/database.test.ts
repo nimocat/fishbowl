@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { closeDatabase, openDatabase } from '../../src/storage/database.js'
-import { schemaVersion } from '../../src/storage/schema.js'
+import { schemaMigrations, schemaVersion } from '../../src/storage/schema.js'
 
 describe('openDatabase', () => {
   const databases: ReturnType<typeof openDatabase>[] = []
@@ -59,6 +59,61 @@ describe('openDatabase', () => {
         .all()
         .map((row) => (row as { name: string }).name),
     ).toContain('project_id')
+    expect(
+      database
+        .prepare("SELECT name FROM pragma_table_info('events') ORDER BY cid")
+        .all()
+        .map((row) => (row as { name: string }).name),
+    ).toContain('case_id')
+    expect(
+      database
+        .prepare("SELECT name FROM pragma_index_list('events')")
+        .all()
+        .map((row) => (row as { name: string }).name),
+    ).toContain('events_project_case_sequence_idx')
+    expect(
+      database
+        .prepare("SELECT name FROM pragma_index_list('edges')")
+        .all()
+        .map((row) => (row as { name: string }).name),
+    ).toEqual(expect.arrayContaining(['edges_case_source_idx', 'edges_case_target_idx']))
+  })
+
+  it('backfills project-owned Case IDs while upgrading schema-v5 events', () => {
+    const sandbox = mkdtempSync(join(tmpdir(), 'ekg-schema-v5-'))
+    sandboxes.push(sandbox)
+    const path = join(sandbox, 'knowledge.db')
+    const legacy = new Database(path)
+    legacy.pragma('foreign_keys = ON')
+    legacy.transaction(() => {
+      for (const migration of schemaMigrations.slice(0, 5)) legacy.exec(migration)
+      legacy.pragma('user_version = 5')
+    })()
+    const now = '2026-07-14T00:00:00.000Z'
+    legacy.prepare('INSERT INTO projects VALUES (?, ?, NULL, ?, ?)').run(
+      'project-1',
+      'Existing',
+      sandbox,
+      now,
+    )
+    legacy.prepare('INSERT INTO cases VALUES (?, ?, ?, ?, ?)').run(
+      'case-1',
+      'project-1',
+      'Existing Case',
+      'open',
+      now,
+    )
+    legacy.prepare(
+      'INSERT INTO events (project_id, type, aggregate_id, payload, occurred_at) VALUES (?, ?, ?, ?, ?)',
+    ).run('project-1', 'node.added', 'node-1', '{"caseId":"case-1"}', now)
+    legacy.close()
+
+    const database = openDatabase(path)
+    databases.push(database)
+
+    expect(database.pragma('user_version', { simple: true })).toBe(6)
+    expect(database.prepare('SELECT case_id FROM events WHERE project_id = ?').get('project-1'))
+      .toEqual({ case_id: 'case-1' })
   })
 
   it('upgrades an existing unversioned database without losing data', () => {
@@ -115,10 +170,14 @@ describe('openDatabase', () => {
     database.prepare('INSERT INTO projects VALUES (?, ?, NULL, ?, ?)').run('a', 'A', '/a', now)
     database.prepare('INSERT INTO projects VALUES (?, ?, NULL, ?, ?)').run('b', 'B', '/b', now)
     database.prepare('INSERT INTO cases VALUES (?, ?, ?, ?, ?)').run('case-a', 'a', 'A', 'open', now)
+    database.prepare('INSERT INTO cases VALUES (?, ?, ?, ?, ?)').run('case-b', 'b', 'B', 'open', now)
     database.prepare('INSERT INTO nodes VALUES (?, ?, ?, ?, ?, ?)').run('node-a', 'case-a', 'Verification', 'open', '{"kind":"human","succeeded":false}', now)
 
     expect(() => database.prepare('INSERT INTO evidence VALUES (?, ?, ?, ?, NULL, NULL, ?, ?)')
       .run('evidence-b', 'b', 'node-a', 'human', '{}', now)).toThrow(/ownership/i)
+    expect(() => database.prepare(
+      'INSERT INTO events (project_id, case_id, type, aggregate_id, payload, occurred_at) VALUES (?, ?, ?, ?, ?, ?)',
+    ).run('a', 'case-b', 'case.closed', 'case-b', '{}', now)).toThrow(/ownership/i)
   })
 
   it('refuses to open a database created by a newer schema', () => {

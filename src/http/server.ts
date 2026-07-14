@@ -187,7 +187,7 @@ async function routeRequest(
     })
     const caseIds = [...new Set(result.items.map((item) => item.caseId))]
     const cases = caseIds.map((caseId) => {
-      const detail = options.service.getCase({ project, caseId })
+      const detail = options.service.getCase({ project, caseId, detail: 'graph' })
       const nodes = detail.nodes.slice(0, MAX_GRAPH_NODES_PER_CASE)
       const nodeIds = new Set(nodes.map((node) => node.id))
       const edges = detail.edges
@@ -228,6 +228,12 @@ async function routeRequest(
     const detail = options.service.getCase({
       project,
       caseId: decodeURIComponent(caseMatch[1] as string),
+      detail: 'full',
+      historyLimit: Math.min(
+        nonNegativeInteger(url, 'history_limit', 50, true),
+        MAX_LIMIT,
+      ),
+      historyBeforeSequence: optionalPositiveInteger(url, 'history_before'),
     })
     writeJson(response, 200, {
       ...detail,
@@ -278,6 +284,11 @@ function nonNegativeInteger(
     throw new KnowledgeServiceError('INVALID_ARGUMENT', `${name} must be an integer`)
   }
   return value
+}
+
+function optionalPositiveInteger(url: URL, name: string): number | undefined {
+  if (!url.searchParams.has(name)) return undefined
+  return nonNegativeInteger(url, name, 1, true)
 }
 
 function parseCursor(raw: string | undefined): number {

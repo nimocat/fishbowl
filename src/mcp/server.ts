@@ -3,6 +3,7 @@ import type { CallToolResult, ToolAnnotations } from '@modelcontextprotocol/sdk/
 import { z } from 'zod/v3'
 
 import type { KnowledgeServiceContract } from '../application/contracts.js'
+import { OperationMetrics } from '../application/operation-metrics.js'
 
 const MAX_ID_LENGTH = 200
 const MAX_TEXT_LENGTH = 4_096
@@ -172,6 +173,79 @@ const guardrailData = z
   })
   .strict()
 
+const checkpointWrite = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('problem'),
+    input: z.object({
+      caseId: id.optional(),
+      caseTitle: text.optional(),
+      data: problemData,
+      ...operationFields,
+    }).strict(),
+  }).strict(),
+  z.object({
+    kind: z.literal('attempt'),
+    input: z.object({
+      caseId: id,
+      problemId: id,
+      previousAttemptId: id.optional(),
+      data: attemptData,
+      ...operationFields,
+    }).strict(),
+  }).strict(),
+  z.object({
+    kind: z.literal('rootCause'),
+    input: z.object({
+      caseId: id,
+      problemId: id,
+      failedAttemptIds: z.array(id).max(MAX_ARRAY_LENGTH).optional(),
+      status: z.enum(['candidate', 'verified']).optional(),
+      humanConfirmed: z.boolean().optional(),
+      data: rootCauseData,
+      ...operationFields,
+    }).strict(),
+  }).strict(),
+  z.object({
+    kind: z.literal('solution'),
+    input: z.object({
+      caseId: id,
+      rootCauseId: id,
+      data: solutionData,
+      ...operationFields,
+    }).strict(),
+  }).strict(),
+  z.object({
+    kind: z.literal('verification'),
+    input: z.object({
+      caseId: id,
+      solutionId: id,
+      data: verificationData,
+      ...operationFields,
+    }).strict(),
+  }).strict(),
+  z.object({
+    kind: z.literal('artifact'),
+    input: z.object({
+      caseId: id,
+      verificationId: id,
+      data: artifactData,
+      metadata: metadataRecord.optional(),
+      isExternal: z.boolean().optional(),
+      ...operationFields,
+    }).strict(),
+  }).strict(),
+  z.object({
+    kind: z.literal('guardrail'),
+    input: z.object({
+      caseId: id,
+      rootCauseId: id,
+      status: z.enum(['candidate', 'verified']).optional(),
+      data: guardrailData,
+      ...operationFields,
+    }).strict(),
+  }).strict(),
+])
+
 const projectResult = z.object({
   id,
   name: text,
@@ -285,15 +359,62 @@ function successResult(toolName: string, result: unknown): CallToolResult {
   }
 }
 
-function invoke(toolName: string, operation: () => unknown): CallToolResult {
+function responseBytes(result: unknown): number {
   try {
-    return successResult(toolName, operation())
+    const encoded = JSON.stringify(result)
+    return encoded === undefined ? 0 : new TextEncoder().encode(encoded).byteLength
+  } catch {
+    return 0
+  }
+}
+
+function resultItemCount(result: unknown): number | null {
+  if (Array.isArray(result)) return result.length
+  if (result === null || typeof result !== 'object') return null
+  for (const key of ['items', 'events', 'results']) {
+    const value = (result as Record<string, unknown>)[key]
+    if (Array.isArray(value)) return value.length
+  }
+  return null
+}
+
+function invokeWithMetrics(
+  metrics: OperationMetrics,
+  toolName: string,
+  operation: () => unknown,
+): CallToolResult {
+  const startedAt = performance.now()
+  try {
+    const result = operation()
+    metrics.record({
+      operation: toolName,
+      ok: true,
+      errorCode: null,
+      durationMs: performance.now() - startedAt,
+      responseBytes: responseBytes(result),
+      itemCount: resultItemCount(result),
+      occurredAt: new Date().toISOString(),
+    })
+    return successResult(toolName, result)
   } catch (error) {
+    const candidate = error as { code?: unknown }
+    metrics.record({
+      operation: toolName,
+      ok: false,
+      errorCode: typeof candidate?.code === 'string' ? candidate.code : 'INTERNAL_ERROR',
+      durationMs: performance.now() - startedAt,
+      responseBytes: 0,
+      itemCount: null,
+      occurredAt: new Date().toISOString(),
+    })
     return errorResult(error)
   }
 }
 
 export function createMcpServer(service: KnowledgeServiceContract): McpServer {
+  const metrics = new OperationMetrics()
+  const invoke = (toolName: string, operation: () => unknown): CallToolResult =>
+    invokeWithMetrics(metrics, toolName, operation)
   const server = new McpServer({
     name: 'engineering-knowledge-graph',
     version: '0.1.0',
@@ -406,8 +527,14 @@ export function createMcpServer(service: KnowledgeServiceContract): McpServer {
   server.registerTool(
     'get_case',
     {
-      description: 'Get one project-owned Case with graph, evidence, artifacts, commands, and history.',
-      inputSchema: z.object({ project: projectReference, caseId: id }).strict(),
+      description: 'Get one project-owned Case using a bounded summary, graph, or paged full projection.',
+      inputSchema: z.object({
+        project: projectReference,
+        caseId: id,
+        detail: z.enum(['summary', 'graph', 'full']).optional(),
+        historyLimit: z.number().int().min(1).max(100).optional(),
+        historyBeforeSequence: z.number().int().positive().optional(),
+      }).strict(),
       outputSchema: outputSchema(
         z
           .object({
@@ -416,12 +543,22 @@ export function createMcpServer(service: KnowledgeServiceContract): McpServer {
             title: text,
             status: nodeStatus,
             createdAt: timestamp,
+            detail: z.enum(['summary', 'graph', 'full']),
+            counts: z.object({
+              nodes: z.number().int().nonnegative(),
+              edges: z.number().int().nonnegative(),
+              evidence: z.number().int().nonnegative(),
+              artifacts: z.number().int().nonnegative(),
+              commandRuns: z.number().int().nonnegative(),
+              history: z.number().int().nonnegative(),
+            }),
             nodes: z.array(nodeResult).max(MAX_ARCHIVE_ENTRIES),
             edges: z.array(edgeResult).max(MAX_ARCHIVE_ENTRIES),
             evidence: z.array(genericRecord).max(MAX_ARCHIVE_ENTRIES),
             artifacts: z.array(genericRecord).max(MAX_ARCHIVE_ENTRIES),
             commandRuns: z.array(genericRecord).max(MAX_ARCHIVE_ENTRIES),
             history: z.array(eventResult).max(MAX_ARCHIVE_ENTRIES),
+            historyNextBeforeSequence: z.number().int().positive().nullable(),
           })
           .strict(),
       ),
@@ -482,6 +619,25 @@ export function createMcpServer(service: KnowledgeServiceContract): McpServer {
       annotations: readOnly,
     },
     (input) => invoke('list_recent_activity', () => service.listRecentActivity(input)),
+  )
+
+  server.registerTool(
+    'get_operation_metrics',
+    {
+      description: 'Return bounded in-memory latency, error, and response-size aggregates for this server process.',
+      inputSchema: z.object({}).strict(),
+      outputSchema: outputSchema(z.array(z.object({
+        operation: text,
+        count: z.number().int().nonnegative(),
+        errors: z.number().int().nonnegative(),
+        p50DurationMs: z.number().nonnegative(),
+        p95DurationMs: z.number().nonnegative(),
+        maxDurationMs: z.number().nonnegative(),
+        maxResponseBytes: z.number().nonnegative(),
+      }).strict()).max(100)),
+      annotations: readOnly,
+    },
+    () => invoke('get_operation_metrics', () => metrics.aggregates()),
   )
 
   server.registerTool(
@@ -623,6 +779,27 @@ export function createMcpServer(service: KnowledgeServiceContract): McpServer {
       annotations: additiveWrite,
     },
     (input) => invoke('record_guardrail', () => service.recordGuardrail(input)),
+  )
+
+  server.registerTool(
+    'record_checkpoint',
+    {
+      description: 'Atomically record a bounded checkpoint of existing knowledge write commands.',
+      inputSchema: z.object({
+        project: projectReference,
+        operationId: id,
+        writes: z.array(checkpointWrite).min(1).max(25),
+      }).strict(),
+      outputSchema: outputSchema(z.object({
+        results: z.array(z.union([
+          nodeWriteResult.extend({ artifactId: id }),
+          nodeWriteResult,
+        ])).max(25),
+        created: z.boolean(),
+      })),
+      annotations: idempotentWrite,
+    },
+    (input) => invoke('record_checkpoint', () => service.recordCheckpoint(input)),
   )
 
   server.registerTool(

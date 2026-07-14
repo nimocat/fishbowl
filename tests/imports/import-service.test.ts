@@ -337,6 +337,9 @@ describe('ImportService', () => {
 
     expect(new Set(result.caseIds)).toHaveLength(1)
     expect(graphCounts(database, projectAId)).toMatchObject({ cases: 1, nodes: 2, edges: 1 })
+    expect(database.prepare(
+      'SELECT COUNT(*) AS count FROM events WHERE project_id = ? AND case_id = ?',
+    ).get(projectAId, result.caseIds[0])).toEqual({ count: 4 })
   })
 
   it('exports a recursively redacted versioned archive and imports it repeat-safely', () => {

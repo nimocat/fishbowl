@@ -2,7 +2,6 @@ import type Database from 'better-sqlite3'
 import { randomUUID } from 'node:crypto'
 
 import {
-  assertAcyclic,
   validateRelation,
   type NodeStatus,
   type NodeType,
@@ -135,7 +134,7 @@ export class CaseGraph {
            VALUES (?, ?, ?, ?, ?)`,
         )
         .run(record.id, record.projectId, record.title, record.status, record.createdAt)
-      this.appendEvent(projectId, 'case.created', record.id, record)
+      this.appendEvent(projectId, record.id, 'case.created', record.id, record)
       return record
     })()
   }
@@ -165,7 +164,7 @@ export class CaseGraph {
           JSON.stringify(record.data),
           record.createdAt,
         )
-      this.appendEvent(caseRecord.projectId, 'node.added', record.id, record)
+      this.appendEvent(caseRecord.projectId, caseId, 'node.added', record.id, record)
       return record
     })()
   }
@@ -187,16 +186,9 @@ export class CaseGraph {
       }
 
       validateRelation(source.type, input.relation, target.type)
-      const existing = this.database
-        .prepare('SELECT source_id, target_id FROM edges WHERE case_id = ?')
-        .all(caseId) as Array<{ source_id: string; target_id: string }>
-      assertAcyclic([
-        ...existing.map((edge) => ({
-          sourceId: edge.source_id,
-          targetId: edge.target_id,
-        })),
-        input,
-      ])
+      if (this.wouldCreateCycle(caseRecord.projectId, caseId, input.sourceId, input.targetId)) {
+        throw new InvalidGraphError('Graph relations must remain acyclic')
+      }
 
       this.database
         .prepare(
@@ -211,7 +203,7 @@ export class CaseGraph {
           record.targetId,
           record.createdAt,
         )
-      this.appendEvent(caseRecord.projectId, 'edge.added', record.id, record)
+      this.appendEvent(caseRecord.projectId, caseId, 'edge.added', record.id, record)
       return record
     })()
   }
@@ -254,17 +246,41 @@ export class CaseGraph {
       .get(nodeId) as NodeRow | undefined
   }
 
+  private wouldCreateCycle(
+    projectId: string,
+    caseId: string,
+    sourceId: string,
+    targetId: string,
+  ): boolean {
+    if (sourceId === targetId) return true
+    return this.database.prepare(
+      `WITH RECURSIVE reachable(id) AS (
+         SELECT edges.target_id
+         FROM edges JOIN cases ON cases.id = edges.case_id
+         WHERE cases.project_id = ? AND edges.case_id = ? AND edges.source_id = ?
+         UNION
+         SELECT edges.target_id
+         FROM edges
+         JOIN reachable ON edges.source_id = reachable.id
+         JOIN cases ON cases.id = edges.case_id
+         WHERE cases.project_id = ? AND edges.case_id = ?
+       )
+       SELECT 1 FROM reachable WHERE id = ? LIMIT 1`,
+    ).get(projectId, caseId, targetId, projectId, caseId, sourceId) !== undefined
+  }
+
   private appendEvent(
     projectId: string,
+    caseId: string,
     type: string,
     aggregateId: string,
     payload: unknown,
   ): void {
     this.database
       .prepare(
-        `INSERT INTO events (project_id, type, aggregate_id, payload, occurred_at)
-         VALUES (?, ?, ?, ?, ?)`,
+        `INSERT INTO events (project_id, case_id, type, aggregate_id, payload, occurred_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
       )
-      .run(projectId, type, aggregateId, JSON.stringify(payload), new Date().toISOString())
+      .run(projectId, caseId, type, aggregateId, JSON.stringify(payload), new Date().toISOString())
   }
 }

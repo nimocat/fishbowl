@@ -14,7 +14,7 @@ Engineering Knowledge Graph (EKG) is a local-first service for preserving the pa
 - Raw command logs live outside SQLite under `data/logs/<project-id>/`.
 - `ImportService` owns explicit-source acquisition, candidate preview persistence, and selected transactional apply.
 - `SnapshotService` owns versioned redacted export and validated deterministic project import.
-- `createMcpServer(service)` is the protocol-only MCP boundary; it registers the 22 design tools against `KnowledgeServiceContract` and returns concise text plus structured results.
+- `createMcpServer(service)` is the protocol-only MCP boundary; it registers the project-aware tools against `KnowledgeServiceContract`, returns concise text plus structured results, and keeps a bounded content-free in-memory operation-metric window.
 - `runStdioServer()` owns SQLite/service/stdio lifecycle, uses `<EKG_DATA_DIR>/knowledge.db` (or the shared user-local data default), and reserves stdout exclusively for MCP protocol frames.
 - `startTraceBenchServer({ service, port })` owns the native HTTP listener and always binds to `127.0.0.1`; HTTP and SSE reads use only `KnowledgeServiceContract`.
 - Trace Bench static assets are allowlisted and copied to `dist/web`; the browser is read-only, uses native button nodes with SVG edges, and keeps a semantic trace visible alongside the graph.
@@ -44,13 +44,16 @@ Engineering Knowledge Graph (EKG) is a local-first service for preserving the pa
 - All project-scoped reads require an explicit project reference.
 - Browser mutations are out of scope for the first release.
 - IDs are UUIDs; timestamps are UTC ISO 8601 strings.
-- New databases carry the EKG SQLite `application_id`; schema version 5 adds project-ownership triggers while schema-v4 files remain upgradeable.
+- New databases carry the EKG SQLite `application_id`; schema version 6 adds indexed Case ownership to events and edge adjacency indexes while schema-v5 files remain transactionally upgradeable.
 - Promotion requires explicit `humanConfirmed` evidence, and Verification environments use a fixed non-secret allowlist.
 - Import sources are explicit project-contained files or explicit Git `base..head` ranges; no service scans project trees.
 - Portable snapshot imports never confer verified trust: verified Case, RootCause, Solution, SuccessCase, and Guardrail assertions become candidates, and blocking Guardrails therefore cannot arrive verified by assertion alone.
 - Snapshot structure is iteratively bounded by depth, entry count, and encoded bytes before recursive redaction; exports enforce per-collection and aggregate byte limits.
 - Snapshot import canonicalizes every non-external Artifact row and Artifact-node URI against destination project roots or the service data directory before mutation. External URIs remain unmaterialized references.
-- Preflight evaluates the complete project-scoped node and Guardrail candidate sets before applying caller limits.
+- Text queries use project-scoped FTS5 candidates. Preflight uses a bounded FTS candidate set for relevant knowledge while still evaluating the complete project-scoped Guardrail set before applying caller limits.
+- `get_case` defaults to the graph projection without history; summary and cursor-paged full projections keep large Case reads bounded.
+- `record_checkpoint` atomically dispatches up to 25 existing write commands under one project and one idempotency key.
+- Case-scoped event writes persist explicit `case_id`; history paging and cycle prevention use indexed Case-local queries rather than JSON extraction or whole-graph loading.
 - Command-log Artifacts retain validated digest algorithm, accepted and retained byte sizes, segment count, truncation state, and retained paths.
 - Browser Case selection aborts the prior detail request and uses a monotonic token so stale same-project responses cannot replace the latest selection.
 - MCP uses pinned `@modelcontextprotocol/sdk` 1.29.0 with Zod 3.25.76; tool inputs require explicit project references and apply protocol-level size/count constraints.

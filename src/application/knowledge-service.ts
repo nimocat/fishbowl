@@ -61,6 +61,8 @@ import type {
   RecordAttemptInput,
   RecordCommandResultInput,
   RecordCommandStartedInput,
+  RecordCheckpointInput,
+  RecordCheckpointResult,
   RecordGuardrailInput,
   RecordProblemInput,
   RecordRootCauseInput,
@@ -71,6 +73,11 @@ import type {
   ServiceSolutionData,
   UpdateProjectInput,
 } from './contracts.js'
+import {
+  buildFtsQuery,
+  matchingCandidateCaseIds,
+  matchingFingerprintCaseIds,
+} from './query-planner.js'
 
 const DEFAULT_QUERY_LIMIT = 25
 const MAX_QUERY_LIMIT = 100
@@ -230,11 +237,19 @@ export class KnowledgeService implements KnowledgeServiceContract {
     const limit = boundedLimit(input.limit)
     const conditions = ['cases.project_id = ?']
     const parameters: unknown[] = [project.id]
+    let searchJoin = ''
 
     if (input.text?.trim()) {
-      conditions.push('(node_search.title LIKE ? OR node_search.body LIKE ?)')
-      const term = `%${input.text.trim()}%`
-      parameters.push(term, term)
+      searchJoin = 'JOIN node_search ON node_search.node_id = nodes.id'
+      const ftsQuery = buildFtsQuery(input.text)
+      if (ftsQuery) {
+        conditions.push('node_search MATCH ?')
+        parameters.push(ftsQuery)
+      } else {
+        conditions.push('(node_search.title LIKE ? OR node_search.body LIKE ?)')
+        const term = `%${input.text.trim()}%`
+        parameters.push(term, term)
+      }
     }
     if (input.nodeTypes?.length) {
       conditions.push(`nodes.type IN (${input.nodeTypes.map(() => '?').join(', ')})`)
@@ -289,7 +304,7 @@ export class KnowledgeService implements KnowledgeServiceContract {
         `SELECT nodes.*, cases.project_id, cases.title AS case_title
          FROM nodes
          JOIN cases ON cases.id = nodes.case_id
-         JOIN node_search ON node_search.node_id = nodes.id
+         ${searchJoin}
          WHERE ${conditions.join(' AND ')}
          ORDER BY nodes.created_at DESC, nodes.id DESC
          LIMIT ?`,
@@ -310,9 +325,61 @@ export class KnowledgeService implements KnowledgeServiceContract {
 
   getCase(input: GetCaseInput): CaseDetail {
     const project = this.resolveProject(input.project)
-    this.requireCase(project.id, input.caseId)
-    const snapshot = this.graph.getCase(project.id, input.caseId)
-    const evidenceRows = this.database
+    const caseRecord = this.requireCase(project.id, input.caseId)
+    const detail = input.detail ?? 'graph'
+    if (!['summary', 'graph', 'full'].includes(detail)) {
+      throw new KnowledgeServiceError('INVALID_ARGUMENT', 'detail must be summary, graph, or full')
+    }
+    const historyLimit = input.historyLimit === undefined ? 50 : boundedLimit(input.historyLimit)
+    const historyBeforeSequence = input.historyBeforeSequence ?? Number.MAX_SAFE_INTEGER
+    if (!Number.isSafeInteger(historyBeforeSequence) || historyBeforeSequence < 1) {
+      throw new KnowledgeServiceError(
+        'INVALID_ARGUMENT',
+        'historyBeforeSequence must be a positive safe integer',
+      )
+    }
+    const counts = this.database.prepare(
+      `SELECT
+        (SELECT count(*) FROM nodes
+          JOIN cases node_cases ON node_cases.id = nodes.case_id
+          WHERE node_cases.project_id = ? AND nodes.case_id = ?) AS nodes,
+        (SELECT count(*) FROM edges
+          JOIN cases edge_cases ON edge_cases.id = edges.case_id
+          WHERE edge_cases.project_id = ? AND edges.case_id = ?) AS edges,
+        (SELECT count(*) FROM evidence
+          JOIN nodes ON nodes.id = evidence.node_id
+          WHERE evidence.project_id = ? AND nodes.case_id = ?) AS evidence,
+        (SELECT count(*) FROM artifacts
+          LEFT JOIN nodes ON nodes.id = artifacts.node_id
+          WHERE artifacts.project_id = ? AND (nodes.case_id = ? OR artifacts.node_id IS NULL)) AS artifacts,
+        (SELECT count(*) FROM command_runs WHERE project_id = ? AND case_id = ?) AS commandRuns,
+        (SELECT count(*) FROM events WHERE project_id = ? AND case_id = ?) AS history`,
+    ).get(
+      project.id,
+      input.caseId,
+      project.id,
+      input.caseId,
+      project.id,
+      input.caseId,
+      project.id,
+      input.caseId,
+      project.id,
+      input.caseId,
+      project.id,
+      input.caseId,
+    ) as CaseDetail['counts']
+    const snapshot = detail === 'summary'
+      ? {
+          id: caseRecord.id,
+          projectId: caseRecord.project_id,
+          title: caseRecord.title,
+          status: caseRecord.status,
+          createdAt: caseRecord.created_at,
+          nodes: [],
+          edges: [],
+        }
+      : this.graph.getCase(project.id, input.caseId)
+    const evidenceRows = detail === 'summary' ? [] : this.database
       .prepare(
         `SELECT evidence.* FROM evidence
          JOIN nodes ON nodes.id = evidence.node_id
@@ -329,7 +396,7 @@ export class KnowledgeService implements KnowledgeServiceContract {
         data: string
         created_at: string
       }>
-    const artifactRows = this.database
+    const artifactRows = detail === 'summary' ? [] : this.database
       .prepare(
         `SELECT artifacts.* FROM artifacts
          LEFT JOIN nodes ON nodes.id = artifacts.node_id
@@ -347,7 +414,7 @@ export class KnowledgeService implements KnowledgeServiceContract {
         metadata: string
         created_at: string
       }>
-    const commandRows = this.database
+    const commandRows = detail === 'summary' ? [] : this.database
       .prepare(
         `SELECT * FROM command_runs
          WHERE project_id = ? AND case_id = ?
@@ -370,8 +437,26 @@ export class KnowledgeService implements KnowledgeServiceContract {
         finished_at: string
       }>
 
+    const historyRows = detail === 'full'
+      ? this.database.prepare(
+        `SELECT * FROM events
+         WHERE project_id = ? AND case_id = ? AND sequence < ?
+         ORDER BY sequence DESC LIMIT ?`,
+      ).all(project.id, input.caseId, historyBeforeSequence, historyLimit + 1) as Array<{
+        sequence: number
+        project_id: string
+        type: string
+        aggregate_id: string
+        payload: string
+        occurred_at: string
+      }>
+      : []
+    const selectedHistory = historyRows.slice(0, historyLimit)
+
     return {
       ...snapshot,
+      detail,
+      counts,
       evidence: evidenceRows.map((row): EvidenceRecord => ({
         id: row.id,
         projectId: row.project_id,
@@ -409,13 +494,7 @@ export class KnowledgeService implements KnowledgeServiceContract {
         startedAt: row.started_at,
         finishedAt: row.finished_at,
       })),
-      history: (this.database.prepare(
-        `SELECT * FROM events
-         WHERE project_id = ? AND (aggregate_id = ? OR json_extract(payload, '$.caseId') = ?)
-         ORDER BY sequence DESC LIMIT 500`,
-      ).all(project.id, input.caseId, input.caseId) as Array<{
-        sequence: number; project_id: string; type: string; aggregate_id: string; payload: string; occurred_at: string
-      }>).reverse().map((row) => ({
+      history: selectedHistory.reverse().map((row) => ({
         sequence: row.sequence,
         projectId: row.project_id,
         type: row.type,
@@ -423,6 +502,10 @@ export class KnowledgeService implements KnowledgeServiceContract {
         payload: JSON.parse(row.payload) as unknown,
         occurredAt: row.occurred_at,
       })),
+      historyNextBeforeSequence:
+        historyRows.length > historyLimit
+          ? (selectedHistory[0]?.sequence ?? null)
+          : null,
     }
   }
 
@@ -480,10 +563,31 @@ export class KnowledgeService implements KnowledgeServiceContract {
       input.fingerprint ?? '',
     ].join(' ').toLocaleLowerCase()
     const terms = [...new Set(context.split(/[^\p{L}\p{N}_.-]+/u).filter((term) => term.length >= 3))]
-    const scored = this.projectNodes(project.id).map((node) => ({
+    const textCandidateCaseIds = matchingCandidateCaseIds(
+      this.database,
+      project.id,
+      context,
+      1_000,
+    )
+    const fingerprintCaseIds = input.fingerprint?.trim()
+      ? matchingFingerprintCaseIds(
+          this.database,
+          project.id,
+          normalizeFingerprint(redactSecrets(input.fingerprint), {
+            projectRoots: this.projectRoots(project.id),
+          }),
+        )
+      : []
+    const candidateCaseIds = [...new Set([...textCandidateCaseIds, ...fingerprintCaseIds])]
+    const scored = this.projectNodes(
+      project.id,
+      candidateCaseIds.length > 0 ? candidateCaseIds : undefined,
+      candidateCaseIds.length > 0 ? undefined : 1_000,
+    ).map((node) => ({
         node,
         score: terms.reduce((score, term) =>
-          score + (JSON.stringify(node.data).toLocaleLowerCase().includes(term) ? 1 : 0), 0),
+          score + (JSON.stringify(node.data).toLocaleLowerCase().includes(term) ? 1 : 0),
+        fingerprintCaseIds.includes(node.caseId) ? 1 : 0),
       }))
     const caseScores = new Map<string, number>()
     for (const item of scored) caseScores.set(item.node.caseId, Math.max(caseScores.get(item.node.caseId) ?? 0, item.score))
@@ -546,6 +650,80 @@ export class KnowledgeService implements KnowledgeServiceContract {
     }
   }
 
+  recordCheckpoint(input: RecordCheckpointInput): RecordCheckpointResult {
+    const project = this.resolveProject(input.project)
+    this.assertPayload(input)
+    if (!input.operationId.trim()) {
+      throw new KnowledgeServiceError('VALIDATION_FAILED', 'operationId is required')
+    }
+    if (!Array.isArray(input.writes) || input.writes.length < 1 || input.writes.length > 25) {
+      throw new KnowledgeServiceError('VALIDATION_FAILED', 'writes must contain between 1 and 25 items')
+    }
+    const supportedKinds = new Set([
+      'problem', 'attempt', 'rootCause', 'solution', 'verification', 'artifact', 'guardrail',
+    ])
+    for (const [itemIndex, write] of input.writes.entries()) {
+      const rawKind = write && typeof write === 'object' && typeof write.kind === 'string'
+        ? write.kind
+        : null
+      if (!write || typeof write !== 'object' || rawKind === null || !supportedKinds.has(rawKind)
+        || !write.input || typeof write.input !== 'object') {
+        throw new KnowledgeServiceError('VALIDATION_FAILED', 'checkpoint write is invalid', {
+          itemIndex,
+          kind: rawKind !== null && supportedKinds.has(rawKind) ? rawKind : 'unknown',
+        })
+      }
+    }
+    return this.database.transaction(() => {
+      const duplicate = this.readOperation<RecordCheckpointResult>(
+        project.id,
+        input.operationId,
+        'record_checkpoint',
+      )
+      if (duplicate) return { ...duplicate, created: false }
+      const results: RecordCheckpointResult['results'] = []
+      for (const [itemIndex, write] of input.writes.entries()) {
+        try {
+          const scopedProject = { projectId: project.id }
+          switch (write.kind) {
+            case 'problem':
+              results.push(this.recordProblem({ ...write.input, project: scopedProject }))
+              break
+            case 'attempt':
+              results.push(this.recordAttempt({ ...write.input, project: scopedProject }))
+              break
+            case 'rootCause':
+              results.push(this.recordRootCause({ ...write.input, project: scopedProject }))
+              break
+            case 'solution':
+              results.push(this.recordSolution({ ...write.input, project: scopedProject }))
+              break
+            case 'verification':
+              results.push(this.recordVerification({ ...write.input, project: scopedProject }))
+              break
+            case 'artifact':
+              results.push(this.recordArtifactReference({ ...write.input, project: scopedProject }))
+              break
+            case 'guardrail':
+              results.push(this.recordGuardrail({ ...write.input, project: scopedProject }))
+              break
+          }
+        } catch (error) {
+          if (error instanceof KnowledgeServiceError) {
+            throw new KnowledgeServiceError(error.code, error.message, {
+              itemIndex,
+              kind: write.kind,
+            })
+          }
+          throw error
+        }
+      }
+      const result: RecordCheckpointResult = { results, created: true }
+      this.storeOperation(project.id, input.operationId, 'record_checkpoint', result)
+      return result
+    })()
+  }
+
   recordProblem(input: RecordProblemInput): NodeWriteResult {
     const project = this.resolveProject(input.project)
     return this.idempotentNodeWrite(project.id, 'record_problem', input, () => {
@@ -588,7 +766,7 @@ export class KnowledgeService implements KnowledgeServiceContract {
              VALUES (?, ?, ?, ?, ?, ?)`,
           )
           .run(randomUUID(), project.id, node.id, 'normalized-v1', fingerprint, new Date().toISOString())
-        this.appendEvent(project.id, 'fingerprint.recorded', node.id, {
+        this.appendEvent(project.id, caseRecord.id, 'fingerprint.recorded', node.id, {
           caseId: caseRecord.id,
           problemId: node.id,
           algorithm: 'normalized-v1',
@@ -745,7 +923,7 @@ export class KnowledgeService implements KnowledgeServiceContract {
           JSON.stringify(data),
           node.createdAt,
         )
-      this.appendEvent(project.id, 'verification.recorded', node.id, {
+      this.appendEvent(project.id, input.caseId, 'verification.recorded', node.id, {
         caseId: input.caseId,
         solutionId: input.solutionId,
         verificationId: node.id,
@@ -833,7 +1011,7 @@ export class KnowledgeService implements KnowledgeServiceContract {
           JSON.stringify(metadata),
           node.createdAt,
         )
-      this.appendEvent(project.id, 'artifact.recorded', artifactId, {
+      this.appendEvent(project.id, input.caseId, 'artifact.recorded', artifactId, {
         caseId: input.caseId,
         nodeId: node.id,
         artifactId,
@@ -882,7 +1060,7 @@ export class KnowledgeService implements KnowledgeServiceContract {
           JSON.stringify(data.criteria),
           node.createdAt,
         )
-      this.appendEvent(project.id, 'guardrail.recorded', node.id, {
+      this.appendEvent(project.id, input.caseId, 'guardrail.recorded', node.id, {
         caseId: input.caseId,
         guardrailId: node.id,
         enforcement: data.enforcement,
@@ -1036,14 +1214,14 @@ export class KnowledgeService implements KnowledgeServiceContract {
           } : { commandRunId, paths }),
           input.finishedAt,
         )
-        this.appendEvent(project.id, 'artifact.recorded', artifactId, {
+        this.appendEvent(project.id, input.caseId ?? null, 'artifact.recorded', artifactId, {
           artifactId,
           commandRunId,
           kind: 'command-log',
         })
       }
       const result: CommandResultWriteResult = { commandRunId, created: true }
-      this.appendEvent(project.id, 'command.recorded', commandRunId, {
+      this.appendEvent(project.id, input.caseId ?? null, 'command.recorded', commandRunId, {
         ...result,
         caseId: input.caseId ?? null,
         attemptId: input.attemptId ?? null,
@@ -1051,7 +1229,7 @@ export class KnowledgeService implements KnowledgeServiceContract {
         exitStatus: input.exitStatus ?? null,
         excerpt,
       })
-      this.appendEvent(project.id, 'command.completed', commandRunId, {
+      this.appendEvent(project.id, input.caseId ?? null, 'command.completed', commandRunId, {
         ...result,
         caseId: input.caseId ?? null,
         exitStatus: input.exitStatus ?? null,
@@ -1072,7 +1250,7 @@ export class KnowledgeService implements KnowledgeServiceContract {
       throw new KnowledgeServiceError('PATH_OUTSIDE_PROJECT', 'workingDirectory must be inside the selected project')
     }
     const result = { commandRunId: redactSecrets(input.commandRunId) }
-    this.appendEvent(project.id, 'command.started', result.commandRunId, {
+    this.appendEvent(project.id, null, 'command.started', result.commandRunId, {
       ...result,
       command: redactArgv(input.command),
       workingDirectory: input.workingDirectory,
@@ -1096,7 +1274,7 @@ export class KnowledgeService implements KnowledgeServiceContract {
       this.requireCase(project.id, input.caseId)
       const promotion = this.evaluateCasePromotion(input.caseId, true)
       const result = { caseId: input.caseId, promotion }
-      this.appendEvent(project.id, 'case.closed', input.caseId, result)
+      this.appendEvent(project.id, input.caseId, 'case.closed', input.caseId, result)
       this.storeOperation(project.id, input.operationId, 'close_case', result)
       return result
     })()
@@ -1145,7 +1323,7 @@ export class KnowledgeService implements KnowledgeServiceContract {
       if (outcome === 'regressed') {
         this.setNodeStatus(project.id, solution.id, 'regressed')
         this.setCaseStatus(project.id, input.caseId, 'regressed')
-        this.appendEvent(project.id, 'case.regressed', input.caseId, {
+        this.appendEvent(project.id, input.caseId, 'case.regressed', input.caseId, {
           ...result,
           solutionId: solution.id,
           observedContext: redactValue(input.observedContext),
@@ -1451,15 +1629,20 @@ export class KnowledgeService implements KnowledgeServiceContract {
       : this.projectRoots(projectId)
   }
 
-  private projectNodes(projectId: string): NodeRecord[] {
+  private projectNodes(projectId: string, caseIds?: string[], limit?: number): NodeRecord[] {
+    if (caseIds?.length === 0) return []
+    const caseCondition = caseIds
+      ? ` AND cases.id IN (${caseIds.map(() => '?').join(', ')})`
+      : ''
+    const limitClause = limit === undefined ? '' : ' LIMIT ?'
     const rows = this.database
       .prepare(
         `SELECT nodes.* FROM nodes
          JOIN cases ON cases.id = nodes.case_id
-         WHERE cases.project_id = ?
-         ORDER BY nodes.created_at, nodes.rowid`,
+         WHERE cases.project_id = ?${caseCondition}
+         ORDER BY nodes.created_at, nodes.rowid${limitClause}`,
       )
-      .all(projectId) as NodeRow[]
+      .all(projectId, ...(caseIds ?? []), ...(limit === undefined ? [] : [limit])) as NodeRow[]
     return rows.map(toNode)
   }
 
@@ -1481,7 +1664,7 @@ export class KnowledgeService implements KnowledgeServiceContract {
       caseId,
       projectId,
     )
-    this.appendEvent(projectId, 'case.status_changed', caseId, {
+    this.appendEvent(projectId, caseId, 'case.status_changed', caseId, {
       caseId,
       previousStatus: current.status,
       status,
@@ -1503,7 +1686,7 @@ export class KnowledgeService implements KnowledgeServiceContract {
       return
     }
     this.database.prepare('UPDATE nodes SET status = ? WHERE id = ?').run(status, nodeId)
-    this.appendEvent(projectId, 'node.status_changed', nodeId, {
+    this.appendEvent(projectId, row.case_id, 'node.status_changed', nodeId, {
       caseId: row.case_id,
       nodeId,
       previousStatus: row.status,
@@ -1608,6 +1791,7 @@ export class KnowledgeService implements KnowledgeServiceContract {
 
   private appendEvent(
     projectId: string,
+    caseId: string | null,
     type: string,
     aggregateId: string,
     payload: unknown,
@@ -1616,11 +1800,12 @@ export class KnowledgeService implements KnowledgeServiceContract {
     this.assertPayload(safePayload)
     this.database
       .prepare(
-        `INSERT INTO events (project_id, type, aggregate_id, payload, occurred_at)
-         VALUES (?, ?, ?, ?, ?)`,
+        `INSERT INTO events (project_id, case_id, type, aggregate_id, payload, occurred_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
       )
       .run(
         projectId,
+        caseId,
         type,
         aggregateId,
         JSON.stringify(safePayload),

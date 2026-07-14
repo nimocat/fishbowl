@@ -2,11 +2,25 @@
 
 ## Current Objective
 
-Implement the approved compatibility-focused EKG query/write efficiency plan on `main`. The design is committed as `4d92625`; the implementation plan is `docs/superpowers/plans/2026-07-14-query-write-efficiency.md`.
+Complete final verification of the compatibility-focused EKG query/write efficiency implementation on `main`. The design is committed as `4d92625`; the implementation plan is `docs/superpowers/plans/2026-07-14-query-write-efficiency.md`.
 
 ## Status
 
-The first local release remains verified. Performance diagnosis and design are complete; production implementation has not started. Begin with schema-v6 indexed Case history using red-green TDD.
+All seven production slices are implemented test-first: schema v6 and explicit event Case ownership, compact/paged Case projections, FTS candidates, indexed recursive cycle checks, atomic idempotent checkpoints, bounded content-free operation metrics, and import compatibility. Typecheck passes; Vitest passes 157/157 across 24 files; build and diff checks pass; Chromium passes 2/2 outside the restrictive filesystem sandbox. The runtime alias resolves to the existing project. Only the implementation commit remains.
+
+## Query/Write Efficiency Disposition
+
+1. Large Case reads default to a graph projection with no history; summary and full projections expose counts and cursor-paged history.
+2. Event history uses `(project_id, case_id, sequence)` and Case writes populate `case_id` explicitly, including imported Cases.
+3. Text query and preflight candidate discovery use FTS5 with explicit project ownership; verified Guardrails remain comprehensively evaluated.
+4. Edge insertion checks only Case-local reachability with a recursive CTE and adjacency indexes.
+5. `record_checkpoint` wraps up to 25 existing writes in one project-scoped transaction and caches the result by operation ID.
+6. MCP metrics retain at most 1,000 scalar samples per process and expose aggregates only; no bodies, logs, environment values, or excerpts are retained.
+7. Deterministic regression coverage asserts bounded response bytes plus actual use of the history and FTS indexes.
+
+## Runtime Alias Verification
+
+`/Users/eric/yqshunjian-ios-codex/.worktrees/s1-pro-compact` is registered in the configured user-local EKG database and resolves to project `fafff939-4e7a-42da-afc7-5782dde8947a`; no duplicate project was created.
 
 ## Final Path-Boundary Disposition
 

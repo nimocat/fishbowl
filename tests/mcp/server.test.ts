@@ -23,6 +23,7 @@ const TOOL_NAMES = [
   'get_case',
   'get_preflight_guidance',
   'list_recent_activity',
+  'get_operation_metrics',
   'record_problem',
   'record_attempt',
   'record_root_cause',
@@ -30,6 +31,7 @@ const TOOL_NAMES = [
   'record_verification',
   'record_artifact_reference',
   'record_guardrail',
+  'record_checkpoint',
   'record_command_result',
   'close_case',
   'mark_regression',
@@ -124,6 +126,9 @@ describe('MCP adapter', () => {
     expect(querySchema).toContain('retired')
     const caseSchema = JSON.stringify(tools.find((tool) => tool.name === 'get_case')?.outputSchema)
     expect(caseSchema).toContain('SUPERSEDES')
+    const caseInputSchema = JSON.stringify(tools.find((tool) => tool.name === 'get_case')?.inputSchema)
+    expect(caseInputSchema).toContain('historyBeforeSequence')
+    expect(caseInputSchema).toContain('full')
     expect(tools.find((tool) => tool.name === 'close_case')?.annotations).toMatchObject({
       destructiveHint: true,
       idempotentHint: true,
@@ -299,15 +304,50 @@ describe('MCP adapter', () => {
       project: { projectId: projectB.id },
       text: 'Generated module',
     })
-    const detail = await call<{ nodes: unknown[]; commandRuns: unknown[] }>(client, 'get_case', {
+    const checkpoint = await call<{ results: unknown[]; created: boolean }>(
+      client,
+      'record_checkpoint',
+      {
+        project,
+        operationId: 'mcp-checkpoint',
+        writes: [{
+          kind: 'attempt',
+          input: {
+            caseId: problem.caseId,
+            problemId: problem.nodeId,
+            data: { hypothesis: 'Checkpoint probe', change: 'Measured once', outcome: 'inconclusive' },
+          },
+        }],
+      },
+    )
+    const detail = await call<{
+      detail: string
+      nodes: unknown[]
+      commandRuns: unknown[]
+      history: unknown[]
+    }>(client, 'get_case', {
       project,
       caseId: problem.caseId,
+      detail: 'full',
+      historyLimit: 10,
     })
+    const metrics = await call<Array<{ operation: string; count: number }>>(
+      client,
+      'get_operation_metrics',
+      {},
+    )
 
     expect(queryA.items.map((item) => item.caseId)).toContain(problem.caseId)
     expect(queryB.items).toEqual([])
+    expect(metrics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ operation: 'query_knowledge', count: 2 }),
+      expect.objectContaining({ operation: 'get_case', count: 1 }),
+    ]))
+    expect(checkpoint).toMatchObject({ created: true, results: [expect.any(Object)] })
     expect(detail.nodes.length).toBeGreaterThanOrEqual(7)
     expect(detail.commandRuns).toHaveLength(1)
+    expect(detail.detail).toBe('full')
+    expect(detail.history.length).toBeLessThanOrEqual(10)
     expect(regression.outcome).toBe('regressed')
   })
 
