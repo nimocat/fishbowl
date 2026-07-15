@@ -324,6 +324,90 @@ export interface CheckpointWorkResult {
   solutionId?: string
 }
 
+export interface FinalizeCommitInput {
+  sha: string
+  message: string
+  branch?: string
+}
+
+export interface FinalizeFailedAttemptInput {
+  hypothesis: string
+  change: string
+  failureExplanation: string
+  command?: string[]
+}
+
+export interface FinalizeRootCauseInput {
+  explanation: string
+  confidence: number
+  evidence: string[]
+  rejectedAlternatives?: string[]
+}
+
+export interface FinalizeSolutionInput {
+  summary: string
+  applicability: string[]
+  limitations: string[]
+  decisiveDifference: string
+}
+
+export interface FinalizeVerificationEnvironment {
+  destination?: string
+  platform?: string
+  osVersion?: string
+  architecture?: string
+  configuration?: string
+  toolchain?: string
+}
+
+export interface FinalizeVerificationInput {
+  kind: 'automated' | 'device' | 'human'
+  succeeded: boolean
+  command?: string[]
+  excerpt: string
+  environment?: FinalizeVerificationEnvironment
+  humanConfirmed?: boolean
+}
+
+export interface FinalizeMergeInput {
+  status: 'merged' | 'pending' | 'not-required' | 'conflict'
+  sourceBranch?: string
+  targetBranch?: string
+  mergeCommit?: string
+  summary?: string
+}
+
+export interface FinalizeWorkInput {
+  project: ProjectReference
+  operationId: string
+  caseId?: string
+  task: string
+  outcome: 'failed' | 'succeeded' | 'inconclusive'
+  summary: string
+  fingerprint?: string
+  files?: string[]
+  commit?: FinalizeCommitInput
+  failedAttempts?: FinalizeFailedAttemptInput[]
+  rootCause?: FinalizeRootCauseInput
+  solution?: FinalizeSolutionInput
+  verifications?: FinalizeVerificationInput[]
+  merge: FinalizeMergeInput
+}
+
+export interface FinalizeWorkResult {
+  recorded: true
+  createdCase: boolean
+  caseId: string
+  problemId: string
+  attemptIds: string[]
+  rootCauseId?: string
+  solutionId?: string
+  verificationIds: string[]
+  artifactIds: string[]
+  mergeRecorded: boolean
+  promotion: PromotionStatus
+}
+
 export interface ReportRelevanceInput {
   project: ProjectReference
   caseId: string

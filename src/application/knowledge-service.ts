@@ -86,31 +86,14 @@ import {
 } from './query-planner.js'
 import { compactPreflight, rankCases } from './relevance.js'
 import { PreflightCache } from './preflight-cache.js'
+import { KnowledgeServiceError } from './errors.js'
+
+export { KnowledgeServiceError } from './errors.js'
+export type { KnowledgeServiceErrorCode } from './errors.js'
 
 const DEFAULT_QUERY_LIMIT = 25
 const MAX_QUERY_LIMIT = 100
 const MAX_EXCERPT_BYTES = 8 * 1024
-
-export type KnowledgeServiceErrorCode =
-  | 'INVALID_ARGUMENT'
-  | 'VALIDATION_FAILED'
-  | 'PAYLOAD_TOO_LARGE'
-  | 'NOT_FOUND'
-  | 'CONFLICT'
-  | 'OWNERSHIP_MISMATCH'
-  | 'OPERATION_CONFLICT'
-  | 'PATH_OUTSIDE_PROJECT'
-
-export class KnowledgeServiceError extends Error {
-  constructor(
-    public readonly code: KnowledgeServiceErrorCode,
-    message: string,
-    public readonly details?: unknown,
-  ) {
-    super(message)
-    this.name = 'KnowledgeServiceError'
-  }
-}
 
 interface CaseRow {
   id: string
