@@ -263,13 +263,14 @@ The existing low-level write tools and `record_checkpoint` remain compatible for
 The next schema adds:
 
 - Per-project graph revision.
-- Idempotent daemon request results.
 - Relevance feedback.
 - Merge proposals and consolidation relations.
 - Evidence timestamps needed for staleness ranking.
 - Optional normalized file, test, symbol, command, and applicability references when query-plan evidence shows they are needed.
 
 Migration is transactional and preceded by a consistent backup. Existing Cases, nodes, edges, events, fingerprints, evidence, and source keys are preserved. Initial duplicate analysis creates proposals; it does not bulk-merge text-similar Cases.
+
+Transport request/response bodies remain in a bounded in-memory retry cache and are not persisted. Durable write replay continues to use project-scoped operation IDs and the existing operation-result contract.
 
 ## 10. Failure Handling and Security
 
