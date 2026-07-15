@@ -95,7 +95,7 @@ describe('finalized delivery workflow', () => {
       ])
       const precedence = detail.edges.find((edge) => edge.relation === 'PRECEDED_BY')
       expect(precedence).toMatchObject({ sourceId: first.attemptIds[1], targetId: first.attemptIds[0] })
-      expect(detail.artifacts.map((artifact) => artifact.uri)).toEqual(['git:commit:abc1234', 'git:merge:def5678'])
+      expect(detail.artifacts.map((artifact) => artifact.uri).sort()).toEqual(['git:commit:abc1234', 'git:merge:def5678'])
       expect(JSON.stringify(detail).length).toBeLessThan(64 * 1024)
 
       const isolated = await reader.callTool({

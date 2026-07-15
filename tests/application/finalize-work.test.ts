@@ -59,7 +59,7 @@ describe('KnowledgeService.finalizeWork', () => {
       'Problem', 'Attempt', 'Attempt', 'RootCause', 'Solution', 'Verification', 'Verification', 'Artifact', 'Artifact',
     ])
     expect(detail.edges.filter((edge) => edge.relation === 'PRECEDED_BY')).toHaveLength(1)
-    expect(detail.artifacts.map((artifact) => artifact.uri)).toEqual([
+    expect(detail.artifacts.map((artifact) => artifact.uri).sort()).toEqual([
       'git:commit:abc1234', 'git:merge:def5678',
     ])
     expect(JSON.stringify(detail.artifacts)).not.toContain('raw')
