@@ -10,6 +10,8 @@ The main optimization slices are implemented and committed: authenticated persis
 
 Post-merge installation exposed and fixed npm symlink execution: direct CLI/MCP detection now compares real paths, with a regression test. The current-user macOS LaunchAgent is installed and running; `ekg daemon status` is the authoritative way to retrieve its current dynamic Trace Bench URL.
 
+The first real daemon startup also exposed the legacy default-directory migration gap. Startup now migrates a populated `~/.engineering-knowledge-graph/data/knowledge.db` into an empty platform-default store using SQLite backup and a destination backup, but never overwrites populated or explicitly selected stores. The installed database now exposes the existing `yqshunjian-ios-codex` project.
+
 ## Daemon/Relevance Disposition
 
 1. Normal CLI/MCP calls no longer open SQLite. The daemon opens it once and uses a versioned explicit RPC allowlist with a 32-byte owner token, loopback Host/origin enforcement, 64 KiB request cap, and 1,000-entry same-process replay cache.

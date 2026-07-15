@@ -2,6 +2,7 @@
 
 import { readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { Writable } from 'node:stream'
 
@@ -11,6 +12,7 @@ import { ensureInstalledDaemon, initializeDaemonCredentials } from '../daemon/li
 import { writeDaemonDescriptor, readDaemonDescriptor } from '../daemon/config.js'
 import { startDaemonServer } from '../daemon/server.js'
 import { installCurrentUserDaemon, uninstallCurrentUserDaemon } from '../daemon/platform.js'
+import { migrateLegacyDatabaseIfNeeded } from '../daemon/migration.js'
 import type { ImportSource } from '../imports/import-service.js'
 import type { ProjectGraphSnapshot } from '../imports/snapshot.js'
 import { startTraceBenchServer } from '../http/server.js'
@@ -97,6 +99,11 @@ export async function runCli(argv: string[], dependencies: CliDependencies = {})
         return 0
       }
       if (parsed.command.action === 'foreground') {
+        await migrateLegacyDatabaseIfNeeded({
+          paths: initialized.paths,
+          home: homedir(),
+          platform: process.platform,
+        })
         const running = await startDaemonServer({ databasePath: initialized.paths.databasePath, token: initialized.token, daemonVersion: '0.1.0' })
         writeDaemonDescriptor(initialized.paths, {
           protocolVersion: 1, daemonVersion: '0.1.0', host: '127.0.0.1',

@@ -183,3 +183,10 @@
 - Fix: Added a realpath-aware direct-execution helper shared by CLI and direct MCP startup, plus an npm-style symlink regression test. Linked the existing npm binary into the already-PATH-scoped `~/.local/bin`.
 - Verification: Focused regression passed 3/3; typecheck and build passed; the actual `ekg daemon install` registered `io.ekg.daemon`; `launchctl` reports it running; `ekg daemon status` reports PID 74600 and live Trace Bench URL `http://127.0.0.1:58898`.
 - Privacy/data: Existing EKG data was preserved; the install modified only the current-user LaunchAgent and command symlink.
+
+## 2026-07-15 20:40 CST - Legacy macOS Database Migrated
+
+- Symptom: Trace Bench loaded normally but the project selector was empty.
+- Root cause evidence: daemon CLI and `/api/v1/projects` both returned `[]`; the new macOS default database under `~/Library/Application Support/EKG` was 4 KiB and empty, while the legacy `~/.engineering-knowledge-graph/data/knowledge.db` was about 2.9 MB and contained `yqshunjian-ios-codex`. The default-directory migration had been omitted.
+- Fix: Added startup migration that runs only for the platform default destination, only when the legacy database contains projects, and only when the destination has none. SQLite backup creates a consistent temporary database; an existing empty destination is renamed to a timestamped backup before atomic replacement. Populated destinations and explicit custom data directories are never overwritten.
+- Verification: Migration tests pass for both empty and populated destinations. The real LaunchAgent restart migrated the project and preserved `/Users/eric/Library/Application Support/EKG/knowledge.db.pre-legacy-migration-1784119186695.bak`. CLI and the new Trace Bench API both return `yqshunjian-ios-codex`.
