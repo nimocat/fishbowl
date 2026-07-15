@@ -4,6 +4,7 @@ import { z } from 'zod/v3'
 
 import type { AwaitableKnowledgeBackend } from '../application/backend.js'
 import { KnowledgeServiceError } from '../application/errors.js'
+import { collectFinalizeWorkIssues } from '../application/finalize-work.js'
 import { OperationMetrics } from '../application/operation-metrics.js'
 
 const MAX_ID_LENGTH = 200
@@ -164,17 +165,7 @@ const finalizeVerification = z.object({
   excerpt: z.string().trim().min(1).max(MAX_EXCERPT_LENGTH),
   environment: finalizeEnvironment.optional(),
   humanConfirmed: z.boolean().optional(),
-}).strict().superRefine((verification, context) => {
-  if (verification.kind === 'automated' && !verification.command?.length) {
-    context.addIssue({ code: z.ZodIssueCode.custom, path: ['command'], message: 'automated verification requires command' })
-  }
-  if (verification.kind === 'device' && !verification.environment?.destination) {
-    context.addIssue({ code: z.ZodIssueCode.custom, path: ['environment', 'destination'], message: 'device verification requires destination' })
-  }
-  if (verification.kind === 'automated' && verification.humanConfirmed !== undefined) {
-    context.addIssue({ code: z.ZodIssueCode.custom, path: ['humanConfirmed'], message: 'automated verification cannot set humanConfirmed' })
-  }
-})
+}).strict()
 
 const finalizeWorkInputBase = z.object({
   project: projectReference,
@@ -199,13 +190,13 @@ const finalizeWorkInputBase = z.object({
   rootCause: z.object({
     explanation: text,
     confidence: z.number().min(0).max(1),
-    evidence: evidenceList,
+    evidence: stringList,
     rejectedAlternatives: stringList.optional(),
   }).strict().optional(),
   solution: z.object({
     summary: text,
-    applicability: nonEmptyStringList,
-    limitations: nonEmptyStringList,
+    applicability: stringList,
+    limitations: stringList,
     decisiveDifference: text,
   }).strict().optional(),
   verifications: z.array(finalizeVerification).max(MAX_ARRAY_LENGTH).optional(),
@@ -219,20 +210,8 @@ const finalizeWorkInputBase = z.object({
 }).strict()
 
 const finalizeWorkInput = finalizeWorkInputBase.superRefine((input, context) => {
-  if (input.outcome === 'succeeded' && !input.commit) {
-    context.addIssue({ code: z.ZodIssueCode.custom, path: ['commit'], message: 'commit is required for succeeded work' })
-  }
-  if (input.outcome === 'succeeded' && !input.verifications?.some((verification) => verification.succeeded)) {
-    context.addIssue({ code: z.ZodIssueCode.custom, path: ['verifications'], message: 'at least one successful verification is required' })
-  }
-  if (input.outcome !== 'succeeded' && !input.failedAttempts?.length) {
-    context.addIssue({ code: z.ZodIssueCode.custom, path: ['failedAttempts'], message: 'at least one failed attempt is required' })
-  }
-  if (input.verifications?.length && !input.solution) {
-    context.addIssue({ code: z.ZodIssueCode.custom, path: ['solution'], message: 'solution is required when verifications are supplied' })
-  }
-  if (input.solution && !input.rootCause) {
-    context.addIssue({ code: z.ZodIssueCode.custom, path: ['rootCause'], message: 'rootCause is required when solution is supplied' })
+  for (const issue of collectFinalizeWorkIssues(input)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: issue.path.split('.'), message: issue.message })
   }
 })
 
@@ -983,9 +962,15 @@ export function createMcpServer(service: AwaitableKnowledgeBackend): McpServer {
     (input) => invoke('finalize_work', () => {
       const parsed = finalizeWorkInput.safeParse(input)
       if (!parsed.success) {
-        const issue = parsed.error.issues[0]
-        const field = issue?.path.join('.') || 'input'
-        throw new KnowledgeServiceError('VALIDATION_FAILED', `${field}: ${issue?.message ?? 'invalid input'}`)
+        const issues = parsed.error.issues.map((issue) => ({
+          path: issue.path.join('.') || 'input',
+          message: issue.message,
+        }))
+        throw new KnowledgeServiceError(
+          'VALIDATION_FAILED',
+          issues.map((issue) => `${issue.path} ${issue.message}`).join('; '),
+          { issues },
+        )
       }
       return service.finalizeWork(parsed.data)
     }),

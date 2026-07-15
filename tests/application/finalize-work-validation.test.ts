@@ -5,6 +5,7 @@ import {
   validateFinalizeWork,
 } from '../../src/application/finalize-work.js'
 import type { FinalizeWorkInput } from '../../src/application/contracts.js'
+import { KnowledgeServiceError } from '../../src/application/errors.js'
 
 describe('finalize work validation', () => {
   const base: FinalizeWorkInput = {
@@ -14,6 +15,11 @@ describe('finalize work validation', () => {
     outcome: 'succeeded',
     summary: 'schema-v1 passed',
     commit: { sha: 'abc1234', message: 'fix: keep schema v1' },
+    rootCause: {
+      explanation: 'schema-v2 is unsupported',
+      confidence: 0.95,
+      evidence: ['device compiler output'],
+    },
     solution: {
       summary: 'Keep schema-v1',
       applicability: ['S1 Pro'],
@@ -85,5 +91,34 @@ describe('finalize work validation', () => {
     expect(() => normalizeFinalizeVerification({
       kind: 'automated', succeeded: true, excerpt: 'pass', command: ['npm', 'test'], humanConfirmed: true,
     })).toThrow(/humanConfirmed/i)
+  })
+
+  it('returns every actionable field issue in one validation error', () => {
+    let captured: unknown
+    try {
+      validateFinalizeWork({
+        ...base,
+        commit: undefined,
+        rootCause: undefined,
+        solution: { ...base.solution!, limitations: [] },
+        verifications: [{ kind: 'automated', succeeded: false, excerpt: 'failed' }],
+      })
+    } catch (error) {
+      captured = error
+    }
+
+    expect(captured).toBeInstanceOf(KnowledgeServiceError)
+    const serviceError = captured as KnowledgeServiceError
+    expect(serviceError.code).toBe('VALIDATION_FAILED')
+    expect(serviceError.details).toEqual({
+      issues: expect.arrayContaining([
+        { path: 'commit', message: expect.stringMatching(/required/i) },
+        { path: 'verifications', message: expect.stringMatching(/successful/i) },
+        { path: 'rootCause', message: expect.stringMatching(/required/i) },
+        { path: 'solution.limitations', message: expect.stringMatching(/non-empty/i) },
+        { path: 'verifications.0.command', message: expect.stringMatching(/required/i) },
+      ]),
+    })
+    expect(serviceError.message).toMatch(/commit[\s\S]*verifications[\s\S]*rootCause[\s\S]*solution\.limitations[\s\S]*verifications\.0\.command/i)
   })
 })

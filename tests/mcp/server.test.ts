@@ -202,6 +202,29 @@ describe('MCP adapter', () => {
     },
   )
 
+  it('returns all finalize_work semantic issues in one MCP response', async () => {
+    const service = {
+      finalizeWork: () => { throw new Error('service must not be invoked') },
+    } as unknown as KnowledgeServiceContract
+    const client = await connect(service)
+    const response = await client.callTool({
+      name: 'finalize_work',
+      arguments: {
+        project: { projectId: 'project-1' }, operationId: 'aggregate-errors',
+        task: 'Finalize', outcome: 'succeeded', summary: 'Done',
+        solution: {
+          summary: 'Fix', applicability: ['S1 Pro'], limitations: [], decisiveDifference: 'Final change',
+        },
+        verifications: [{ kind: 'automated', succeeded: false, excerpt: 'failed' }],
+        merge: { status: 'pending' },
+      },
+    }) as CallToolResult
+    const message = textOf(response)
+    expect(response.isError).toBe(true)
+    expect(message).toMatch(/commit[\s\S]*verifications[\s\S]*rootCause[\s\S]*solution\.limitations[\s\S]*verifications\.0\.command/i)
+    expect(message).not.toContain('service must not be invoked')
+  })
+
   it('captures a complete Case and keeps query results isolated by explicit project', async () => {
     const { client: clientPromise, rootA, rootB } = serviceHarness()
     const client = await clientPromise

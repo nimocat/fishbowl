@@ -2,7 +2,8 @@ import { randomUUID, timingSafeEqual } from 'node:crypto'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 
-import { KnowledgeService, KnowledgeServiceError } from '../application/knowledge-service.js'
+import { KnowledgeService } from '../application/knowledge-service.js'
+import { normalizeKnowledgeServiceError } from '../application/errors.js'
 import { closeDatabase, openDatabase } from '../storage/database.js'
 import { startTraceBenchServer, type RunningTraceBenchServer } from '../http/server.js'
 import { DAEMON_PROTOCOL_VERSION } from './config.js'
@@ -159,9 +160,10 @@ async function routeRequest(
     remember(recent, parsed.data.requestId, recorded)
     writeJson(response, recorded.status, recorded.body)
   } catch (error) {
-    const code = error instanceof KnowledgeServiceError ? error.code : 'INTERNAL_ERROR'
-    const message = error instanceof KnowledgeServiceError ? error.message : 'Unexpected service failure'
-    const recorded = { status: error instanceof KnowledgeServiceError ? 400 : 500, body: {
+    const expected = normalizeKnowledgeServiceError(error)
+    const code = expected?.code ?? 'INTERNAL_ERROR'
+    const message = expected?.message ?? 'Unexpected service failure'
+    const recorded = { status: expected ? 400 : 500, body: {
       ok: false,
       error: { code, message },
     } satisfies DaemonFailure }

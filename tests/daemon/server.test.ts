@@ -120,6 +120,27 @@ describe('EKG daemon server', () => {
     expect(first.body).toMatchObject({ ok: true, result: { recorded: true, createdCase: true } })
   })
 
+  it('maps expected domain failures to stable actionable RPC errors', async () => {
+    const registered = await call('/rpc', 'POST', {
+      protocolVersion: 1, requestId: 'register-errors', operation: 'registerProject',
+      input: { name: 'Error Project', root: join(sandbox, 'project') },
+    }, token)
+    const projectId = (registered.body.result as { id: string }).id
+    const missingCase = await call('/rpc', 'POST', {
+      protocolVersion: 1, requestId: 'missing-finalize-case', operation: 'finalizeWork',
+      input: {
+        project: { projectId }, operationId: 'missing-finalize-case', caseId: 'missing-case',
+        task: 'Append delivery', outcome: 'failed', summary: 'Failed',
+        failedAttempts: [{ hypothesis: 'h', change: 'c', failureExplanation: 'f' }],
+        merge: { status: 'pending' },
+      },
+    }, token)
+    expect(missingCase).toEqual({
+      status: 400,
+      body: { ok: false, error: { code: 'NOT_FOUND', message: 'Case not found in project: missing-case' } },
+    })
+  })
+
   function validRequest(): Record<string, unknown> {
     return {
       protocolVersion: 1,
