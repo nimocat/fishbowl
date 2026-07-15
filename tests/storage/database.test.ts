@@ -111,7 +111,7 @@ describe('openDatabase', () => {
     const database = openDatabase(path)
     databases.push(database)
 
-    expect(database.pragma('user_version', { simple: true })).toBe(6)
+    expect(database.pragma('user_version', { simple: true })).toBe(7)
     expect(database.prepare('SELECT case_id FROM events WHERE project_id = ?').get('project-1'))
       .toEqual({ case_id: 'case-1' })
   })

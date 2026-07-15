@@ -1,4 +1,4 @@
-export const schemaVersion = 6
+export const schemaVersion = 7
 
 const coreSchema = `
   CREATE TABLE IF NOT EXISTS projects (
@@ -326,6 +326,43 @@ const efficiencySchema = `
   END;
 `
 
+const relevanceSchema = `
+  CREATE TABLE relevance_feedback (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+    case_id TEXT NOT NULL REFERENCES cases(id) ON DELETE RESTRICT,
+    context_digest TEXT NOT NULL CHECK (length(context_digest) = 64),
+    useful INTEGER NOT NULL CHECK (useful IN (0, 1)),
+    created_at TEXT NOT NULL
+  ) STRICT;
+
+  CREATE INDEX relevance_feedback_project_case_idx
+  ON relevance_feedback(project_id, case_id, created_at);
+
+  CREATE TABLE case_merge_proposals (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+    source_case_id TEXT NOT NULL REFERENCES cases(id) ON DELETE RESTRICT,
+    target_case_id TEXT NOT NULL REFERENCES cases(id) ON DELETE RESTRICT,
+    score REAL NOT NULL CHECK (score >= 0 AND score <= 1),
+    reasons TEXT NOT NULL CHECK (json_valid(reasons)),
+    status TEXT NOT NULL CHECK (status IN ('proposed', 'applied', 'rejected')),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(project_id, source_case_id, target_case_id),
+    CHECK (source_case_id <> target_case_id)
+  ) STRICT;
+
+  CREATE TABLE case_supersessions (
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+    source_case_id TEXT PRIMARY KEY REFERENCES cases(id) ON DELETE RESTRICT,
+    target_case_id TEXT NOT NULL REFERENCES cases(id) ON DELETE RESTRICT,
+    proposal_id TEXT NOT NULL REFERENCES case_merge_proposals(id) ON DELETE RESTRICT,
+    created_at TEXT NOT NULL,
+    CHECK (source_case_id <> target_case_id)
+  ) STRICT;
+`
+
 export const schemaMigrations = [
   coreSchema,
   platformSchema,
@@ -333,6 +370,7 @@ export const schemaMigrations = [
   importSchema,
   ownershipSchema,
   efficiencySchema,
+  relevanceSchema,
 ] as const
 
 export const schema = schemaMigrations.join('\n')

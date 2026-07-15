@@ -107,7 +107,8 @@ export function createDaemonBackend(client: DaemonClient): AwaitableKnowledgeBac
     'registerProject', 'resolveProject', 'updateProject', 'queryKnowledge', 'getCase',
     'listRecentActivity', 'preflight', 'recordProblem', 'recordAttempt', 'recordRootCause',
     'recordSolution', 'recordVerification', 'recordArtifactReference', 'recordGuardrail',
-    'recordCheckpoint', 'checkpointWork', 'recordCommandStarted', 'recordCommandResult', 'closeCase',
+    'recordCheckpoint', 'checkpointWork', 'reportRelevance', 'suggestCaseMerges', 'applyCaseMerge',
+    'recordCommandStarted', 'recordCommandResult', 'closeCase',
     'markRegression', 'previewImport', 'applyImport', 'exportProjectGraph', 'importProjectGraph',
   ]
   for (const operation of operations) {

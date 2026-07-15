@@ -782,6 +782,44 @@ export function createMcpServer(service: AwaitableKnowledgeBackend): McpServer {
   )
 
   server.registerTool(
+    'report_relevance',
+    {
+      description: 'Record whether one returned Case was useful using only a caller-computed context digest.',
+      inputSchema: z.object({
+        project: projectReference,
+        caseId: id,
+        contextDigest: z.string().regex(/^[a-f0-9]{64}$/i),
+        useful: z.boolean(),
+      }).strict(),
+      outputSchema: outputSchema(z.object({ recorded: z.literal(true) })),
+      annotations: additiveWrite,
+    },
+    (input) => invoke('report_relevance', () => service.reportRelevance(input)),
+  )
+
+  server.registerTool(
+    'suggest_case_merges',
+    {
+      description: 'Propose similar Cases for human review; this never merges automatically.',
+      inputSchema: z.object({ project: projectReference, limit: z.number().int().min(1).max(25).optional() }).strict(),
+      outputSchema: outputSchema(z.array(genericRecord).max(25)),
+      annotations: additiveWrite,
+    },
+    (input) => invoke('suggest_case_merges', () => service.suggestCaseMerges(input)),
+  )
+
+  server.registerTool(
+    'apply_case_merge',
+    {
+      description: 'Explicitly apply one reviewed Case merge proposal and retire its source Case.',
+      inputSchema: z.object({ project: projectReference, proposalId: id, operationId: id }).strict(),
+      outputSchema: outputSchema(genericRecord),
+      annotations: idempotentWrite,
+    },
+    (input) => invoke('apply_case_merge', () => service.applyCaseMerge(input)),
+  )
+
+  server.registerTool(
     'checkpoint_work',
     {
       description: 'Concise idempotent capture of failed, notable, or critical engineering work.',

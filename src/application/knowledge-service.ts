@@ -42,6 +42,7 @@ import type {
   CaseDetail,
   CheckpointWorkInput,
   CheckpointWorkResult,
+  ApplyCaseMergeInput,
   CloseCaseInput,
   CloseCaseResult,
   CommandResultWriteResult,
@@ -51,6 +52,7 @@ import type {
   KnowledgeQueryResult,
   KnowledgeServiceContract,
   MarkRegressionInput,
+  MergeProposal,
   NodeWriteResult,
   OperationIdentity,
   PreflightInput,
@@ -59,6 +61,7 @@ import type {
   QueryKnowledgeInput,
   RecentActivityInput,
   RecentActivityResult,
+  ReportRelevanceInput,
   RecordArtifactInput,
   RecordAttemptInput,
   RecordCommandResultInput,
@@ -73,6 +76,7 @@ import type {
   RegisterProjectInput,
   RegressionResult,
   ServiceSolutionData,
+  SuggestCaseMergesInput,
   UpdateProjectInput,
 } from './contracts.js'
 import {
@@ -127,6 +131,18 @@ interface NodeRow {
   case_title?: string
 }
 
+interface MergeProposalRow {
+  id: string
+  project_id: string
+  source_case_id: string
+  target_case_id: string
+  score: number
+  reasons: string
+  status: MergeProposal['status']
+  created_at: string
+  updated_at: string
+}
+
 interface OperationRow {
   kind: string
   result: string
@@ -161,6 +177,32 @@ function toNode(row: NodeRow): NodeRecord {
     data: JSON.parse(row.data) as Record<string, unknown>,
     createdAt: row.created_at,
   }
+}
+
+function toMergeProposal(row: MergeProposalRow): MergeProposal {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    sourceCaseId: row.source_case_id,
+    targetCaseId: row.target_case_id,
+    score: row.score,
+    reasons: JSON.parse(row.reasons) as string[],
+    status: row.status,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+function titleSimilarity(left: string, right: string): number {
+  const tokenize = (value: string) => new Set(
+    value.toLocaleLowerCase().split(/[^\p{L}\p{N}]+/u).filter((term) => term.length >= 3),
+  )
+  const leftTerms = tokenize(left)
+  const rightTerms = tokenize(right)
+  if (leftTerms.size === 0 || rightTerms.size === 0) return 0
+  const intersection = [...leftTerms].filter((term) => rightTerms.has(term)).length
+  const union = new Set([...leftTerms, ...rightTerms]).size
+  return intersection / union
 }
 
 function boundedLimit(value: number | undefined): number {
@@ -844,6 +886,88 @@ export class KnowledgeService implements KnowledgeServiceContract {
         solutionId,
       }
       this.storeOperation(project.id, input.operationId, 'checkpoint_work', result)
+      return result
+    })()
+  }
+
+  reportRelevance(input: ReportRelevanceInput): { recorded: true } {
+    const project = this.resolveProject(input.project)
+    this.requireCase(project.id, input.caseId)
+    if (!/^[a-f0-9]{64}$/i.test(input.contextDigest)) {
+      throw new KnowledgeServiceError('VALIDATION_FAILED', 'contextDigest must be a 64-character hex digest')
+    }
+    this.database.prepare(
+      `INSERT INTO relevance_feedback
+       (id, project_id, case_id, context_digest, useful, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run(randomUUID(), project.id, input.caseId, input.contextDigest.toLocaleLowerCase(), Number(input.useful), new Date().toISOString())
+    return { recorded: true }
+  }
+
+  suggestCaseMerges(input: SuggestCaseMergesInput): MergeProposal[] {
+    const project = this.resolveProject(input.project)
+    const limit = Math.min(boundedLimit(input.limit), 25)
+    const cases = this.database.prepare(
+      `SELECT id, title FROM cases
+       WHERE project_id = ? AND status <> 'retired'
+       ORDER BY created_at DESC LIMIT 200`,
+    ).all(project.id) as Array<{ id: string; title: string }>
+    const proposals: MergeProposal[] = []
+    const now = new Date().toISOString()
+    for (let left = 0; left < cases.length && proposals.length < limit; left += 1) {
+      for (let right = left + 1; right < cases.length && proposals.length < limit; right += 1) {
+        const source = cases[left] as { id: string; title: string }
+        const target = cases[right] as { id: string; title: string }
+        const score = titleSimilarity(source.title, target.title)
+        if (score < 0.6) continue
+        const existing = this.database.prepare(
+          `SELECT * FROM case_merge_proposals
+           WHERE project_id = ? AND source_case_id = ? AND target_case_id = ?`,
+        ).get(project.id, source.id, target.id) as MergeProposalRow | undefined
+        if (existing) {
+          proposals.push(toMergeProposal(existing))
+          continue
+        }
+        const proposal: MergeProposal = {
+          id: randomUUID(), projectId: project.id, sourceCaseId: source.id,
+          targetCaseId: target.id, score, reasons: ['similar-case-title'], status: 'proposed',
+          createdAt: now, updatedAt: now,
+        }
+        this.database.prepare(
+          `INSERT INTO case_merge_proposals
+           (id, project_id, source_case_id, target_case_id, score, reasons, status, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ).run(proposal.id, project.id, source.id, target.id, score, JSON.stringify(proposal.reasons), proposal.status, now, now)
+        proposals.push(proposal)
+      }
+    }
+    return proposals
+  }
+
+  applyCaseMerge(input: ApplyCaseMergeInput): MergeProposal {
+    const project = this.resolveProject(input.project)
+    return this.database.transaction(() => {
+      const duplicate = this.readOperation<MergeProposal>(project.id, input.operationId, 'apply_case_merge')
+      if (duplicate) return duplicate
+      const row = this.database.prepare(
+        'SELECT * FROM case_merge_proposals WHERE id = ? AND project_id = ?',
+      ).get(input.proposalId, project.id) as MergeProposalRow | undefined
+      if (!row) throw new KnowledgeServiceError('NOT_FOUND', 'Merge proposal not found')
+      if (row.status === 'rejected') throw new KnowledgeServiceError('INVALID_ARGUMENT', 'Rejected merge proposal cannot be applied')
+      const now = new Date().toISOString()
+      this.database.prepare("UPDATE cases SET status = 'retired' WHERE id = ? AND project_id = ?")
+        .run(row.source_case_id, project.id)
+      this.database.prepare(
+        `INSERT OR IGNORE INTO case_supersessions
+         (project_id, source_case_id, target_case_id, proposal_id, created_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      ).run(project.id, row.source_case_id, row.target_case_id, row.id, now)
+      this.database.prepare(
+        "UPDATE case_merge_proposals SET status = 'applied', updated_at = ? WHERE id = ?",
+      ).run(now, row.id)
+      const result = toMergeProposal({ ...row, status: 'applied', updated_at: now })
+      this.appendEvent(project.id, row.target_case_id, 'case.merge.applied', row.id, result)
+      this.storeOperation(project.id, input.operationId, 'apply_case_merge', result)
       return result
     })()
   }

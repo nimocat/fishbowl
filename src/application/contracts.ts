@@ -324,6 +324,28 @@ export interface CheckpointWorkResult {
   solutionId?: string
 }
 
+export interface ReportRelevanceInput {
+  project: ProjectReference
+  caseId: string
+  contextDigest: string
+  useful: boolean
+}
+
+export interface MergeProposal {
+  id: string
+  projectId: string
+  sourceCaseId: string
+  targetCaseId: string
+  score: number
+  reasons: string[]
+  status: 'proposed' | 'applied' | 'rejected'
+  createdAt: string
+  updatedAt: string
+}
+
+export interface SuggestCaseMergesInput { project: ProjectReference; limit?: number }
+export interface ApplyCaseMergeInput extends OperationIdentity { project: ProjectReference; proposalId: string; operationId: string }
+
 export interface RecordCommandResultInput {
   project: ProjectReference
   commandRunId?: string
@@ -406,6 +428,9 @@ export interface KnowledgeServiceContract {
   recordGuardrail(input: RecordGuardrailInput): NodeWriteResult
   recordCheckpoint(input: RecordCheckpointInput): RecordCheckpointResult
   checkpointWork(input: CheckpointWorkInput): CheckpointWorkResult
+  reportRelevance(input: ReportRelevanceInput): { recorded: true }
+  suggestCaseMerges(input: SuggestCaseMergesInput): MergeProposal[]
+  applyCaseMerge(input: ApplyCaseMergeInput): MergeProposal
   recordCommandStarted(input: RecordCommandStartedInput): CommandStartedResult
   recordCommandResult(input: RecordCommandResultInput): CommandResultWriteResult
   closeCase(input: CloseCaseInput): CloseCaseResult
