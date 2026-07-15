@@ -512,6 +512,7 @@ export interface KnowledgeServiceContract {
   recordGuardrail(input: RecordGuardrailInput): NodeWriteResult
   recordCheckpoint(input: RecordCheckpointInput): RecordCheckpointResult
   checkpointWork(input: CheckpointWorkInput): CheckpointWorkResult
+  finalizeWork(input: FinalizeWorkInput): FinalizeWorkResult
   reportRelevance(input: ReportRelevanceInput): { recorded: true }
   suggestCaseMerges(input: SuggestCaseMergesInput): MergeProposal[]
   applyCaseMerge(input: ApplyCaseMergeInput): MergeProposal

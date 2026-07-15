@@ -20,6 +20,7 @@ describe('graph rules', () => {
     { source: 'Solution', relation: 'ADDRESSES', target: 'RootCause' },
     { source: 'Solution', relation: 'VERIFIED_BY', target: 'Verification' },
     { source: 'Verification', relation: 'REFERENCES', target: 'Artifact' },
+    { source: 'Problem', relation: 'REFERENCES', target: 'Artifact' },
     { source: 'SuccessCase', relation: 'INCLUDES', target: 'Problem' },
     { source: 'SuccessCase', relation: 'INCLUDES', target: 'Attempt' },
     { source: 'SuccessCase', relation: 'INCLUDES', target: 'RootCause' },
@@ -35,6 +36,10 @@ describe('graph rules', () => {
     expect(() =>
       validateRelation('Problem', 'ATTEMPTS_TO_SOLVE', 'Attempt'),
     ).toThrow(/invalid relation/i)
+  })
+
+  it('does not allow arbitrary artifact anchors', () => {
+    expect(() => validateRelation('Attempt', 'REFERENCES', 'Artifact')).toThrow(/invalid relation/i)
   })
 
   it('rejects self-edges and longer directed cycles', () => {

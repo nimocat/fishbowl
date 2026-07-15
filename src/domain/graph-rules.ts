@@ -46,6 +46,7 @@ const allowedRelations = new Set<string>([
   'Solution:ADDRESSES:RootCause',
   'Solution:VERIFIED_BY:Verification',
   'Verification:REFERENCES:Artifact',
+  'Problem:REFERENCES:Artifact',
   'SuccessCase:INCLUDES:Problem',
   'SuccessCase:INCLUDES:Attempt',
   'SuccessCase:INCLUDES:RootCause',

@@ -47,6 +47,9 @@ export function validateFinalizeWork(input: FinalizeWorkInput): void {
   if (input.verifications?.length && !input.solution) {
     validationFailure('solution is required when verifications are supplied')
   }
+  if (input.solution && !input.rootCause) {
+    validationFailure('rootCause is required when solution is supplied')
+  }
 
   for (const verification of input.verifications ?? []) {
     normalizeFinalizeVerification(verification)

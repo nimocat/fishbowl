@@ -42,6 +42,8 @@ import type {
   CaseDetail,
   CheckpointWorkInput,
   CheckpointWorkResult,
+  FinalizeWorkInput,
+  FinalizeWorkResult,
   ApplyCaseMergeInput,
   CloseCaseInput,
   CloseCaseResult,
@@ -87,6 +89,7 @@ import {
 import { compactPreflight, rankCases } from './relevance.js'
 import { PreflightCache } from './preflight-cache.js'
 import { KnowledgeServiceError } from './errors.js'
+import { normalizeFinalizeVerification, validateFinalizeWork } from './finalize-work.js'
 
 export { KnowledgeServiceError } from './errors.js'
 export type { KnowledgeServiceErrorCode } from './errors.js'
@@ -873,6 +876,175 @@ export class KnowledgeService implements KnowledgeServiceContract {
     })()
   }
 
+  finalizeWork(input: FinalizeWorkInput): FinalizeWorkResult {
+    const project = this.resolveProject(input.project)
+    this.assertPayload(input)
+    if (!input.operationId?.trim() || !input.task?.trim() || !input.summary?.trim()) {
+      throw new KnowledgeServiceError('VALIDATION_FAILED', 'operationId, task, and summary are required')
+    }
+    validateFinalizeWork(input)
+
+    return this.database.transaction(() => {
+      const duplicate = this.readOperation<FinalizeWorkResult>(project.id, input.operationId, 'finalize_work')
+      if (duplicate) return duplicate
+
+      const scopedProject = { projectId: project.id }
+      let caseId = input.caseId
+      let problemId: string
+      let createdCase = false
+      let previousAttemptId: string | undefined
+
+      if (caseId) {
+        const snapshot = this.graph.getCase(project.id, caseId)
+        const problem = snapshot.nodes.find((node) => node.type === 'Problem')
+        if (!problem) throw new KnowledgeServiceError('NOT_FOUND', 'Case has no Problem node')
+        problemId = problem.id
+        previousAttemptId = snapshot.nodes
+          .filter((node) => node.type === 'Attempt')
+          .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0]?.id
+      } else {
+        const problem = this.recordProblem({
+          project: scopedProject,
+          operationId: `${input.operationId}:problem`,
+          caseTitle: input.task,
+          data: {
+            summary: input.task,
+            symptoms: [input.summary],
+            ...(input.fingerprint && { fingerprint: input.fingerprint }),
+          },
+        })
+        caseId = problem.caseId
+        problemId = problem.nodeId
+        createdCase = problem.created
+        if (!createdCase) {
+          const snapshot = this.graph.getCase(project.id, caseId)
+          previousAttemptId = snapshot.nodes
+            .filter((node) => node.type === 'Attempt')
+            .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0]?.id
+        }
+      }
+
+      const attemptIds: string[] = []
+      for (const [index, failed] of (input.failedAttempts ?? []).entries()) {
+        const attempt = this.recordAttempt({
+          project: scopedProject,
+          operationId: `${input.operationId}:failed-attempt:${index}`,
+          caseId,
+          problemId,
+          previousAttemptId,
+          data: {
+            hypothesis: failed.hypothesis,
+            change: failed.change,
+            outcome: 'failed',
+            failureExplanation: failed.failureExplanation,
+            ...(failed.command?.length && { command: failed.command }),
+          },
+        })
+        attemptIds.push(attempt.nodeId)
+        previousAttemptId = attempt.nodeId
+      }
+
+      if (input.outcome === 'succeeded') {
+        const attempt = this.recordAttempt({
+          project: scopedProject,
+          operationId: `${input.operationId}:succeeded-attempt`,
+          caseId,
+          problemId,
+          previousAttemptId,
+          data: {
+            hypothesis: input.task,
+            change: input.summary,
+            outcome: 'succeeded',
+            decisiveDifference: input.solution?.decisiveDifference ?? input.summary,
+          },
+        })
+        attemptIds.push(attempt.nodeId)
+      }
+
+      let rootCauseId: string | undefined
+      if (input.rootCause) {
+        const rootCause = this.recordRootCause({
+          project: scopedProject,
+          operationId: `${input.operationId}:root-cause`,
+          caseId,
+          problemId,
+          failedAttemptIds: attemptIds.slice(0, input.failedAttempts?.length ?? 0),
+          status: 'candidate',
+          humanConfirmed: false,
+          data: input.rootCause,
+        })
+        rootCauseId = rootCause.nodeId
+      }
+
+      let solutionId: string | undefined
+      if (input.solution && rootCauseId) {
+        const solution = this.recordSolution({
+          project: scopedProject,
+          operationId: `${input.operationId}:solution`,
+          caseId,
+          rootCauseId,
+          data: input.solution,
+        })
+        solutionId = solution.nodeId
+      }
+
+      const verificationIds: string[] = []
+      if (solutionId) {
+        for (const [index, verificationInput] of (input.verifications ?? []).entries()) {
+          const verification = this.recordVerification({
+            project: scopedProject,
+            operationId: `${input.operationId}:verification:${index}`,
+            caseId,
+            solutionId,
+            data: normalizeFinalizeVerification(verificationInput),
+          })
+          verificationIds.push(verification.nodeId)
+        }
+      }
+
+      const artifactIds: string[] = []
+      if (input.commit) {
+        artifactIds.push(this.recordDeliveryArtifact({
+          projectId: project.id,
+          caseId,
+          problemId,
+          kind: 'git-commit',
+          uri: `git:commit:${input.commit.sha}`,
+          metadata: {
+            sha: input.commit.sha,
+            message: input.commit.message,
+            ...(input.commit.branch && { branch: input.commit.branch }),
+            ...(input.files?.length && { files: input.files }),
+          },
+        }).artifactId)
+      }
+      artifactIds.push(this.recordDeliveryArtifact({
+        projectId: project.id,
+        caseId,
+        problemId,
+        kind: 'git-merge',
+        uri: `git:merge:${input.merge.mergeCommit ?? input.merge.status}`,
+        metadata: { ...input.merge },
+      }).artifactId)
+
+      const result: FinalizeWorkResult = {
+        recorded: true,
+        createdCase,
+        caseId,
+        problemId,
+        attemptIds,
+        rootCauseId,
+        solutionId,
+        verificationIds,
+        artifactIds,
+        mergeRecorded: true,
+        promotion: this.evaluateCasePromotion(caseId, false),
+      }
+      this.storeOperation(project.id, input.operationId, 'finalize_work', result)
+      return result
+    })()
+  }
+
   reportRelevance(input: ReportRelevanceInput): { recorded: true } {
     const project = this.resolveProject(input.project)
     this.requireCase(project.id, input.caseId)
@@ -1621,6 +1793,49 @@ export class KnowledgeService implements KnowledgeServiceContract {
       this.storeSourceKey(projectId, input.sourceKey, result.nodeId)
       return result
     })()
+  }
+
+  private recordDeliveryArtifact(input: {
+    projectId: string
+    caseId: string
+    problemId: string
+    kind: 'git-commit' | 'git-merge'
+    uri: string
+    metadata: Record<string, unknown>
+  }): { nodeId: string; artifactId: string } {
+    const caseRecord = this.requireCase(input.projectId, input.caseId)
+    this.requireNode(input.projectId, input.caseId, input.problemId, 'Problem')
+    const data = this.prepareNodeData('Artifact', { kind: input.kind, uri: input.uri }, input.projectId)
+    const metadata = redactValue(input.metadata) as Record<string, unknown>
+    const node = this.graph.addNode(input.caseId, { type: 'Artifact', status: 'candidate', data })
+    this.graph.addEdge(input.caseId, {
+      sourceId: input.problemId,
+      relation: 'REFERENCES',
+      targetId: node.id,
+    })
+    const artifactId = randomUUID()
+    this.database.prepare(
+      `INSERT INTO artifacts
+       (id, project_id, node_id, kind, uri, digest, is_external, metadata, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      artifactId,
+      input.projectId,
+      node.id,
+      data.kind,
+      data.uri,
+      null,
+      1,
+      JSON.stringify(metadata),
+      node.createdAt,
+    )
+    this.appendEvent(input.projectId, input.caseId, 'artifact.recorded', artifactId, {
+      caseId: input.caseId,
+      nodeId: node.id,
+      artifactId,
+    })
+    this.indexNode(input.projectId, caseRecord.title, node)
+    return { nodeId: node.id, artifactId }
   }
 
   private prepareNodeData<T extends NodeType>(
