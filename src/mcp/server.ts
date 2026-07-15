@@ -782,6 +782,50 @@ export function createMcpServer(service: AwaitableKnowledgeBackend): McpServer {
   )
 
   server.registerTool(
+    'checkpoint_work',
+    {
+      description: 'Concise idempotent capture of failed, notable, or critical engineering work.',
+      inputSchema: z.object({
+        project: projectReference,
+        operationId: id,
+        caseId: id.optional(),
+        task: text,
+        outcome: z.enum(['failed', 'succeeded', 'inconclusive']),
+        summary: text,
+        importance: z.enum(['routine', 'notable', 'critical']).optional(),
+        fingerprint: text.optional(),
+        files: z.array(path).max(MAX_ARRAY_LENGTH).optional(),
+        command: argv.optional(),
+        evidence: stringList.optional(),
+        rootCause: z.object({
+          explanation: text,
+          confidence: z.number().min(0).max(1),
+          rejectedAlternatives: stringList.optional(),
+        }).strict().optional(),
+        solution: z.object({
+          summary: text,
+          applicability: nonEmptyStringList,
+          limitations: nonEmptyStringList,
+          decisiveDifference: text,
+        }).strict().optional(),
+        humanConfirmed: z.boolean().optional(),
+      }).strict(),
+      outputSchema: outputSchema(z.object({
+        recorded: z.boolean(),
+        reason: z.literal('routine-success').optional(),
+        createdCase: z.boolean(),
+        caseId: id.optional(),
+        problemId: id.optional(),
+        attemptId: id.optional(),
+        rootCauseId: id.optional(),
+        solutionId: id.optional(),
+      })),
+      annotations: idempotentWrite,
+    },
+    (input) => invoke('checkpoint_work', () => service.checkpointWork(input)),
+  )
+
+  server.registerTool(
     'record_checkpoint',
     {
       description: 'Atomically record a bounded checkpoint of existing knowledge write commands.',

@@ -19,6 +19,7 @@ export const DAEMON_OPERATIONS = [
   'recordArtifactReference',
   'recordGuardrail',
   'recordCheckpoint',
+  'checkpointWork',
   'recordCommandStarted',
   'recordCommandResult',
   'closeCase',

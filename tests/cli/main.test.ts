@@ -114,4 +114,17 @@ describe('CLI command dispatch', () => {
     expect(corrupt.stderr).toMatch(/export/i)
     expect(readFileSync(databasePath)).toEqual(corruptBytes)
   })
+
+  it('records a concise checkpoint without requiring JSON', async () => {
+    const { data, project } = sandbox()
+    const projectId = (JSON.parse((await invoke([
+      '--data-dir', data, 'project', 'register', '--root', project, '--name', 'Checkpoint',
+    ])).stdout) as { id: string }).id
+    const result = await invoke([
+      '--data-dir', data, 'checkpoint', '--project', projectId,
+      '--task', 'Fix Metal flicker', '--outcome', 'failed', '--summary', 'Gaussian pass regressed latency',
+    ])
+    expect(result.code).toBe(0)
+    expect(JSON.parse(result.stdout)).toMatchObject({ recorded: true, createdCase: true })
+  })
 })

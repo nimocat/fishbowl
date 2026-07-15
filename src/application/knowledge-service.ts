@@ -40,6 +40,8 @@ import type {
   ArtifactRecord,
   ArtifactWriteResult,
   CaseDetail,
+  CheckpointWorkInput,
+  CheckpointWorkResult,
   CloseCaseInput,
   CloseCaseResult,
   CommandResultWriteResult,
@@ -734,6 +736,114 @@ export class KnowledgeService implements KnowledgeServiceContract {
       }
       const result: RecordCheckpointResult = { results, created: true }
       this.storeOperation(project.id, input.operationId, 'record_checkpoint', result)
+      return result
+    })()
+  }
+
+  checkpointWork(input: CheckpointWorkInput): CheckpointWorkResult {
+    const project = this.resolveProject(input.project)
+    this.assertPayload(input)
+    if (!input.operationId?.trim() || !input.task?.trim() || !input.summary?.trim()) {
+      throw new KnowledgeServiceError('VALIDATION_FAILED', 'operationId, task, and summary are required')
+    }
+    if (input.importance === 'routine' && input.outcome === 'succeeded') {
+      return this.database.transaction(() => {
+        const duplicate = this.readOperation<CheckpointWorkResult>(project.id, input.operationId, 'checkpoint_work')
+        if (duplicate) return duplicate
+        const result: CheckpointWorkResult = { recorded: false, reason: 'routine-success', createdCase: false }
+        this.storeOperation(project.id, input.operationId, 'checkpoint_work', result)
+        return result
+      })()
+    }
+    return this.database.transaction(() => {
+      const duplicate = this.readOperation<CheckpointWorkResult>(project.id, input.operationId, 'checkpoint_work')
+      if (duplicate) return duplicate
+      const scopedProject = { projectId: project.id }
+      let createdCase = false
+      let caseId = input.caseId
+      let problemId: string
+      let previousAttemptId: string | undefined
+      if (caseId) {
+        const snapshot = this.graph.getCase(project.id, caseId)
+        const problem = snapshot.nodes.find((node) => node.type === 'Problem')
+        if (!problem) throw new KnowledgeServiceError('NOT_FOUND', 'Case has no Problem node')
+        problemId = problem.id
+        previousAttemptId = snapshot.nodes
+          .filter((node) => node.type === 'Attempt')
+          .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0]?.id
+      } else {
+        const problem = this.recordProblem({
+          project: scopedProject,
+          operationId: `${input.operationId}:problem`,
+          caseTitle: input.task,
+          data: {
+            summary: input.task,
+            symptoms: [input.summary],
+            ...(input.fingerprint && { fingerprint: input.fingerprint }),
+          },
+        })
+        caseId = problem.caseId
+        problemId = problem.nodeId
+        createdCase = problem.created
+      }
+      const attempt = this.recordAttempt({
+        project: scopedProject,
+        operationId: `${input.operationId}:attempt`,
+        caseId,
+        problemId,
+        previousAttemptId,
+        data: {
+          hypothesis: input.task,
+          change: input.summary,
+          outcome: input.outcome,
+          ...(input.command?.length && { command: input.command }),
+          ...(input.outcome === 'failed' && { failureExplanation: input.summary }),
+          ...(input.outcome === 'succeeded' && { decisiveDifference: input.summary }),
+        },
+      })
+      let rootCauseId: string | undefined
+      if (input.rootCause) {
+        const rootCause = this.recordRootCause({
+          project: scopedProject,
+          operationId: `${input.operationId}:root-cause`,
+          caseId,
+          problemId,
+          failedAttemptIds: input.outcome === 'failed' ? [attempt.nodeId] : [],
+          status: 'candidate',
+          humanConfirmed: false,
+          data: {
+            explanation: input.rootCause.explanation,
+            confidence: input.rootCause.confidence,
+            evidence: input.evidence?.length ? input.evidence : [input.summary],
+            rejectedAlternatives: input.rootCause.rejectedAlternatives,
+          },
+        })
+        rootCauseId = rootCause.nodeId
+      }
+      let solutionId: string | undefined
+      if (input.solution) {
+        if (!rootCauseId) {
+          throw new KnowledgeServiceError('VALIDATION_FAILED', 'solution requires rootCause')
+        }
+        const solution = this.recordSolution({
+          project: scopedProject,
+          operationId: `${input.operationId}:solution`,
+          caseId,
+          rootCauseId,
+          data: input.solution,
+        })
+        solutionId = solution.nodeId
+      }
+      const result: CheckpointWorkResult = {
+        recorded: true,
+        createdCase,
+        caseId,
+        problemId,
+        attemptId: attempt.nodeId,
+        rootCauseId,
+        solutionId,
+      }
+      this.storeOperation(project.id, input.operationId, 'checkpoint_work', result)
       return result
     })()
   }

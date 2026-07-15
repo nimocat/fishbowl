@@ -30,6 +30,7 @@ export type CliCommand =
   | { kind: 'export'; projectId: string; output?: string }
   | { kind: 'activity'; projectId: string; afterSequence?: number; limit?: number }
   | { kind: 'integrity' }
+  | { kind: 'checkpoint'; projectId?: string; projectRoot?: string; operationId?: string; task: string; outcome: 'failed' | 'succeeded' | 'inconclusive'; summary: string; data: Record<string, unknown> }
 
 export function defaultDataDirectory(
   environment: Record<string, string | undefined> = process.env,
@@ -154,6 +155,22 @@ export function parseArguments(argv: string[]): ParsedArguments {
     return { dataDirectory, embedded, command }
   } else if (commandName === 'preflight') {
     command = { kind: 'preflight', projectId: projectId(reader), taskDescription: reader.required('--task'), command: reader.json<string[]>('--command-json', []), changedFiles: reader.json<string[]>('--changed-files-json', []) }
+  } else if (commandName === 'checkpoint') {
+    const selectedProjectId = reader.option('--project')
+    const selectedProjectRoot = reader.option('--project-root')
+    if (Number(selectedProjectId !== undefined) + Number(selectedProjectRoot !== undefined) !== 1) {
+      throw new Error('checkpoint requires exactly one of --project or --project-root')
+    }
+    const outcome = reader.required('--outcome')
+    if (!['failed', 'succeeded', 'inconclusive'].includes(outcome)) {
+      throw new Error('--outcome must be failed, succeeded, or inconclusive')
+    }
+    command = {
+      kind: 'checkpoint', projectId: selectedProjectId, projectRoot: selectedProjectRoot,
+      operationId: reader.option('--operation'), task: reader.required('--task'),
+      outcome: outcome as 'failed' | 'succeeded' | 'inconclusive',
+      summary: reader.required('--summary'), data: reader.json<Record<string, unknown>>('--data-json', {}),
+    }
   } else if (commandName === 'run') {
     const separator = values.indexOf('--')
     if (separator === -1) throw new Error('run requires -- before the child argv')

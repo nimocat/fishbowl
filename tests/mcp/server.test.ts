@@ -31,6 +31,7 @@ const TOOL_NAMES = [
   'record_verification',
   'record_artifact_reference',
   'record_guardrail',
+  'checkpoint_work',
   'record_checkpoint',
   'record_command_result',
   'close_case',

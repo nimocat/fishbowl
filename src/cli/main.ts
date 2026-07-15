@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { readFileSync, writeFileSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import type { Writable } from 'node:stream'
 import { pathToFileURL } from 'node:url'
@@ -55,6 +56,14 @@ async function dispatch(service: AwaitableKnowledgeBackend, command: CliCommand)
     case 'import-graph': return await service.importProjectGraph({ project: project(command.projectId), archive: JSON.parse(readFileSync(command.file, 'utf8')) as ProjectGraphSnapshot, operationId: command.operationId })
     case 'export': return await service.exportProjectGraph({ project: project(command.projectId) })
     case 'activity': return await service.listRecentActivity({ project: project(command.projectId), afterSequence: command.afterSequence, limit: command.limit })
+    case 'checkpoint': return await service.checkpointWork({
+      ...(command.data as object),
+      project: command.projectId ? { projectId: command.projectId } : { projectRoot: command.projectRoot },
+      operationId: command.operationId ?? randomUUID(),
+      task: command.task,
+      outcome: command.outcome,
+      summary: command.summary,
+    })
     case 'run': throw new Error('run command requires asynchronous dispatch')
     default: throw new Error(`Command requires lifecycle handling: ${command.kind}`)
   }

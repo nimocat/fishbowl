@@ -296,6 +296,34 @@ export interface RecordCheckpointResult {
   created: boolean
 }
 
+export interface CheckpointWorkInput {
+  project: ProjectReference
+  operationId: string
+  caseId?: string
+  task: string
+  outcome: 'failed' | 'succeeded' | 'inconclusive'
+  summary: string
+  importance?: 'routine' | 'notable' | 'critical'
+  fingerprint?: string
+  files?: string[]
+  command?: string[]
+  evidence?: string[]
+  rootCause?: { explanation: string; confidence: number; rejectedAlternatives?: string[] }
+  solution?: { summary: string; applicability: string[]; limitations: string[]; decisiveDifference: string }
+  humanConfirmed?: boolean
+}
+
+export interface CheckpointWorkResult {
+  recorded: boolean
+  reason?: 'routine-success'
+  createdCase: boolean
+  caseId?: string
+  problemId?: string
+  attemptId?: string
+  rootCauseId?: string
+  solutionId?: string
+}
+
 export interface RecordCommandResultInput {
   project: ProjectReference
   commandRunId?: string
@@ -377,6 +405,7 @@ export interface KnowledgeServiceContract {
   recordArtifactReference(input: RecordArtifactInput): ArtifactWriteResult
   recordGuardrail(input: RecordGuardrailInput): NodeWriteResult
   recordCheckpoint(input: RecordCheckpointInput): RecordCheckpointResult
+  checkpointWork(input: CheckpointWorkInput): CheckpointWorkResult
   recordCommandStarted(input: RecordCommandStartedInput): CommandStartedResult
   recordCommandResult(input: RecordCommandResultInput): CommandResultWriteResult
   closeCase(input: CloseCaseInput): CloseCaseResult

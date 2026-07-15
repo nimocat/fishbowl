@@ -19,6 +19,7 @@ const METHOD_BY_OPERATION: Record<Exclude<DaemonOperation, 'listProjects'>, keyo
   recordArtifactReference: 'recordArtifactReference',
   recordGuardrail: 'recordGuardrail',
   recordCheckpoint: 'recordCheckpoint',
+  checkpointWork: 'checkpointWork',
   recordCommandStarted: 'recordCommandStarted',
   recordCommandResult: 'recordCommandResult',
   closeCase: 'closeCase',
