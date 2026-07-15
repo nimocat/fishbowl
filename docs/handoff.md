@@ -8,6 +8,8 @@ Complete final verification and integration of the daemon/relevance optimization
 
 The main optimization slices are implemented and committed: authenticated persistent daemon; thin CLI/MCP clients; retry-safe operation IDs; Case-ranked sub-12-KiB Preflight cards and revision cache; concise `checkpoint_work`; schema-v7 digest-only feedback and reviewed merge proposals; no-admin macOS/Windows startup registration; and daemon-owned live Trace Bench. Release gates pass: typecheck, 175/175 Vitest, 2/2 acceptance, 2/2 Chromium outside the restrictive macOS sandbox, build, diff check, and compiled multi-process daemon/checkpoint/Preflight/web smoke.
 
+Post-merge installation exposed and fixed npm symlink execution: direct CLI/MCP detection now compares real paths, with a regression test. The current-user macOS LaunchAgent is installed and running; `ekg daemon status` is the authoritative way to retrieve its current dynamic Trace Bench URL.
+
 ## Daemon/Relevance Disposition
 
 1. Normal CLI/MCP calls no longer open SQLite. The daemon opens it once and uses a versioned explicit RPC allowlist with a 32-byte owner token, loopback Host/origin enforcement, 64 KiB request cap, and 1,000-entry same-process replay cache.

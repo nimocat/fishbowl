@@ -4,7 +4,6 @@ import { readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import type { Writable } from 'node:stream'
-import { pathToFileURL } from 'node:url'
 
 import { KnowledgeService } from '../application/knowledge-service.js'
 import type { AwaitableKnowledgeBackend } from '../application/backend.js'
@@ -20,6 +19,7 @@ import { RawLogStore } from '../logs/raw-log-store.js'
 import { closeDatabase, openDatabase } from '../storage/database.js'
 import { parseArguments, type CliCommand } from './arguments.js'
 import { runCommand } from './run-command.js'
+import { isDirectExecution } from './direct-execution.js'
 
 interface OutputStream {
   write(value: string | Uint8Array): unknown
@@ -228,7 +228,7 @@ export async function runCli(argv: string[], dependencies: CliDependencies = {})
   }
 }
 
-const direct = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href
+const direct = isDirectExecution(import.meta.url, process.argv[1])
 if (direct) {
   runCli(process.argv.slice(2)).then((code) => { process.exitCode = code })
 }

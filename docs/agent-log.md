@@ -175,3 +175,11 @@
 - Commits: `6c67ae4`, `c4914ac`, `abc679f`, `427814a`, `d1953c6`, `00315c1`.
 - Verification: `npm run typecheck` passed; `npm test` passed 175/175 across 33 files; acceptance passed 2/2; Chromium passed 2/2 outside the macOS sandbox after the expected sandbox-only Mach-port denial; build and diff checks passed. A compiled foreground daemon reported its live `webUrl`, accepted remote project registration and concise checkpoint, and returned the expected compact Preflight card through a separate CLI process.
 - Blockers: None.
+
+## 2026-07-15 20:33 CST - npm Symlink CLI Entry Fixed And Daemon Installed
+
+- Goal: Resolve `zsh: command not found: ekg` and complete the real macOS daemon startup.
+- Root cause: npm linked `ekg` under the Hermes prefix, which was outside the active PATH. After exposing it through `~/.local/bin`, Node resolved the symlink to the real module while `process.argv[1]` retained the symlink path; the old literal-URL direct-execution check therefore treated the executable as an import and exited silently.
+- Fix: Added a realpath-aware direct-execution helper shared by CLI and direct MCP startup, plus an npm-style symlink regression test. Linked the existing npm binary into the already-PATH-scoped `~/.local/bin`.
+- Verification: Focused regression passed 3/3; typecheck and build passed; the actual `ekg daemon install` registered `io.ekg.daemon`; `launchctl` reports it running; `ekg daemon status` reports PID 74600 and live Trace Bench URL `http://127.0.0.1:58898`.
+- Privacy/data: Existing EKG data was preserved; the install modified only the current-user LaunchAgent and command symlink.
