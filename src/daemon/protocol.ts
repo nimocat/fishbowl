@@ -20,6 +20,7 @@ export const DAEMON_OPERATIONS = [
   'recordGuardrail',
   'recordCheckpoint',
   'checkpointWork',
+  'finalizeWork',
   'reportRelevance',
   'suggestCaseMerges',
   'applyCaseMerge',

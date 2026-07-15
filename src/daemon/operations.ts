@@ -20,6 +20,7 @@ const METHOD_BY_OPERATION: Record<Exclude<DaemonOperation, 'listProjects'>, keyo
   recordGuardrail: 'recordGuardrail',
   recordCheckpoint: 'recordCheckpoint',
   checkpointWork: 'checkpointWork',
+  finalizeWork: 'finalizeWork',
   reportRelevance: 'reportRelevance',
   suggestCaseMerges: 'suggestCaseMerges',
   applyCaseMerge: 'applyCaseMerge',

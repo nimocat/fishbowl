@@ -35,6 +35,7 @@ const TOOL_NAMES = [
   'suggest_case_merges',
   'apply_case_merge',
   'checkpoint_work',
+  'finalize_work',
   'record_checkpoint',
   'record_command_result',
   'close_case',
@@ -145,6 +146,15 @@ describe('MCP adapter', () => {
     expect(closeRequired).toContain('operationId')
     const regressionRequired = tools.find((tool) => tool.name === 'mark_regression')?.inputSchema.required
     expect(regressionRequired).toContain('operationId')
+
+    const finalizeTool = tools.find((tool) => tool.name === 'finalize_work')!
+    expect(finalizeTool.inputSchema.required).toEqual(expect.arrayContaining([
+      'project', 'operationId', 'task', 'outcome', 'summary', 'merge',
+    ]))
+    expect(JSON.stringify(finalizeTool.inputSchema)).toContain('failedAttempts')
+    expect(JSON.stringify(finalizeTool.inputSchema)).toContain('destination')
+    expect((finalizeTool.inputSchema.properties?.files as { items?: unknown }).items)
+      .toMatchObject({ type: 'string', minLength: 1 })
   })
 
   it('rejects invalid inputs without terminating the MCP session', async () => {
@@ -168,6 +178,29 @@ describe('MCP adapter', () => {
 
     expect((await client.listTools()).tools).toHaveLength(TOOL_NAMES.length)
   })
+
+  it.each(['checkpoint_work', 'finalize_work'])(
+    'reports an exact files item path for %s instead of invoking the service',
+    async (name) => {
+      const service = {
+        checkpointWork: () => { throw new Error('service must not be invoked') },
+        finalizeWork: () => { throw new Error('service must not be invoked') },
+      } as unknown as KnowledgeServiceContract
+      const client = await connect(service)
+      const response = await client.callTool({
+        name,
+        arguments: {
+          project: { projectId: 'project-1' }, operationId: 'operation-1', task: 'Task',
+          outcome: 'failed', summary: 'Summary', files: [{ path: 'S1.swift' }],
+          failedAttempts: [{ hypothesis: 'h', change: 'c', failureExplanation: 'f' }],
+          merge: { status: 'pending' },
+        },
+      }) as CallToolResult
+      expect(response.isError).toBe(true)
+      expect(textOf(response)).toMatch(/files[\s\S]*0/i)
+      expect(textOf(response)).not.toContain('service must not be invoked')
+    },
+  )
 
   it('captures a complete Case and keeps query results isolated by explicit project', async () => {
     const { client: clientPromise, rootA, rootB } = serviceHarness()

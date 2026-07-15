@@ -3,6 +3,7 @@ import type { CallToolResult, ToolAnnotations } from '@modelcontextprotocol/sdk/
 import { z } from 'zod/v3'
 
 import type { AwaitableKnowledgeBackend } from '../application/backend.js'
+import { KnowledgeServiceError } from '../application/errors.js'
 import { OperationMetrics } from '../application/operation-metrics.js'
 
 const MAX_ID_LENGTH = 200
@@ -18,6 +19,12 @@ const path = z.string().trim().min(1).max(MAX_PATH_LENGTH)
 const timestamp = z.string().datetime({ offset: true })
 const stringList = z.array(text).max(MAX_ARRAY_LENGTH)
 const nonEmptyStringList = stringList.min(1)
+const fileList = z.array(
+  path.describe('One project-relative or absolute file path string; objects are not accepted.'),
+).max(MAX_ARRAY_LENGTH)
+const evidenceList = z.array(
+  text.describe('One concise evidence statement string; objects are not accepted.'),
+).min(1).max(MAX_ARRAY_LENGTH)
 const argv = z.array(z.string().min(1).max(MAX_TEXT_LENGTH)).min(1).max(MAX_ARRAY_LENGTH)
 const nodeType = z.enum([
   'Problem',
@@ -140,6 +147,94 @@ const verificationData = z
     excerpt: z.string().min(1).max(MAX_EXCERPT_LENGTH).optional().describe('Bounded evidence excerpt.'),
   })
   .strict()
+
+const finalizeEnvironment = z.object({
+  destination: text.optional().describe('Explicit simulator, device, or host destination.'),
+  platform: text.optional(),
+  osVersion: text.optional(),
+  architecture: text.optional(),
+  configuration: text.optional(),
+  toolchain: text.optional(),
+}).strict()
+
+const finalizeVerification = z.object({
+  kind: z.enum(['automated', 'device', 'human']),
+  succeeded: z.boolean(),
+  command: argv.optional(),
+  excerpt: z.string().trim().min(1).max(MAX_EXCERPT_LENGTH),
+  environment: finalizeEnvironment.optional(),
+  humanConfirmed: z.boolean().optional(),
+}).strict().superRefine((verification, context) => {
+  if (verification.kind === 'automated' && !verification.command?.length) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['command'], message: 'automated verification requires command' })
+  }
+  if (verification.kind === 'device' && !verification.environment?.destination) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['environment', 'destination'], message: 'device verification requires destination' })
+  }
+  if (verification.kind === 'automated' && verification.humanConfirmed !== undefined) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['humanConfirmed'], message: 'automated verification cannot set humanConfirmed' })
+  }
+})
+
+const finalizeWorkInputBase = z.object({
+  project: projectReference,
+  operationId: id,
+  caseId: id.optional(),
+  task: text,
+  outcome: z.enum(['failed', 'succeeded', 'inconclusive']),
+  summary: text,
+  fingerprint: text.optional(),
+  files: fileList.optional(),
+  commit: z.object({
+    sha: text,
+    message: text,
+    branch: text.optional(),
+  }).strict().optional(),
+  failedAttempts: z.array(z.object({
+    hypothesis: text,
+    change: text,
+    failureExplanation: text,
+    command: argv.optional(),
+  }).strict()).max(MAX_ARRAY_LENGTH).optional(),
+  rootCause: z.object({
+    explanation: text,
+    confidence: z.number().min(0).max(1),
+    evidence: evidenceList,
+    rejectedAlternatives: stringList.optional(),
+  }).strict().optional(),
+  solution: z.object({
+    summary: text,
+    applicability: nonEmptyStringList,
+    limitations: nonEmptyStringList,
+    decisiveDifference: text,
+  }).strict().optional(),
+  verifications: z.array(finalizeVerification).max(MAX_ARRAY_LENGTH).optional(),
+  merge: z.object({
+    status: z.enum(['merged', 'pending', 'not-required', 'conflict']),
+    sourceBranch: text.optional(),
+    targetBranch: text.optional(),
+    mergeCommit: text.optional(),
+    summary: text.optional(),
+  }).strict(),
+}).strict()
+
+const finalizeWorkInput = finalizeWorkInputBase.superRefine((input, context) => {
+  if (input.outcome === 'succeeded' && !input.commit) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['commit'], message: 'commit is required for succeeded work' })
+  }
+  if (input.outcome === 'succeeded' && !input.verifications?.some((verification) => verification.succeeded)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['verifications'], message: 'at least one successful verification is required' })
+  }
+  if (input.outcome !== 'succeeded' && !input.failedAttempts?.length) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['failedAttempts'], message: 'at least one failed attempt is required' })
+  }
+  if (input.verifications?.length && !input.solution) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['solution'], message: 'solution is required when verifications are supplied' })
+  }
+  if (input.solution && !input.rootCause) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['rootCause'], message: 'rootCause is required when solution is supplied' })
+  }
+})
 
 const artifactData = z
   .object({
@@ -832,9 +927,11 @@ export function createMcpServer(service: AwaitableKnowledgeBackend): McpServer {
         summary: text,
         importance: z.enum(['routine', 'notable', 'critical']).optional(),
         fingerprint: text.optional(),
-        files: z.array(path).max(MAX_ARRAY_LENGTH).optional(),
+        files: fileList.optional(),
         command: argv.optional(),
-        evidence: stringList.optional(),
+        evidence: z.array(
+          text.describe('One concise evidence statement string; objects are not accepted.'),
+        ).max(MAX_ARRAY_LENGTH).optional(),
         rootCause: z.object({
           explanation: text,
           confidence: z.number().min(0).max(1),
@@ -861,6 +958,37 @@ export function createMcpServer(service: AwaitableKnowledgeBackend): McpServer {
       annotations: idempotentWrite,
     },
     (input) => invoke('checkpoint_work', () => service.checkpointWork(input)),
+  )
+
+  server.registerTool(
+    'finalize_work',
+    {
+      description: 'Atomically record commit, failed routes, root cause, solution, verification, and merge facts. This records facts only and never executes Git, tests, builds, or device validation.',
+      inputSchema: finalizeWorkInputBase,
+      outputSchema: outputSchema(z.object({
+        recorded: z.literal(true),
+        createdCase: z.boolean(),
+        caseId: id,
+        problemId: id,
+        attemptIds: z.array(id).max(MAX_ARRAY_LENGTH),
+        rootCauseId: id.optional(),
+        solutionId: id.optional(),
+        verificationIds: z.array(id).max(MAX_ARRAY_LENGTH),
+        artifactIds: z.array(id).max(MAX_ARRAY_LENGTH),
+        mergeRecorded: z.boolean(),
+        promotion: promotionResult,
+      }).strict()),
+      annotations: idempotentWrite,
+    },
+    (input) => invoke('finalize_work', () => {
+      const parsed = finalizeWorkInput.safeParse(input)
+      if (!parsed.success) {
+        const issue = parsed.error.issues[0]
+        const field = issue?.path.join('.') || 'input'
+        throw new KnowledgeServiceError('VALIDATION_FAILED', `${field}: ${issue?.message ?? 'invalid input'}`)
+      }
+      return service.finalizeWork(parsed.data)
+    }),
   )
 
   server.registerTool(

@@ -97,6 +97,29 @@ describe('EKG daemon server', () => {
     expect(projects.body).toMatchObject({ ok: true, result: [{ name: 'Daemon Project' }] })
   })
 
+  it('dispatches finalizeWork and replays application idempotency without duplicate Cases', async () => {
+    const registered = await call('/rpc', 'POST', {
+      protocolVersion: 1, requestId: 'register-finalize', operation: 'registerProject',
+      input: { name: 'Finalize Project', root: join(sandbox, 'project') },
+    }, token)
+    const projectId = (registered.body.result as { id: string }).id
+    const requestBody = {
+      protocolVersion: 1,
+      requestId: 'finalize-request-1',
+      operation: 'finalizeWork',
+      input: {
+        project: { projectId }, operationId: 'finalize-operation-1', task: 'Record failed route',
+        outcome: 'failed', summary: 'Route did not work',
+        failedAttempts: [{ hypothesis: 'Cache', change: 'Cleared cache', failureExplanation: 'Still failed' }],
+        merge: { status: 'pending' },
+      },
+    }
+    const first = await call('/rpc', 'POST', requestBody, token)
+    const second = await call('/rpc', 'POST', { ...requestBody, requestId: 'finalize-request-2' }, token)
+    expect(first).toEqual(second)
+    expect(first.body).toMatchObject({ ok: true, result: { recorded: true, createdCase: true } })
+  })
+
   function validRequest(): Record<string, unknown> {
     return {
       protocolVersion: 1,
