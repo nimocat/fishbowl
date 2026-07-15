@@ -78,6 +78,8 @@ import {
   matchingCandidateCaseIds,
   matchingFingerprintCaseIds,
 } from './query-planner.js'
+import { compactPreflight, rankCases } from './relevance.js'
+import { PreflightCache } from './preflight-cache.js'
 
 const DEFAULT_QUERY_LIMIT = 25
 const MAX_QUERY_LIMIT = 100
@@ -170,6 +172,7 @@ function boundedLimit(value: number | undefined): number {
 }
 
 export class KnowledgeService implements KnowledgeServiceContract {
+  private readonly preflightCache = new PreflightCache<PreflightResult>()
   private readonly projects: ProjectRegistry
   private readonly graph: CaseGraph
   private readonly imports: ImportService
@@ -555,6 +558,19 @@ export class KnowledgeService implements KnowledgeServiceContract {
   preflight(input: PreflightInput): PreflightResult {
     this.assertPayload(input)
     const project = this.resolveProject(input.project)
+    const revision = (this.database.prepare(
+      'SELECT coalesce(max(sequence), 0) AS revision FROM events WHERE project_id = ?',
+    ).get(project.id) as { revision: number }).revision
+    const cacheKey = this.preflightCache.key(project.id, revision, {
+      taskDescription: input.taskDescription.trim().toLocaleLowerCase(),
+      changedFiles: input.changedFiles ?? [],
+      command: input.command ?? [],
+      fingerprint: input.fingerprint ?? '',
+      limit: input.limit ?? 5,
+      detail: input.detail ?? 'standard',
+    })
+    const cached = this.preflightCache.get(cacheKey)
+    if (cached) return cached
     const limit = boundedLimit(input.limit)
     const context = [
       input.taskDescription,
@@ -562,7 +578,6 @@ export class KnowledgeService implements KnowledgeServiceContract {
       ...(input.command ?? []),
       input.fingerprint ?? '',
     ].join(' ').toLocaleLowerCase()
-    const terms = [...new Set(context.split(/[^\p{L}\p{N}_.-]+/u).filter((term) => term.length >= 3))]
     const textCandidateCaseIds = matchingCandidateCaseIds(
       this.database,
       project.id,
@@ -579,24 +594,11 @@ export class KnowledgeService implements KnowledgeServiceContract {
         )
       : []
     const candidateCaseIds = [...new Set([...textCandidateCaseIds, ...fingerprintCaseIds])]
-    const scored = this.projectNodes(
+    const nodes = this.projectNodes(
       project.id,
       candidateCaseIds.length > 0 ? candidateCaseIds : undefined,
       candidateCaseIds.length > 0 ? undefined : 1_000,
-    ).map((node) => ({
-        node,
-        score: terms.reduce((score, term) =>
-          score + (JSON.stringify(node.data).toLocaleLowerCase().includes(term) ? 1 : 0),
-        fingerprintCaseIds.includes(node.caseId) ? 1 : 0),
-      }))
-    const caseScores = new Map<string, number>()
-    for (const item of scored) caseScores.set(item.node.caseId, Math.max(caseScores.get(item.node.caseId) ?? 0, item.score))
-    const nodes = scored
-      .filter((item) => (caseScores.get(item.node.caseId) ?? 0) > 0)
-      .sort((left, right) =>
-        (caseScores.get(right.node.caseId) ?? 0) - (caseScores.get(left.node.caseId) ?? 0) ||
-        right.score - left.score || left.node.createdAt.localeCompare(right.node.createdAt))
-      .map((item) => item.node)
+    )
     const guardrailRows = this.database
       .prepare(
         `SELECT nodes.*, guardrails.enforcement, guardrails.criteria
@@ -624,30 +626,42 @@ export class KnowledgeService implements KnowledgeServiceContract {
         },
       )
       return evaluation.matches ? [{ node: toNode(row), blocks: evaluation.blocks }] : []
-    }).sort((left, right) => Number(right.blocks) - Number(left.blocks)).slice(0, limit)
-    const bounded = (items: NodeRecord[]): NodeRecord[] => items.slice(0, limit)
-    return {
+    }).sort((left, right) => Number(right.blocks) - Number(left.blocks))
+    const allCaseIds = [...new Set([
+      ...nodes.map((node) => node.caseId),
+      ...guardrails.map((item) => item.node.caseId),
+    ])]
+    const caseRows = allCaseIds.length === 0 ? [] : this.database.prepare(
+      `SELECT id, title, status FROM cases
+       WHERE project_id = ? AND id IN (${allCaseIds.map(() => '?').join(', ')})`,
+    ).all(project.id, ...allCaseIds) as Array<{ id: string; title: string; status: NodeStatus }>
+    const cards = rankCases({
+      taskDescription: input.taskDescription,
+      changedFiles: input.changedFiles,
+      command: input.command,
+      fingerprintCaseIds,
+    }, caseRows.map((row) => ({
+      caseId: row.id,
+      caseTitle: row.title,
+      caseStatus: row.status,
+      nodes: nodes.filter((node) => node.caseId === row.id),
+      guardrails: guardrails.filter((item) => item.node.caseId === row.id),
+    }))).slice(0, Math.min(limit, 5))
+    const result = compactPreflight({
       blocked: guardrails.some((guardrail) => guardrail.blocks),
-      guardrails,
-      failedAttempts: bounded(
-        nodes.filter(
-          (node) => node.type === 'Attempt' && node.data.outcome === 'failed',
-        ),
-      ),
-      rootCauses: bounded(
-        nodes.filter((node) => node.type === 'RootCause' && node.status === 'verified'),
-      ),
-      solutions: bounded(
-        nodes.filter((node) => node.type === 'Solution' && node.status === 'verified'),
-      ),
-      uncertain: bounded(
-        nodes.filter(
-          (node) =>
-            (node.status === 'open' || node.status === 'candidate') &&
-            node.type !== 'Attempt',
-        ),
-      ),
-    }
+      cards,
+      guardrails: [],
+      failedAttempts: [],
+      rootCauses: [],
+      solutions: [],
+      uncertain: nodes.filter(
+        (node) =>
+          (node.status === 'open' || node.status === 'candidate') &&
+          node.type !== 'Attempt',
+      ).slice(0, Math.min(limit, 5)),
+    })
+    this.preflightCache.set(cacheKey, result)
+    return result
   }
 
   recordCheckpoint(input: RecordCheckpointInput): RecordCheckpointResult {

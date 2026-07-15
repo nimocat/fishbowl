@@ -389,10 +389,10 @@ describe('KnowledgeService', () => {
     })
     expect(preflight.blocked).toBe(true)
     expect(preflight.guardrails.map((item) => item.node.id)).toContain(guardrail.nodeId)
-    expect(preflight.failedAttempts.map((node) => node.id)).toEqual([
-      firstAttempt.nodeId,
-      secondAttempt.nodeId,
-    ])
+    expect(preflight.failedAttempts).toHaveLength(1)
+    expect([firstAttempt.nodeId, secondAttempt.nodeId])
+      .toContain(preflight.failedAttempts[0]?.id)
+    expect(preflight.cards).toHaveLength(1)
     expect(preflight.solutions.map((node) => node.id)).toContain(solution.nodeId)
     expect(preflight.rootCauses.map((node) => node.id)).toContain(cause.nodeId)
 

@@ -174,6 +174,7 @@ export interface PreflightInput {
   command?: string[]
   fingerprint?: string
   limit?: number
+  detail?: 'brief' | 'standard' | 'full'
 }
 
 export interface PreflightGuardrail {
@@ -181,13 +182,32 @@ export interface PreflightGuardrail {
   blocks: boolean
 }
 
+export interface PreflightMatchReason {
+  kind: 'exact-fingerprint' | 'blocking-guardrail' | 'exact-file' | 'exact-command' | 'verified-knowledge' | 'text'
+  value: string
+}
+
+export interface PreflightCard {
+  caseId: string
+  caseTitle: string
+  score: number
+  whyMatched: PreflightMatchReason[]
+  failedAttempt?: NodeRecord
+  rootCause?: NodeRecord
+  solution?: NodeRecord
+  guardrails?: PreflightGuardrail[]
+}
+
 export interface PreflightResult {
   blocked: boolean
+  cards: PreflightCard[]
   guardrails: PreflightGuardrail[]
   failedAttempts: NodeRecord[]
   rootCauses: NodeRecord[]
   solutions: NodeRecord[]
   uncertain: NodeRecord[]
+  truncated: boolean
+  expansionCaseIds: string[]
 }
 
 export interface RecordProblemInput extends OperationIdentity {
