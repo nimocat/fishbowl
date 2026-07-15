@@ -25,6 +25,7 @@ export interface DaemonDescriptor {
   daemonVersion: string
   host: '127.0.0.1'
   port: number
+  browserPort?: number
   instanceId: string
   pid: number
   startedAt: string
@@ -96,6 +97,7 @@ export function readDaemonDescriptor(options: { paths: DaemonPaths }): DaemonDes
     typeof value.daemonVersion !== 'string' ||
     value.host !== '127.0.0.1' ||
     !Number.isInteger(value.port) || (value.port ?? 0) < 1 || (value.port ?? 0) > 65_535 ||
+    (value.browserPort !== undefined && (!Number.isInteger(value.browserPort) || value.browserPort < 1 || value.browserPort > 65_535)) ||
     typeof value.instanceId !== 'string' || !value.instanceId ||
     !Number.isInteger(value.pid) || (value.pid ?? 0) < 1 ||
     typeof value.startedAt !== 'string' || !value.startedAt

@@ -4,6 +4,7 @@ import type { AddressInfo } from 'node:net'
 
 import { KnowledgeService, KnowledgeServiceError } from '../application/knowledge-service.js'
 import { closeDatabase, openDatabase } from '../storage/database.js'
+import { startTraceBenchServer, type RunningTraceBenchServer } from '../http/server.js'
 import { DAEMON_PROTOCOL_VERSION } from './config.js'
 import { dispatchDaemonOperation } from './operations.js'
 import {
@@ -22,12 +23,14 @@ export interface StartDaemonServerOptions {
   token: string
   daemonVersion: string
   port?: number
+  traceBenchPort?: number | false
 }
 
 export interface RunningDaemonServer {
   server: Server
   address: AddressInfo
   instanceId: string
+  traceBench?: RunningTraceBenchServer
   close(): Promise<void>
 }
 
@@ -37,6 +40,7 @@ export async function startDaemonServer(
   if (!options.token) throw new Error('Daemon token is required')
   const database = openDatabase(options.databasePath)
   const service = new KnowledgeService(database)
+  let traceBench: RunningTraceBenchServer | undefined
   const instanceId = randomUUID()
   const recent = new Map<string, { status: number; body: DaemonSuccess | DaemonFailure }>()
   const server = createServer((request, response) => {
@@ -60,16 +64,27 @@ export async function startDaemonServer(
     closeDatabase(database)
     throw new Error('EKG daemon did not obtain a TCP address')
   }
+  try {
+    if (options.traceBenchPort !== false) {
+      traceBench = await startTraceBenchServer({ service, port: options.traceBenchPort })
+    }
+  } catch (error) {
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+    closeDatabase(database)
+    throw error
+  }
   return {
     server,
     address,
     instanceId,
-    close: () => new Promise<void>((resolve, reject) => {
-      server.close((error) => {
-        closeDatabase(database)
-        error ? reject(error) : resolve()
+    traceBench,
+    close: async () => {
+      await traceBench?.close()
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => error ? reject(error) : resolve())
       })
-    }),
+      closeDatabase(database)
+    },
   }
 }
 

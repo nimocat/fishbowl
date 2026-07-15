@@ -1,0 +1,69 @@
+import { execFileSync } from 'node:child_process'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+
+import { launchAgentPlist, macosInstallCommands, macosUninstallCommands } from './macos-launchd.js'
+import { windowsRunCommand, windowsRunRegistrationArgs, windowsRunRemovalArgs } from './windows-run.js'
+
+export interface PlatformRegistrationResult {
+  platform: 'darwin' | 'win32'
+  location: string
+  dataPreserved: true
+}
+
+export function installCurrentUserDaemon(options: {
+  platform?: NodeJS.Platform
+  home?: string
+  nodePath?: string
+  entryPoint?: string
+  uid?: number
+} = {}): PlatformRegistrationResult {
+  const platform = options.platform ?? process.platform
+  const home = options.home ?? homedir()
+  const nodePath = options.nodePath ?? process.execPath
+  const entryPoint = options.entryPoint ?? process.argv[1]
+  if (!entryPoint) throw new Error('Cannot determine EKG CLI entry point')
+  if (platform === 'darwin') {
+    const directory = join(home, 'Library', 'LaunchAgents')
+    const location = join(directory, 'io.ekg.daemon.plist')
+    mkdirSync(directory, { recursive: true, mode: 0o700 })
+    writeFileSync(location, launchAgentPlist({ nodePath, entryPoint }), { mode: 0o600 })
+    for (const [index, command] of macosInstallCommands(location, options.uid ?? process.getuid?.() ?? 0).entries()) {
+      try { execFileSync(command.file, command.args, { stdio: 'ignore' }) } catch (error) {
+        if (index !== 0) throw error // An absent prior service is expected on first install.
+      }
+    }
+    return { platform: 'darwin', location, dataPreserved: true }
+  }
+  if (platform === 'win32') {
+    const command = windowsRunCommand(nodePath, entryPoint)
+    execFileSync('reg.exe', windowsRunRegistrationArgs(command), { stdio: 'ignore' })
+    return { platform: 'win32', location: WINDOWS_LOCATION, dataPreserved: true }
+  }
+  throw new Error('Automatic daemon installation currently supports macOS and Windows')
+}
+
+export function uninstallCurrentUserDaemon(options: {
+  platform?: NodeJS.Platform
+  home?: string
+  uid?: number
+} = {}): PlatformRegistrationResult {
+  const platform = options.platform ?? process.platform
+  const home = options.home ?? homedir()
+  if (platform === 'darwin') {
+    const location = join(home, 'Library', 'LaunchAgents', 'io.ekg.daemon.plist')
+    for (const command of macosUninstallCommands(location, options.uid ?? process.getuid?.() ?? 0)) {
+      try { execFileSync(command.file, command.args, { stdio: 'ignore' }) } catch { /* already stopped */ }
+    }
+    rmSync(location, { force: true })
+    return { platform: 'darwin', location, dataPreserved: true }
+  }
+  if (platform === 'win32') {
+    try { execFileSync('reg.exe', windowsRunRemovalArgs(), { stdio: 'ignore' }) } catch { /* already removed */ }
+    return { platform: 'win32', location: WINDOWS_LOCATION, dataPreserved: true }
+  }
+  throw new Error('Automatic daemon removal currently supports macOS and Windows')
+}
+
+const WINDOWS_LOCATION = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run'

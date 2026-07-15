@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import type { Writable } from 'node:stream'
@@ -8,7 +8,10 @@ import { pathToFileURL } from 'node:url'
 
 import { KnowledgeService } from '../application/knowledge-service.js'
 import type { AwaitableKnowledgeBackend } from '../application/backend.js'
-import { connectInstalledDaemon } from '../daemon/lifecycle.js'
+import { ensureInstalledDaemon, initializeDaemonCredentials } from '../daemon/lifecycle.js'
+import { writeDaemonDescriptor, readDaemonDescriptor } from '../daemon/config.js'
+import { startDaemonServer } from '../daemon/server.js'
+import { installCurrentUserDaemon, uninstallCurrentUserDaemon } from '../daemon/platform.js'
 import type { ImportSource } from '../imports/import-service.js'
 import type { ProjectGraphSnapshot } from '../imports/snapshot.js'
 import { startTraceBenchServer } from '../http/server.js'
@@ -83,12 +86,59 @@ export async function runCli(argv: string[], dependencies: CliDependencies = {})
   try {
     const parsed = parseArguments(argv)
     const databasePath = join(parsed.dataDirectory, 'knowledge.db')
+    if (parsed.command.kind === 'daemon') {
+      const initialized = initializeDaemonCredentials({ environment: { ...process.env, EKG_DATA_DIR: parsed.dataDirectory } })
+      if (parsed.command.action === 'install') {
+        printJson(stdout, installCurrentUserDaemon())
+        return 0
+      }
+      if (parsed.command.action === 'uninstall') {
+        printJson(stdout, uninstallCurrentUserDaemon())
+        return 0
+      }
+      if (parsed.command.action === 'foreground') {
+        const running = await startDaemonServer({ databasePath: initialized.paths.databasePath, token: initialized.token, daemonVersion: '0.1.0' })
+        writeDaemonDescriptor(initialized.paths, {
+          protocolVersion: 1, daemonVersion: '0.1.0', host: '127.0.0.1',
+          port: running.address.port, instanceId: running.instanceId, pid: process.pid,
+          browserPort: running.traceBench?.address.port,
+          startedAt: new Date().toISOString(),
+        })
+        writeFileSync(initialized.paths.pidFile, `${process.pid}\n`, { mode: 0o600 })
+        try { await waitForShutdown(running.close) } finally {
+          rmSync(initialized.paths.descriptorFile, { force: true })
+          rmSync(initialized.paths.pidFile, { force: true })
+        }
+        return 0
+      }
+      let descriptor
+      try { descriptor = readDaemonDescriptor({ paths: initialized.paths }) } catch {
+        printJson(stdout, { running: false, guidance: 'Run `ekg daemon install` or any normal EKG command.' })
+        return parsed.command.action === 'doctor' ? 1 : 0
+      }
+      const running = (() => {
+        try { process.kill(descriptor.pid, 0); return true } catch (error) {
+          return (error as NodeJS.ErrnoException).code === 'EPERM'
+        }
+      })()
+      if (parsed.command.action === 'stop' && running) process.kill(descriptor.pid, 'SIGTERM')
+      printJson(stdout, {
+        running: parsed.command.action === 'stop' ? false : running,
+        protocolVersion: descriptor.protocolVersion,
+        daemonVersion: descriptor.daemonVersion,
+        pid: descriptor.pid,
+        port: descriptor.port,
+        ...(descriptor.browserPort && { webUrl: `http://127.0.0.1:${descriptor.browserPort}` }),
+        ...(parsed.command.action === 'doctor' && { dataDirectory: initialized.paths.dataDirectory, tokenPresent: initialized.token.length === 64 }),
+      })
+      return running || parsed.command.action === 'stop' ? 0 : 1
+    }
     if (parsed.command.kind === 'mcp-stdio') {
       await runStdioServer(parsed.embedded ? { databasePath } : { backend: dependencies.backend })
       return 0
     }
     if (!parsed.embedded && parsed.command.kind !== 'serve' && parsed.command.kind !== 'integrity') {
-      const service = dependencies.backend ?? connectInstalledDaemon().backend
+      const service = dependencies.backend ?? (await ensureInstalledDaemon()).backend
       if (parsed.command.kind === 'run') {
         const result = await runCommand({
           service,

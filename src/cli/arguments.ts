@@ -1,5 +1,5 @@
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { resolveDaemonPaths } from '../daemon/config.js'
 
 export interface ParsedArguments {
   dataDirectory: string
@@ -31,12 +31,13 @@ export type CliCommand =
   | { kind: 'activity'; projectId: string; afterSequence?: number; limit?: number }
   | { kind: 'integrity' }
   | { kind: 'checkpoint'; projectId?: string; projectRoot?: string; operationId?: string; task: string; outcome: 'failed' | 'succeeded' | 'inconclusive'; summary: string; data: Record<string, unknown> }
+  | { kind: 'daemon'; action: 'foreground' | 'status' | 'stop' | 'install' | 'uninstall' | 'doctor' }
 
 export function defaultDataDirectory(
   environment: Record<string, string | undefined> = process.env,
   home = homedir(),
 ): string {
-  return environment.EKG_DATA_DIR ?? join(home, '.engineering-knowledge-graph', 'data')
+  return resolveDaemonPaths({ platform: process.platform, home, environment }).dataDirectory
 }
 
 class ArgumentReader {
@@ -131,6 +132,12 @@ export function parseArguments(argv: string[]): ParsedArguments {
 
   if (commandName === 'serve') {
     command = { kind: 'serve', port: reader.integer('--port') }
+  } else if (commandName === 'daemon') {
+    const action = reader.take()
+    if (!['foreground', 'status', 'stop', 'install', 'uninstall', 'doctor'].includes(action)) {
+      throw new Error(`Unknown daemon command: ${action}`)
+    }
+    command = { kind: 'daemon', action: action as Extract<CliCommand, { kind: 'daemon' }>['action'] }
   } else if (commandName === 'mcp') {
     if (reader.take() !== '--stdio') throw new Error('mcp requires --stdio')
     command = { kind: 'mcp-stdio' }

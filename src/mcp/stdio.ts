@@ -4,7 +4,7 @@ import type { Readable, Writable } from 'node:stream'
 
 import type { AwaitableKnowledgeBackend } from '../application/backend.js'
 import { KnowledgeService } from '../application/knowledge-service.js'
-import { connectInstalledDaemon } from '../daemon/lifecycle.js'
+import { ensureInstalledDaemon } from '../daemon/lifecycle.js'
 import { closeDatabase, openDatabase } from '../storage/database.js'
 import { createMcpServer } from './server.js'
 
@@ -24,7 +24,7 @@ export async function runStdioServer(
   options: StdioServerOptions = {},
 ): Promise<StdioServerHandle> {
   const database = options.databasePath ? openDatabase(options.databasePath) : undefined
-  const service = options.backend ?? (database ? new KnowledgeService(database) : connectInstalledDaemon().backend)
+  const service = options.backend ?? (database ? new KnowledgeService(database) : (await ensureInstalledDaemon()).backend)
   const server = createMcpServer(service)
   const transport = new StdioServerTransport(options.input, options.output)
   let closed = false

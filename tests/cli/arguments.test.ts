@@ -9,9 +9,19 @@ describe('CLI arguments', () => {
   it('uses EKG_DATA_DIR or a user-local directory rather than cwd', () => {
     expect(defaultDataDirectory({ EKG_DATA_DIR: '/var/ekg' }, '/home/test')).toBe('/var/ekg')
     expect(defaultDataDirectory({}, '/home/test')).toBe(
-      '/home/test/.engineering-knowledge-graph/data',
+      process.platform === 'darwin'
+        ? '/home/test/Library/Application Support/EKG'
+        : process.platform === 'win32'
+          ? '/home/test/AppData/Local/EKG'
+          : '/home/test/.local/share/ekg',
     )
-    expect(defaultDataDirectory()).toBe(join(homedir(), '.engineering-knowledge-graph', 'data'))
+    expect(defaultDataDirectory()).toBe(
+      process.platform === 'darwin'
+        ? join(homedir(), 'Library', 'Application Support', 'EKG')
+        : process.platform === 'win32'
+          ? join(process.env.LOCALAPPDATA ?? join(homedir(), 'AppData', 'Local'), 'EKG')
+          : join(process.env.XDG_DATA_HOME ?? join(homedir(), '.local', 'share'), 'ekg'),
+    )
   })
 
   it('parses global data directory and exact run argv without reinterpretation', () => {
@@ -80,5 +90,10 @@ describe('CLI arguments', () => {
         '{"project":{"projectId":"project-b"}}',
       ]),
     ).toThrow(/Unsupported query filter: project/)
+  })
+
+  it('parses daemon lifecycle commands without project scope', () => {
+    expect(parseArguments(['daemon', 'install']).command).toEqual({ kind: 'daemon', action: 'install' })
+    expect(parseArguments(['daemon', 'foreground']).command).toEqual({ kind: 'daemon', action: 'foreground' })
   })
 })
