@@ -10,15 +10,16 @@ Engineering Knowledge Graph (EKG) is a local-first service for preserving the pa
 - SQLite in WAL mode is the authoritative materialized store.
 - The append-only `events` table is an audit log and live-update cursor, not a complete event-sourcing replay log.
 - `KnowledgeService` is the transport-neutral application boundary.
-- stdio MCP, CLI, local HTTP/SSE, and the browser are adapters around the same service.
+- A persistent authenticated loopback daemon is the normal SQLite owner. Thin stdio MCP and CLI adapters call its versioned RPC allowlist; explicit `--embedded`/`--data-dir` remains for tests and recovery.
+- The daemon also owns the read-only local HTTP/SSE Trace Bench, so browser views update from the same graph event cursor.
 - Raw command logs live outside SQLite under `data/logs/<project-id>/`.
 - `ImportService` owns explicit-source acquisition, candidate preview persistence, and selected transactional apply.
 - `SnapshotService` owns versioned redacted export and validated deterministic project import.
 - `createMcpServer(service)` is the protocol-only MCP boundary; it registers the project-aware tools against `KnowledgeServiceContract`, returns concise text plus structured results, and keeps a bounded content-free in-memory operation-metric window.
-- `runStdioServer()` owns SQLite/service/stdio lifecycle, uses `<EKG_DATA_DIR>/knowledge.db` (or the shared user-local data default), and reserves stdout exclusively for MCP protocol frames.
+- `runStdioServer()` reserves stdout exclusively for MCP frames and proxies to the daemon; it opens SQLite only when an explicit embedded database path is injected for tests/recovery.
 - `startTraceBenchServer({ service, port })` owns the native HTTP listener and always binds to `127.0.0.1`; HTTP and SSE reads use only `KnowledgeServiceContract`.
 - Trace Bench static assets are allowlisted and copied to `dist/web`; the browser is read-only, uses native button nodes with SVG edges, and keeps a semantic trace visible alongside the graph.
-- `ekg` is the executable adapter in `src/cli/main.ts`; its database is always `<data-directory>/knowledge.db`, where the directory comes from `--data-dir`, `EKG_DATA_DIR`, or the user-local default.
+- `ekg daemon install` registers a no-admin macOS LaunchAgent or Windows HKCU Run entry. Normal CLI calls auto-start once, authenticate with an owner-only 32-byte token, and retry once with a stable transport request ID.
 - `runCommand()` resolves and preflights before spawning exact argv with `shell: false`, inherited stdin, unchanged cwd, byte-preserving output teeing, rotating raw logs, and fail-open post-run recording.
 - Existing on-disk databases are inspected read-only with SQLite `quick_check` and schema-version validation before writable pragmas or migrations. Corrupt and newer-schema files are preserved and surface stable backup/recovery/export guidance.
 
@@ -44,7 +45,7 @@ Engineering Knowledge Graph (EKG) is a local-first service for preserving the pa
 - All project-scoped reads require an explicit project reference.
 - Browser mutations are out of scope for the first release.
 - IDs are UUIDs; timestamps are UTC ISO 8601 strings.
-- New databases carry the EKG SQLite `application_id`; schema version 6 adds indexed Case ownership to events and edge adjacency indexes while schema-v5 files remain transactionally upgradeable.
+- New databases carry the EKG SQLite `application_id`; schema version 7 adds digest-only relevance feedback, reviewed merge proposals, and explicit Case supersession while older files remain transactionally upgradeable.
 - Promotion requires explicit `humanConfirmed` evidence, and Verification environments use a fixed non-secret allowlist.
 - Import sources are explicit project-contained files or explicit Git `base..head` ranges; no service scans project trees.
 - Portable snapshot imports never confer verified trust: verified Case, RootCause, Solution, SuccessCase, and Guardrail assertions become candidates, and blocking Guardrails therefore cannot arrive verified by assertion alone.
@@ -53,6 +54,8 @@ Engineering Knowledge Graph (EKG) is a local-first service for preserving the pa
 - Text queries use project-scoped FTS5 candidates. Preflight uses a bounded FTS candidate set for relevant knowledge while still evaluating the complete project-scoped Guardrail set before applying caller limits.
 - `get_case` defaults to the graph projection without history; summary and cursor-paged full projections keep large Case reads bounded.
 - `record_checkpoint` atomically dispatches up to 25 existing write commands under one project and one idempotency key.
+- `checkpoint_work` is the concise capture path: failures always record; routine successes may skip; optional RootCause/Solution assertions remain candidates until mixed verification.
+- Default Preflight is Case-ranked, explainable, cached by project event revision, capped at five cards, and compacted below 12 KiB.
 - Case-scoped event writes persist explicit `case_id`; history paging and cycle prevention use indexed Case-local queries rather than JSON extraction or whole-graph loading.
 - Command-log Artifacts retain validated digest algorithm, accepted and retained byte sizes, segment count, truncation state, and retained paths.
 - Browser Case selection aborts the prior detail request and uses a monotonic token so stale same-project responses cannot replace the latest selection.

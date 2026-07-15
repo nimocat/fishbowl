@@ -33,6 +33,23 @@ npm run build
 
 This first release does not implement `ekg --help`. The commands below are the supported CLI reference.
 
+## Install The Persistent Daemon
+
+EKG now keeps one authenticated loopback daemon alive, so CLI and MCP calls reuse the same Node.js process, SQLite connection, prepared state, relevance cache, and live Trace Bench server.
+
+```bash
+ekg daemon install
+ekg daemon status
+```
+
+Installation is per-user and needs no administrator access. macOS uses `~/Library/LaunchAgents/io.ekg.daemon.plist`; Windows uses `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`. Uninstall preserves the database:
+
+```bash
+ekg daemon uninstall
+```
+
+Any normal command starts the daemon once if it is not already ready. `ekg daemon status` prints the live Trace Bench `webUrl`; the browser receives updates over SSE as graph events are committed.
+
 ## Data Directory
 
 EKG stores its database at `<data-directory>/knowledge.db` and raw command logs under `<data-directory>/logs/<project-id>/`.
@@ -41,7 +58,7 @@ Data-directory precedence is:
 
 1. A leading global option: `ekg --data-dir /absolute/path <command>`
 2. `EKG_DATA_DIR`
-3. `~/.engineering-knowledge-graph/data`
+3. macOS: `~/Library/Application Support/EKG`; Windows: `%LOCALAPPDATA%\EKG`; Linux: `${XDG_DATA_HOME:-~/.local/share}/ekg`
 
 The data directory is independent of the current client repository. Use the same directory for the CLI and MCP client if they should share knowledge.
 
@@ -139,13 +156,23 @@ ekg activity --project "$PROJECT_ID" --after 0 --limit 50
 
 Supported query filter keys are `domain`, `nodeTypes`, `statuses`, `file`, `command`, `fingerprint`, and `limit`.
 
+Preflight returns at most five ranked Case cards by default and keeps its encoded response below 12 KiB. Each card explains why it matched and includes at most one decisive failed Attempt, verified RootCause, and verified Solution. Exact fingerprints, files, commands, and blocking Guardrails outrank generic text. Old candidate conclusions are down-ranked; verified knowledge does not expire because of age alone.
+
+For a concise engineering checkpoint, no long write-array JSON is required:
+
+```bash
+ekg checkpoint --project "$PROJECT_ID" --task "Fix Metal flicker" --outcome failed --summary "Two-pass Gaussian increased latency"
+```
+
+Routine successes may be skipped; failures are always retained. Optional `--data-json` can add `importance`, `fingerprint`, `files`, `command`, `evidence`, `rootCause`, and `solution`. Supplied roots and solutions remain candidates until the normal mixed-verification gate is satisfied.
+
 ### Browse Locally
 
 ```bash
-ekg serve --port 4317
+ekg daemon status
 ```
 
-Open the printed `http://127.0.0.1:<port>` URL. Omit `--port` to use an ephemeral available port. Trace Bench is read-only; use CLI or MCP tools for writes. Stop the server with `Ctrl-C`.
+Open the printed `webUrl`. Trace Bench is read-only and runs beside the daemon; use CLI or MCP tools for writes. It refreshes from the append-only project event cursor without restarting the browser.
 
 ### Preview And Apply An Import
 
@@ -184,15 +211,15 @@ Exports are versioned, recursively redacted JSON snapshots. They exclude raw log
 
 ## MCP Stdio
 
-The MCP server uses stdio and the same data directory as the CLI:
+The MCP stdio process is now a thin proxy to the installed daemon:
 
 ```bash
-EKG_DATA_DIR="$HOME/.engineering-knowledge-graph/data" node /absolute/path/to/engineering-knowledge-graph/dist/cli/main.js mcp --stdio
+node /absolute/path/to/engineering-knowledge-graph/dist/cli/main.js mcp --stdio
 ```
 
 The process writes MCP protocol frames to stdout, so do not wrap it with commands that print banners there. See [docs/mcp-client-configuration.md](docs/mcp-client-configuration.md) for client configurations.
 
-Large Case reads are projection-aware: `get_case` accepts `detail` as `summary`, `graph` (the default), or `full`; full history is paged with `historyLimit` and `historyBeforeSequence`. Text search is backed by project-scoped FTS5 candidates. Writers may use `record_checkpoint` to commit up to 25 existing write commands atomically and idempotently. `get_operation_metrics` returns only bounded in-memory latency, error-count, and response-size aggregates; it never stores request or response bodies.
+Large Case reads are projection-aware: `get_case` accepts `detail` as `summary`, `graph` (the default), or `full`; full history is paged. Agents should prefer `checkpoint_work` for concise capture and may use `record_checkpoint` for advanced batches. `report_relevance` stores only a 64-character context digest plus useful/not-useful feedback. `suggest_case_merges` never auto-merges; `apply_case_merge` requires an explicit reviewed proposal and operation ID.
 
 ## Raw Logs And Retention
 

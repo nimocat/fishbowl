@@ -165,3 +165,13 @@
 - Final verification: `npm run typecheck` passed; `npm test` passed 157/157 across 24 files; `npm run build` and `git diff --check` passed; `npm run test:browser` passed 2/2 outside the macOS sandbox after the sandbox-only Chromium launch denial. The runtime alias registered and resolved to project `fafff939-4e7a-42da-afc7-5782dde8947a`.
 - Privacy and ownership: Metrics are in-memory scalar aggregates only. No request bodies, response bodies, raw logs, environment values, or excerpts were added to SQLite. All new database access remains explicitly project/Case scoped.
 - Blockers: None. Final implementation commit pending.
+
+## 2026-07-15 20:20 CST - Persistent Daemon, Relevance, and Checkpoint Optimization Implemented
+
+- Goal: Convert EKG from per-command SQLite startup into a reusable macOS/Windows engineering-memory service, while sharply reducing Preflight noise and checkpoint cost.
+- Completed: Added authenticated versioned loopback RPC with bounded idempotent replay; CLI/MCP daemon proxying; automatic startup; macOS LaunchAgent and Windows HKCU Run installation; daemon-owned live Trace Bench; Case-level explainable Preflight cards capped at five and 12 KiB; project-revision LRU caching; concise transactional `checkpoint_work`; candidate-age penalties; digest-only relevance feedback; and explicit reviewed Case merge/supersession.
+- TDD: Each slice began with missing-module or missing-method RED tests. Focused GREEN covers daemon auth/protocol/client retry, remote CLI/MCP sharing, ranking/compaction/cache performance, checkpoint replay/capture policy, platform registration commands, schema-v7 migration, relevance feedback, and non-automatic merge proposals.
+- Privacy: RPC request/response bodies and query text are not persisted. Feedback stores only a caller-computed SHA-256 digest and Boolean. Tokens/descriptors are owner-only. Raw-log policy is unchanged.
+- Commits: `6c67ae4`, `c4914ac`, `abc679f`, `427814a`, `d1953c6`, `00315c1`.
+- Verification: `npm run typecheck` passed; `npm test` passed 175/175 across 33 files; acceptance passed 2/2; Chromium passed 2/2 outside the macOS sandbox after the expected sandbox-only Mach-port denial; build and diff checks passed. A compiled foreground daemon reported its live `webUrl`, accepted remote project registration and concise checkpoint, and returned the expected compact Preflight card through a separate CLI process.
+- Blockers: None.

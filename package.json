@@ -12,7 +12,7 @@
     "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.build.json && node scripts/copy-static-assets.mjs && node scripts/prepare-bin.mjs",
     "test": "vitest run",
     "test:browser": "playwright test",
-    "test:acceptance": "vitest run tests/acceptance/first-release.test.ts",
+    "test:acceptance": "vitest run tests/acceptance",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "engines": {

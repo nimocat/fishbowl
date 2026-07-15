@@ -2,11 +2,19 @@
 
 ## Current Objective
 
-Complete final verification of the compatibility-focused EKG query/write efficiency implementation on `main`. The design is committed as `4d92625`; the implementation plan is `docs/superpowers/plans/2026-07-14-query-write-efficiency.md`.
+Complete final verification and integration of the daemon/relevance optimization on `codex/daemon-relevance-speed`. The implementation plan is `docs/superpowers/plans/2026-07-15-daemon-relevance-speed.md`.
 
 ## Status
 
-All seven production slices are implemented test-first: schema v6 and explicit event Case ownership, compact/paged Case projections, FTS candidates, indexed recursive cycle checks, atomic idempotent checkpoints, bounded content-free operation metrics, and import compatibility. Typecheck passes; Vitest passes 157/157 across 24 files; build and diff checks pass; Chromium passes 2/2 outside the restrictive filesystem sandbox. The runtime alias resolves to the existing project. Only the implementation commit remains.
+The main optimization slices are implemented and committed: authenticated persistent daemon; thin CLI/MCP clients; retry-safe operation IDs; Case-ranked sub-12-KiB Preflight cards and revision cache; concise `checkpoint_work`; schema-v7 digest-only feedback and reviewed merge proposals; no-admin macOS/Windows startup registration; and daemon-owned live Trace Bench. Release gates pass: typecheck, 175/175 Vitest, 2/2 acceptance, 2/2 Chromium outside the restrictive macOS sandbox, build, diff check, and compiled multi-process daemon/checkpoint/Preflight/web smoke.
+
+## Daemon/Relevance Disposition
+
+1. Normal CLI/MCP calls no longer open SQLite. The daemon opens it once and uses a versioned explicit RPC allowlist with a 32-byte owner token, loopback Host/origin enforcement, 64 KiB request cap, and 1,000-entry same-process replay cache.
+2. Preflight groups by Case, explains exact fingerprint/file/command/Guardrail/verified matches, returns at most five cards, compacts below 12 KiB, and caches by project event revision. Verified knowledge has no age-only expiry; candidates are down-ranked after 30/90 days.
+3. `checkpoint_work` records a minimal failed/notable workflow in one transaction and one application idempotency key. Routine successes can return `routine-success`; inferred roots are never auto-verified.
+4. Similarity creates proposals only. Applying a reviewed proposal explicitly retires the source Case and records `case_supersessions`; no text match auto-merges history.
+5. macOS uses a user LaunchAgent. Windows uses only the current-user Run key. Uninstall preserves the database. The daemon starts Trace Bench and reports its `webUrl` through status.
 
 ## Query/Write Efficiency Disposition
 

@@ -2,7 +2,11 @@
 
 ## Active Follow-up: Query and Write Efficiency
 
-**Status:** Complete and release-verified (2026-07-14)
+**Status:** Daemon/relevance optimization complete and release-verified (2026-07-15)
+
+The approved daemon/relevance plan in `docs/superpowers/plans/2026-07-15-daemon-relevance-speed.md` is implemented across its primary production slices: authenticated persistent RPC, thin CLI/MCP proxying, Case-level bounded Preflight cards and revision cache, concise idempotent work checkpoints, candidate staleness penalties, digest-only relevance feedback, reviewed Case merge proposals, no-admin macOS/Windows registration, auto-start, and daemon-owned live Trace Bench. Typecheck, 175 Vitest tests, two acceptance tests, two Chromium tests, build, diff checks, and a compiled remote-daemon/checkpoint/Preflight/web-URL smoke pass.
+
+**Previous status:** Complete and release-verified (2026-07-14)
 
 The seven compatibility-focused TDD tasks are complete: schema-v6 indexed Case history, compact/paged Case projections, FTS-backed candidate retrieval, indexed graph reachability, atomic checkpoint writes, content-safe operation metrics, and adapter/import compatibility. The deterministic performance suite, full Vitest suite, build, browser suite, two-axis review, and runtime worktree-alias verification pass. The executable plan is `docs/superpowers/plans/2026-07-14-query-write-efficiency.md`.
 
