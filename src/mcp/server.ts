@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { CallToolResult, ToolAnnotations } from '@modelcontextprotocol/sdk/types.js'
 import { z } from 'zod/v3'
 
-import type { KnowledgeServiceContract } from '../application/contracts.js'
+import type { AwaitableKnowledgeBackend } from '../application/backend.js'
 import { OperationMetrics } from '../application/operation-metrics.js'
 
 const MAX_ID_LENGTH = 200
@@ -378,14 +378,14 @@ function resultItemCount(result: unknown): number | null {
   return null
 }
 
-function invokeWithMetrics(
+async function invokeWithMetrics(
   metrics: OperationMetrics,
   toolName: string,
-  operation: () => unknown,
-): CallToolResult {
+  operation: () => unknown | Promise<unknown>,
+): Promise<CallToolResult> {
   const startedAt = performance.now()
   try {
-    const result = operation()
+    const result = await operation()
     metrics.record({
       operation: toolName,
       ok: true,
@@ -411,9 +411,9 @@ function invokeWithMetrics(
   }
 }
 
-export function createMcpServer(service: KnowledgeServiceContract): McpServer {
+export function createMcpServer(service: AwaitableKnowledgeBackend): McpServer {
   const metrics = new OperationMetrics()
-  const invoke = (toolName: string, operation: () => unknown): CallToolResult =>
+  const invoke = (toolName: string, operation: () => unknown | Promise<unknown>): Promise<CallToolResult> =>
     invokeWithMetrics(metrics, toolName, operation)
   const server = new McpServer({
     name: 'engineering-knowledge-graph',

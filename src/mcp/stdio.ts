@@ -1,14 +1,16 @@
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
-import { homedir } from 'node:os'
-import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { Readable, Writable } from 'node:stream'
 
+import type { AwaitableKnowledgeBackend } from '../application/backend.js'
 import { KnowledgeService } from '../application/knowledge-service.js'
+import { connectInstalledDaemon } from '../daemon/lifecycle.js'
 import { closeDatabase, openDatabase } from '../storage/database.js'
 import { createMcpServer } from './server.js'
 
 export interface StdioServerOptions {
+  backend?: AwaitableKnowledgeBackend
+  /** Explicit embedded test/recovery mode. Normal startup uses the daemon. */
   databasePath?: string
   input?: Readable
   output?: Writable
@@ -18,23 +20,19 @@ export interface StdioServerHandle {
   close(): Promise<void>
 }
 
-function defaultDatabasePath(): string {
-  const dataDirectory = process.env.EKG_DATA_DIR ?? join(homedir(), '.engineering-knowledge-graph', 'data')
-  return join(dataDirectory, 'knowledge.db')
-}
-
 export async function runStdioServer(
   options: StdioServerOptions = {},
 ): Promise<StdioServerHandle> {
-  const database = openDatabase(options.databasePath ?? defaultDatabasePath())
-  const server = createMcpServer(new KnowledgeService(database))
+  const database = options.databasePath ? openDatabase(options.databasePath) : undefined
+  const service = options.backend ?? (database ? new KnowledgeService(database) : connectInstalledDaemon().backend)
+  const server = createMcpServer(service)
   const transport = new StdioServerTransport(options.input, options.output)
   let closed = false
 
   try {
     await server.connect(transport)
   } catch (error) {
-    closeDatabase(database)
+    if (database) closeDatabase(database)
     throw error
   }
 
@@ -43,7 +41,7 @@ export async function runStdioServer(
       if (closed) return
       closed = true
       await server.close()
-      closeDatabase(database)
+      if (database) closeDatabase(database)
     },
   }
 }

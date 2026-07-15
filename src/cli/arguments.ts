@@ -3,6 +3,7 @@ import { join } from 'node:path'
 
 export interface ParsedArguments {
   dataDirectory: string
+  embedded: boolean
   command: CliCommand
 }
 
@@ -111,9 +112,16 @@ function operationId(reader: ArgumentReader): string | undefined {
 export function parseArguments(argv: string[]): ParsedArguments {
   const values = [...argv]
   let dataDirectory = defaultDataDirectory()
-  if (values[0] === '--data-dir') {
+  let embedded = false
+  while (values[0] === '--data-dir' || values[0] === '--embedded') {
+    if (values[0] === '--embedded') {
+      embedded = true
+      values.splice(0, 1)
+      continue
+    }
     if (!values[1]) throw new Error('--data-dir requires a value')
     dataDirectory = values[1]
+    embedded = true // Backward-compatible explicit test/recovery mode.
     values.splice(0, 2)
   }
   const reader = new ArgumentReader(values)
@@ -143,7 +151,7 @@ export function parseArguments(argv: string[]): ParsedArguments {
     const rest = reader.remaining()
     if (rest.some((value) => value.startsWith('--'))) throw new Error(`Unexpected argument: ${rest.find((value) => value.startsWith('--'))}`)
     command = { kind: 'query', projectId: id, text: rest.join(' ').trim() || undefined, filters }
-    return { dataDirectory, command }
+    return { dataDirectory, embedded, command }
   } else if (commandName === 'preflight') {
     command = { kind: 'preflight', projectId: projectId(reader), taskDescription: reader.required('--task'), command: reader.json<string[]>('--command-json', []), changedFiles: reader.json<string[]>('--changed-files-json', []) }
   } else if (commandName === 'run') {
@@ -182,5 +190,5 @@ export function parseArguments(argv: string[]): ParsedArguments {
   }
 
   reader.assertEmpty()
-  return { dataDirectory, command }
+  return { dataDirectory, embedded, command }
 }

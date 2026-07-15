@@ -6,7 +6,8 @@ import type { Writable } from 'node:stream'
 import { pathToFileURL } from 'node:url'
 
 import { KnowledgeService } from '../application/knowledge-service.js'
-import type { KnowledgeServiceContract } from '../application/contracts.js'
+import type { AwaitableKnowledgeBackend } from '../application/backend.js'
+import { connectInstalledDaemon } from '../daemon/lifecycle.js'
 import type { ImportSource } from '../imports/import-service.js'
 import type { ProjectGraphSnapshot } from '../imports/snapshot.js'
 import { startTraceBenchServer } from '../http/server.js'
@@ -23,6 +24,7 @@ interface OutputStream {
 export interface CliDependencies {
   stdout?: OutputStream
   stderr?: OutputStream
+  backend?: AwaitableKnowledgeBackend
 }
 
 function printJson(stream: OutputStream, value: unknown): void {
@@ -33,26 +35,26 @@ function project(projectId: string): { projectId: string } {
   return { projectId }
 }
 
-function dispatch(service: KnowledgeServiceContract, command: CliCommand): unknown {
+async function dispatch(service: AwaitableKnowledgeBackend, command: CliCommand): Promise<unknown> {
   switch (command.kind) {
-    case 'project-register': return service.registerProject(command)
-    case 'project-list': return service.listProjects()
-    case 'project-resolve': return service.resolveProject({ projectId: command.projectId, projectRoot: command.projectRoot })
-    case 'project-update': return service.updateProject({ project: project(command.projectId), name: command.name, description: command.description, addAlias: command.addAlias })
-    case 'query': return service.queryKnowledge({ ...command.filters, project: project(command.projectId), text: command.text })
-    case 'preflight': return service.preflight({ project: project(command.projectId), taskDescription: command.taskDescription, command: command.command, changedFiles: command.changedFiles })
-    case 'case-start': return service.recordProblem({ project: project(command.projectId), caseTitle: command.caseTitle, data: command.data as never, operationId: command.operationId })
-    case 'case-attempt': return service.recordAttempt({ project: project(command.projectId), caseId: command.caseId, problemId: command.problemId, previousAttemptId: command.previousAttemptId, data: command.data as never, operationId: command.operationId })
-    case 'case-root-cause': return service.recordRootCause({ project: project(command.projectId), caseId: command.caseId, problemId: command.problemId, failedAttemptIds: command.failedAttemptIds, status: command.status, humanConfirmed: command.humanConfirmed, data: command.data as never, operationId: command.operationId })
-    case 'case-solution': return service.recordSolution({ project: project(command.projectId), caseId: command.caseId, rootCauseId: command.rootCauseId, data: command.data as never, operationId: command.operationId })
-    case 'case-verify': return service.recordVerification({ project: project(command.projectId), caseId: command.caseId, solutionId: command.solutionId, data: command.data as never, operationId: command.operationId })
-    case 'case-close': return service.closeCase({ project: project(command.projectId), caseId: command.caseId, operationId: command.operationId })
-    case 'case-regress': return service.markRegression({ project: project(command.projectId), caseId: command.caseId, solutionId: command.solutionId, fingerprint: command.fingerprint, observedContext: command.observedContext, operationId: command.operationId })
-    case 'import-preview': return service.previewImport({ project: project(command.projectId), sources: command.sources as ImportSource[] })
-    case 'import-apply': return service.applyImport({ project: project(command.projectId), previewId: command.previewId, proposalIds: command.proposalIds, operationId: command.operationId })
-    case 'import-graph': return service.importProjectGraph({ project: project(command.projectId), archive: JSON.parse(readFileSync(command.file, 'utf8')) as ProjectGraphSnapshot, operationId: command.operationId })
-    case 'export': return service.exportProjectGraph({ project: project(command.projectId) })
-    case 'activity': return service.listRecentActivity({ project: project(command.projectId), afterSequence: command.afterSequence, limit: command.limit })
+    case 'project-register': return await service.registerProject(command)
+    case 'project-list': return await service.listProjects()
+    case 'project-resolve': return await service.resolveProject({ projectId: command.projectId, projectRoot: command.projectRoot })
+    case 'project-update': return await service.updateProject({ project: project(command.projectId), name: command.name, description: command.description, addAlias: command.addAlias })
+    case 'query': return await service.queryKnowledge({ ...command.filters, project: project(command.projectId), text: command.text })
+    case 'preflight': return await service.preflight({ project: project(command.projectId), taskDescription: command.taskDescription, command: command.command, changedFiles: command.changedFiles })
+    case 'case-start': return await service.recordProblem({ project: project(command.projectId), caseTitle: command.caseTitle, data: command.data as never, operationId: command.operationId })
+    case 'case-attempt': return await service.recordAttempt({ project: project(command.projectId), caseId: command.caseId, problemId: command.problemId, previousAttemptId: command.previousAttemptId, data: command.data as never, operationId: command.operationId })
+    case 'case-root-cause': return await service.recordRootCause({ project: project(command.projectId), caseId: command.caseId, problemId: command.problemId, failedAttemptIds: command.failedAttemptIds, status: command.status, humanConfirmed: command.humanConfirmed, data: command.data as never, operationId: command.operationId })
+    case 'case-solution': return await service.recordSolution({ project: project(command.projectId), caseId: command.caseId, rootCauseId: command.rootCauseId, data: command.data as never, operationId: command.operationId })
+    case 'case-verify': return await service.recordVerification({ project: project(command.projectId), caseId: command.caseId, solutionId: command.solutionId, data: command.data as never, operationId: command.operationId })
+    case 'case-close': return await service.closeCase({ project: project(command.projectId), caseId: command.caseId, operationId: command.operationId })
+    case 'case-regress': return await service.markRegression({ project: project(command.projectId), caseId: command.caseId, solutionId: command.solutionId, fingerprint: command.fingerprint, observedContext: command.observedContext, operationId: command.operationId })
+    case 'import-preview': return await service.previewImport({ project: project(command.projectId), sources: command.sources as ImportSource[] })
+    case 'import-apply': return await service.applyImport({ project: project(command.projectId), previewId: command.previewId, proposalIds: command.proposalIds, operationId: command.operationId })
+    case 'import-graph': return await service.importProjectGraph({ project: project(command.projectId), archive: JSON.parse(readFileSync(command.file, 'utf8')) as ProjectGraphSnapshot, operationId: command.operationId })
+    case 'export': return await service.exportProjectGraph({ project: project(command.projectId) })
+    case 'activity': return await service.listRecentActivity({ project: project(command.projectId), afterSequence: command.afterSequence, limit: command.limit })
     case 'run': throw new Error('run command requires asynchronous dispatch')
     default: throw new Error(`Command requires lifecycle handling: ${command.kind}`)
   }
@@ -73,7 +75,33 @@ export async function runCli(argv: string[], dependencies: CliDependencies = {})
     const parsed = parseArguments(argv)
     const databasePath = join(parsed.dataDirectory, 'knowledge.db')
     if (parsed.command.kind === 'mcp-stdio') {
-      await runStdioServer({ databasePath })
+      await runStdioServer(parsed.embedded ? { databasePath } : { backend: dependencies.backend })
+      return 0
+    }
+    if (!parsed.embedded && parsed.command.kind !== 'serve' && parsed.command.kind !== 'integrity') {
+      const service = dependencies.backend ?? connectInstalledDaemon().backend
+      if (parsed.command.kind === 'run') {
+        const result = await runCommand({
+          service,
+          rawLogs: new RawLogStore(parsed.dataDirectory),
+          projectId: parsed.command.projectId,
+          taskDescription: parsed.command.taskDescription,
+          changedFiles: parsed.command.changedFiles,
+          argv: parsed.command.argv,
+          cwd: process.cwd(),
+          caseId: parsed.command.commandCaseId,
+          attemptId: parsed.command.attemptId,
+          stdout: stdout as Writable,
+          stderr: stderr as Writable,
+          warn: (message) => stderr.write(`Warning: ${message}\n`),
+        })
+        return result.exitCode
+      }
+      const result = await dispatch(service, parsed.command)
+      if (parsed.command.kind === 'export' && parsed.command.output) {
+        writeFileSync(parsed.command.output, `${JSON.stringify(result, null, 2)}\n`, { mode: 0o600 })
+        printJson(stdout, { output: parsed.command.output })
+      } else printJson(stdout, result)
       return 0
     }
     const database = openDatabase(databasePath)
@@ -121,7 +149,7 @@ export async function runCli(argv: string[], dependencies: CliDependencies = {})
         }
         return result.exitCode
       }
-      const result = dispatch(new KnowledgeService(database), parsed.command)
+      const result = await dispatch(new KnowledgeService(database), parsed.command)
       if (parsed.command.kind === 'export' && parsed.command.output) {
         writeFileSync(parsed.command.output, `${JSON.stringify(result, null, 2)}\n`, { mode: 0o600 })
         printJson(stdout, { output: parsed.command.output })

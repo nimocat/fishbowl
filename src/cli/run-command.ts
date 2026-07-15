@@ -3,7 +3,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { constants as osConstants } from 'node:os'
 import type { Writable } from 'node:stream'
 
-import type { KnowledgeServiceContract } from '../application/contracts.js'
+import type { AwaitableKnowledgeBackend } from '../application/backend.js'
 import type { RawLogResult } from '../logs/raw-log-store.js'
 import { normalizeFingerprint } from '../domain/fingerprint.js'
 import { isPathWithinBoundary } from '../domain/policies.js'
@@ -17,7 +17,7 @@ const MAX_STORED_EXCERPT_BYTES = 8 * 1024
 const FORWARDED_SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGQUIT'] as const
 
 export interface RunCommandOptions {
-  service: KnowledgeServiceContract
+  service: AwaitableKnowledgeBackend
   rawLogs: { open(projectId: string): RawLogWriter }
   projectId: string
   taskDescription: string
@@ -61,14 +61,14 @@ export async function runCommand(options: RunCommandOptions): Promise<RunCommand
     throw new Error('argv must contain a command and non-empty arguments')
   }
   const warn = options.warn ?? ((message: string) => process.stderr.write(`Warning: ${message}\n`))
-  const resolved = options.service.resolveProject({ projectId: options.projectId })
+  const resolved = await options.service.resolveProject({ projectId: options.projectId })
   const project = { projectId: resolved.id }
-  const selected = options.service.listProjects().find((candidate) => candidate.id === resolved.id)
+  const selected = (await options.service.listProjects()).find((candidate) => candidate.id === resolved.id)
   const roots = selected ? [selected.root, ...selected.aliases.map((alias) => alias.root)] : [resolved.root]
   if (!isPathWithinBoundary(options.cwd, roots)) {
     throw new Error('cwd must be inside the selected project canonical root or alias')
   }
-  const preflight = options.service.preflight({
+  const preflight = await options.service.preflight({
     project,
     taskDescription: options.taskDescription,
     changedFiles: options.changedFiles ?? [],
@@ -81,7 +81,7 @@ export async function runCommand(options: RunCommandOptions): Promise<RunCommand
   const commandRunId = randomUUID()
   const startedAt = new Date()
   try {
-    options.service.recordCommandStarted({
+    await options.service.recordCommandStarted({
       project,
       commandRunId,
       command: redactArgv(options.argv),
@@ -173,7 +173,7 @@ export async function runCommand(options: RunCommandOptions): Promise<RunCommand
 
   const finishedAt = new Date()
   try {
-    const commandResult = options.service.recordCommandResult({
+    const commandResult = await options.service.recordCommandResult({
       project,
       commandRunId,
       caseId: options.caseId,
@@ -200,7 +200,7 @@ export async function runCommand(options: RunCommandOptions): Promise<RunCommand
       )
       const fingerprint = normalizeFingerprint(excerpt, { projectRoots: roots })
       const fingerprintKey = createHash('sha256').update(fingerprint).digest('hex')
-      const problem = options.service.recordProblem({
+      const problem = await options.service.recordProblem({
         project,
         sourceKey: { kind: 'command-fingerprint', key: fingerprintKey },
         data: {
@@ -210,7 +210,7 @@ export async function runCommand(options: RunCommandOptions): Promise<RunCommand
           fingerprint,
         },
       })
-      options.service.recordAttempt({
+      await options.service.recordAttempt({
         project,
         caseId: problem.caseId,
         problemId: problem.nodeId,

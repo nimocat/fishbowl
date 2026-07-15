@@ -32,6 +32,7 @@ describe('CLI arguments', () => {
       ]),
     ).toEqual({
       dataDirectory: '/tmp/ekg',
+      embedded: true,
       command: {
         kind: 'run',
         projectId: 'project-a',
