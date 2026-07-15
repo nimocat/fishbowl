@@ -53,7 +53,7 @@ flowchart LR
     E --> G["raw logs and artifacts"]
     E --> H["Trace Bench web app"]
     I["macOS launchd"] --> E
-    J["Windows user startup task"] --> E
+    J["Windows HKCU Run startup"] --> E
 ```
 
 ### 4.1 Daemon ownership
@@ -102,7 +102,7 @@ Install a per-user `launchd` agent. It starts at login, restarts after unexpecte
 
 ### 5.2 Windows
 
-Install a current-user Task Scheduler entry that starts at login and restarts after failure. It runs without an elevated administrator token. Paths and arguments are passed as structured process arguments; no shell command string is constructed.
+Install a current-user `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run` entry that starts the daemon at login without an elevated administrator token. Client health checks restart the daemon after an unexpected exit. Registry mutations use `reg.exe` with structured arguments; ordinary lifecycle operations do not construct a shell command string.
 
 ### 5.3 Health and updates
 
@@ -324,7 +324,7 @@ Create redacted, deterministic fixtures shaped like the observed S1 Pro workload
 ### 11.5 Cross-platform installation
 
 - macOS tests install, start, restart, login-start, diagnose, stop, and uninstall the user `launchd` agent.
-- Windows CI tests install, start, restart, login-start, diagnose, stop, and uninstall the current-user startup task.
+- Windows CI tests install, start, restart, validate the current-user `Run` entry, diagnose, stop, and uninstall the startup registration.
 - Both verify paths containing spaces and non-ASCII characters.
 - Both verify uninstall preserves data by default.
 
@@ -348,7 +348,7 @@ Release gates remain typecheck, unit/integration/acceptance tests, browser tests
 3. Case-level ranking, compact cards, size budgets, and project-revision cache.
 4. `checkpoint_work`, adapter-assigned idempotency, and bounded retry.
 5. Staleness scoring, relevance feedback, and merge proposals.
-6. macOS `launchd` and Windows user-task installers.
+6. macOS `launchd` and Windows `HKCU Run` installers.
 7. Migration, golden ranking/performance fixtures, documentation, and complete release verification.
 
 Each slice is implemented test-first and preserves current project isolation, redaction, graph validation, mixed verification, and append-only history contracts.
