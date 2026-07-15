@@ -219,7 +219,30 @@ node /absolute/path/to/engineering-knowledge-graph/dist/cli/main.js mcp --stdio
 
 The process writes MCP protocol frames to stdout, so do not wrap it with commands that print banners there. See [docs/mcp-client-configuration.md](docs/mcp-client-configuration.md) for client configurations.
 
-Large Case reads are projection-aware: `get_case` accepts `detail` as `summary`, `graph` (the default), or `full`; full history is paged. Agents should prefer `checkpoint_work` for concise capture and may use `record_checkpoint` for advanced batches. `report_relevance` stores only a 64-character context digest plus useful/not-useful feedback. `suggest_case_merges` never auto-merges; `apply_case_merge` requires an explicit reviewed proposal and operation ID.
+Large Case reads are projection-aware: `get_case` accepts `detail` as `summary`, `graph` (the default), or `full`; full history is paged. Agents should prefer `checkpoint_work` for concise capture and use `finalize_work` for a completed delivery containing commit, failed route, root cause, solution, verification, and merge facts. `record_checkpoint` remains available for advanced batches. `report_relevance` stores only a 64-character context digest plus useful/not-useful feedback. `suggest_case_merges` never auto-merges; `apply_case_merge` requires an explicit reviewed proposal and operation ID.
+
+`finalize_work` records facts only. It never executes Git, tests, builds, or device validation:
+
+```json
+{
+  "project": { "projectRoot": "/absolute/project" },
+  "operationId": "delivery-s1-20260715",
+  "task": "Keep schema-v1 and validate on device",
+  "outcome": "succeeded",
+  "summary": "Automated and physical-device checks passed",
+  "files": ["S1ProFeatureFrontend.swift"],
+  "commit": { "sha": "abc1234", "message": "fix: keep schema v1" },
+  "rootCause": { "explanation": "schema-v2 is unsupported", "confidence": 0.95, "evidence": ["device compiler output"] },
+  "solution": { "summary": "Keep schema-v1", "applicability": ["S1 Pro"], "limitations": ["schema-v2 unavailable"], "decisiveDifference": "Restored schema-v1" },
+  "verifications": [
+    { "kind": "automated", "succeeded": true, "command": ["xcodebuild", "test"], "excerpt": "tests passed" },
+    { "kind": "device", "succeeded": true, "excerpt": "device passed", "environment": { "destination": "iPhone 17 Pro" } }
+  ],
+  "merge": { "status": "merged", "targetBranch": "main", "mergeCommit": "def5678" }
+}
+```
+
+All `files`, `evidence`, applicability, limitation, and command entries are strings. Reuse the same `operationId` when retrying the same delivery. Device evidence is stored as human-kind evidence but is not considered human-confirmed unless `humanConfirmed: true` is supplied explicitly.
 
 ## Raw Logs And Retention
 

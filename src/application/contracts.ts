@@ -353,11 +353,11 @@ export interface FinalizeSolutionInput {
 
 export interface FinalizeVerificationEnvironment {
   destination?: string
-  platform?: string
-  osVersion?: string
+  os?: string
+  toolVersion?: string
   architecture?: string
+  scheme?: string
   configuration?: string
-  toolchain?: string
 }
 
 export interface FinalizeVerificationInput {

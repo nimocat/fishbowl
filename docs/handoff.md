@@ -2,11 +2,13 @@
 
 ## Current Objective
 
-Complete final verification and integration of the daemon/relevance optimization on `codex/daemon-relevance-speed`. The implementation plan is `docs/superpowers/plans/2026-07-15-daemon-relevance-speed.md`.
+Complete final verification of the precise `finalize_work` workflow. The design and implementation plan are `docs/superpowers/specs/2026-07-15-finalize-work-schema-design.md` and `docs/superpowers/plans/2026-07-15-finalize-work-schema.md`.
 
 ## Status
 
-The main optimization slices are implemented and committed: authenticated persistent daemon; thin CLI/MCP clients; retry-safe operation IDs; Case-ranked sub-12-KiB Preflight cards and revision cache; concise `checkpoint_work`; schema-v7 digest-only feedback and reviewed merge proposals; no-admin macOS/Windows startup registration; and daemon-owned live Trace Bench. Release gates pass: typecheck, 175/175 Vitest, 2/2 acceptance, 2/2 Chromium outside the restrictive macOS sandbox, build, diff check, and compiled multi-process daemon/checkpoint/Preflight/web smoke.
+`finalize_work` is implemented across the application service, authenticated daemon allowlist, and MCP adapter. It atomically records failed and successful Attempts, candidate RootCause/Solution, bounded verification evidence, and external commit/merge fact Artifacts. It does not execute Git, tests, builds, or device validation. MCP collection items are concrete strings and cross-field errors identify their field paths. Final release-gate results follow after verification.
+
+Final verification passed: typecheck; 195/195 Vitest across 37 files; 3/3 acceptance tests; production build; and `git diff --check`. The new acceptance journey uses two MCP clients through a real temporary authenticated daemon and verifies ordered Attempts, graph linkage, commit/merge facts, project isolation, bounded reads, and idempotent replay. Static inspection found no Git or subprocess execution in the `finalize_work` application/MCP path.
 
 Post-merge installation exposed and fixed npm symlink execution: direct CLI/MCP detection now compares real paths, with a regression test. The current-user macOS LaunchAgent is installed and running; `ekg daemon status` is the authoritative way to retrieve its current dynamic Trace Bench URL.
 

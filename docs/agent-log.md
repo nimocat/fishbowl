@@ -190,3 +190,11 @@
 - Root cause evidence: daemon CLI and `/api/v1/projects` both returned `[]`; the new macOS default database under `~/Library/Application Support/EKG` was 4 KiB and empty, while the legacy `~/.engineering-knowledge-graph/data/knowledge.db` was about 2.9 MB and contained `yqshunjian-ios-codex`. The default-directory migration had been omitted.
 - Fix: Added startup migration that runs only for the platform default destination, only when the legacy database contains projects, and only when the destination has none. SQLite backup creates a consistent temporary database; an existing empty destination is renamed to a timestamped backup before atomic replacement. Populated destinations and explicit custom data directories are never overwritten.
 - Verification: Migration tests pass for both empty and populated destinations. The real LaunchAgent restart migrated the project and preserved `/Users/eric/Library/Application Support/EKG/knowledge.db.pre-legacy-migration-1784119186695.bak`. CLI and the new Trace Bench API both return `yqshunjian-ios-codex`.
+
+## 2026-07-15 22:55 CST - Precise Finalized Delivery Capture Implemented
+
+- Goal: Reduce MCP write friction and preserve the decisive successful route, failed routes, root cause, verification, commit, and merge facts in one reusable operation.
+- Completed: Added exact collection schemas and `finalize_work` across application, daemon, and MCP. The operation validates the complete envelope before mutation, records one project-scoped graph transaction, stores bounded external Git-fact Artifacts without reading or executing Git, and replays by stable `operationId`.
+- Decisions: Case reuse requires explicit `caseId` or exact normalized fingerprint; fuzzy text never selects a Case. Device verification maps to human-kind evidence but does not auto-confirm it. RootCause and Solution remain candidates under existing mixed-verification promotion policy.
+- TDD: Added pure conditional validation, graph/service rollback and idempotency, MCP discovery/path validation, authenticated daemon dispatch, and two-client daemon-backed MCP acceptance coverage.
+- Verification: Final release-gate results are recorded in `docs/handoff.md`.

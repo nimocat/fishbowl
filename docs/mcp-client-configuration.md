@@ -93,7 +93,9 @@ Add this entry to `opencode.json` or `opencode.jsonc`:
 
 ## Verify The Connection
 
-Use the client's MCP server list to confirm that `engineering-knowledge-graph` exposes tools such as `get_preflight_guidance`, `checkpoint_work`, `report_relevance`, and `suggest_case_merges`. CLI and every MCP client share the daemon-owned database automatically. Set `EKG_DATA_DIR` only when intentionally selecting a non-default isolated store, and use the identical value for daemon installation/startup.
+Use the client's MCP server list to confirm that `engineering-knowledge-graph` exposes tools such as `get_preflight_guidance`, `checkpoint_work`, `finalize_work`, `report_relevance`, and `suggest_case_merges`. CLI and every MCP client share the daemon-owned database automatically. Set `EKG_DATA_DIR` only when intentionally selecting a non-default isolated store, and use the identical value for daemon installation/startup.
+
+Use `finalize_work` as the fixed “提交事实＋验证事实＋合并事实” recording template. It never runs Git or validation commands. Its arrays contain strings, its retry key is `operationId`, and device evidence does not become human-confirmed unless the caller explicitly supplies `humanConfirmed: true`. Prefer an explicit `caseId`; without one, only an exact normalized fingerprint may reuse a Case.
 
 If startup fails, verify all three directly:
 

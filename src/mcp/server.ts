@@ -150,11 +150,11 @@ const verificationData = z
 
 const finalizeEnvironment = z.object({
   destination: text.optional().describe('Explicit simulator, device, or host destination.'),
-  platform: text.optional(),
-  osVersion: text.optional(),
+  os: text.optional(),
+  toolVersion: text.optional(),
   architecture: text.optional(),
+  scheme: text.optional(),
   configuration: text.optional(),
-  toolchain: text.optional(),
 }).strict()
 
 const finalizeVerification = z.object({
