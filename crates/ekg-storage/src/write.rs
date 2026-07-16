@@ -1,10 +1,12 @@
 use chrono::Utc;
 use ekg_contracts::{
-    NodeStatus, NodeWriteResult, ProjectReference, PromotionStatus, RecordAttemptInput,
+    CommandResultWriteResult, CommandStartedResult, NodeStatus, NodeWriteResult, ProjectReference,
+    PromotionStatus, RecordAttemptInput, RecordCommandResultInput, RecordCommandStartedInput,
     RecordProblemInput, SourceKey, Validate,
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
@@ -72,12 +74,13 @@ impl WriteRepository {
         validate_identity(input.operation_id.as_deref(), input.source_key.as_ref())?;
         let transaction = self.connection.transaction()?;
         let project_id = resolve_project(&transaction, &input.project)?;
-        if let Some(result) = replay_operation(
+        if let Some(mut result) = replay_operation::<NodeWriteResult>(
             &transaction,
             &project_id,
             input.operation_id.as_deref(),
             "record_problem",
         )? {
+            result.created = false;
             transaction.commit()?;
             return Ok(result);
         }
@@ -219,12 +222,13 @@ impl WriteRepository {
         validate_identity(input.operation_id.as_deref(), input.source_key.as_ref())?;
         let transaction = self.connection.transaction()?;
         let project_id = resolve_project(&transaction, &input.project)?;
-        if let Some(result) = replay_operation(
+        if let Some(mut result) = replay_operation::<NodeWriteResult>(
             &transaction,
             &project_id,
             input.operation_id.as_deref(),
             "record_attempt",
         )? {
+            result.created = false;
             transaction.commit()?;
             return Ok(result);
         }
@@ -321,6 +325,132 @@ impl WriteRepository {
         transaction.commit()?;
         Ok(write_result)
     }
+
+    pub fn record_command_started(
+        &mut self,
+        input: RecordCommandStartedInput,
+    ) -> Result<CommandStartedResult, WriteError> {
+        input.project.validate().map_err(|_| WriteError::Contract)?;
+        if input.command_run_id.trim().is_empty()
+            || input.command.is_empty()
+            || input.command.iter().any(|part| part.trim().is_empty())
+        {
+            return Err(WriteError::Validation("command start"));
+        }
+        let transaction = self.connection.transaction()?;
+        let project_id = resolve_project(&transaction, &input.project)?;
+        require_project_path(&transaction, &project_id, &input.working_directory)?;
+        let result = CommandStartedResult {
+            command_run_id: redact_string(&input.command_run_id),
+        };
+        append_event(
+            &transaction,
+            &project_id,
+            None,
+            "command.started",
+            &result.command_run_id,
+            &json!({
+                "commandRunId": result.command_run_id,
+                "command": input.command.into_iter().map(|part| redact_string(&part)).collect::<Vec<_>>(),
+                "workingDirectory": input.working_directory,
+                "startedAt": input.started_at,
+            }),
+            &timestamp(),
+        )?;
+        transaction.commit()?;
+        Ok(result)
+    }
+
+    pub fn record_command_result(
+        &mut self,
+        input: RecordCommandResultInput,
+    ) -> Result<CommandResultWriteResult, WriteError> {
+        input.project.validate().map_err(|_| WriteError::Contract)?;
+        if input.command.is_empty() || input.command.iter().any(|part| part.trim().is_empty()) {
+            return Err(WriteError::Validation("command result"));
+        }
+        let transaction = self.connection.transaction()?;
+        let project_id = resolve_project(&transaction, &input.project)?;
+        if let Some(mut result) = replay_operation::<CommandResultWriteResult>(
+            &transaction,
+            &project_id,
+            input.operation_id.as_deref(),
+            "record_command_result",
+        )? {
+            result.created = false;
+            transaction.commit()?;
+            return Ok(result);
+        }
+        require_project_path(&transaction, &project_id, &input.working_directory)?;
+        if let Some(case_id) = &input.case_id {
+            require_case(&transaction, &project_id, case_id)?;
+        }
+        if let Some(attempt_id) = &input.attempt_id {
+            let case_id = input
+                .case_id
+                .as_deref()
+                .ok_or(WriteError::Validation("attempt requires case"))?;
+            require_node(&transaction, &project_id, case_id, attempt_id, "Attempt")?;
+        }
+        let command_run_id = input.command_run_id.clone().unwrap_or_else(id);
+        let command = input
+            .command
+            .iter()
+            .map(|part| redact_string(part))
+            .collect::<Vec<_>>();
+        let excerpt = redact_string(&input.excerpt);
+        transaction.execute(
+            "INSERT INTO command_runs (id, project_id, case_id, attempt_node_id, command, working_directory, exit_status, signal, duration_ms, excerpt, raw_log_path, raw_log_digest, started_at, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            params![
+                command_run_id,
+                project_id,
+                input.case_id,
+                input.attempt_id,
+                serde_json::to_string(&command)?,
+                input.working_directory,
+                input.exit_status,
+                input.signal.as_deref().map(redact_string),
+                input.duration_ms,
+                excerpt,
+                input.raw_log_path.as_deref().map(redact_string),
+                input.raw_log_digest.as_deref().map(redact_string),
+                input.started_at,
+                input.finished_at,
+            ],
+        )?;
+        let result = CommandResultWriteResult {
+            command_run_id: command_run_id.clone(),
+            created: true,
+        };
+        let now = timestamp();
+        append_event(
+            &transaction,
+            &project_id,
+            input.case_id.as_deref(),
+            "command.recorded",
+            &command_run_id,
+            &json!({"commandRunId": command_run_id, "caseId": input.case_id, "attemptId": input.attempt_id, "command": command, "exitStatus": input.exit_status, "excerpt": excerpt}),
+            &now,
+        )?;
+        append_event(
+            &transaction,
+            &project_id,
+            input.case_id.as_deref(),
+            "command.completed",
+            &command_run_id,
+            &json!({"commandRunId": command_run_id, "caseId": input.case_id, "exitStatus": input.exit_status, "signal": input.signal}),
+            &now,
+        )?;
+        store_operation(
+            &transaction,
+            &project_id,
+            input.operation_id.as_deref(),
+            "record_command_result",
+            &result,
+        )?;
+        transaction.commit()?;
+        Ok(result)
+    }
 }
 
 fn validate_identity(
@@ -393,12 +523,12 @@ fn require_node(
     found.ok_or(WriteError::OwnershipMismatch)
 }
 
-fn replay_operation(
+fn replay_operation<T: DeserializeOwned>(
     transaction: &Transaction<'_>,
     project_id: &str,
     operation_id: Option<&str>,
     kind: &str,
-) -> Result<Option<NodeWriteResult>, WriteError> {
+) -> Result<Option<T>, WriteError> {
     let Some(operation_id) = operation_id else {
         return Ok(None);
     };
@@ -415,9 +545,35 @@ fn replay_operation(
     if stored_kind != kind {
         return Err(WriteError::OperationConflict);
     }
-    let mut result: NodeWriteResult = serde_json::from_str(&result)?;
-    result.created = false;
+    let result = serde_json::from_str(&result)?;
     Ok(Some(result))
+}
+
+fn require_project_path(
+    transaction: &Transaction<'_>,
+    project_id: &str,
+    path: &str,
+) -> Result<(), WriteError> {
+    let canonical = transaction.query_row(
+        "SELECT canonical_root FROM projects WHERE id = ?",
+        params![project_id],
+        |row| row.get::<_, String>(0),
+    )?;
+    let mut roots = vec![canonical];
+    roots.extend(
+        transaction
+            .prepare("SELECT root FROM project_aliases WHERE project_id = ?")?
+            .query_map(params![project_id], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?,
+    );
+    if roots
+        .iter()
+        .any(|root| path == root || path.starts_with(&format!("{}/", root.trim_end_matches('/'))))
+    {
+        Ok(())
+    } else {
+        Err(WriteError::OwnershipMismatch)
+    }
 }
 
 fn replay_source(
@@ -593,9 +749,10 @@ fn redact_string(value: &str) -> String {
             continue;
         }
         let lower = part.to_ascii_lowercase();
+        let credential = lower.trim_start_matches('-');
         if ["password:", "token:", "authorization:", "secret:"]
             .iter()
-            .any(|marker| lower == *marker)
+            .any(|marker| credential == *marker)
         {
             parts.push(format!("{part}[REDACTED]"));
             redact_next = true;
@@ -608,7 +765,7 @@ fn redact_string(value: &str) -> String {
             "secret=",
         ]
         .iter()
-        .any(|prefix| lower.starts_with(prefix))
+        .any(|prefix| credential.starts_with(prefix))
         {
             let separator = part.find(['=', ':']).unwrap_or(part.len());
             parts.push(format!(

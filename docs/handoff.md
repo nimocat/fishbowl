@@ -80,9 +80,10 @@ vertical slice covers Problem and Attempt with project ownership,
 operation/source idempotency, event/edge/FTS ordering, recursive redaction, and
 transaction rollback at four injected mutation points. A focused sentinel
 test caught and fixed a `token: value` cross-word redaction leak. All remaining
-write classes, aggregate operations, migration/backup/recovery, and snapshot
-parity are still required; the installed TypeScript daemon remains the sole
-writer.
+node write classes, aggregate operations, migration/backup/recovery, and
+snapshot parity are still required. Command start/result is also implemented
+with project-root ownership, lifecycle events, argv/excerpt redaction, and
+operation replay. The installed TypeScript daemon remains the sole writer.
 
 The implementation order, TDD fixtures, phase exit gates, rollout states, and
 rollback rules are specified in

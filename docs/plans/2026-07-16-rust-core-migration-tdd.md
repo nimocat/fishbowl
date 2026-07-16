@@ -530,12 +530,14 @@ Current progress:
 
 - Added strict Rust Problem/Attempt write DTOs and a writable repository with
   one SQLite transaction per operation.
+- Added command-start and command-result DTOs/writes with project-root
+  ownership, argv/excerpt redaction, lifecycle events, and operation replay.
 - Project ownership, operation-ID replay, source-key replay/type checks,
   event/edge/search ordering, recursive redaction, and four injected rollback
   points pass focused tests.
 - A RED/GREEN cycle found that `token: value` could leak the value after a
   whitespace separator; stateful cross-token redaction now covers it.
-- No installed write route has changed. Command writes, remaining graph nodes,
+- No installed write route has changed. Remaining graph nodes,
   checkpoint/finalize, close/regression, relevance/merge, import/export, schema
   migration, backup, and recovery remain required before Stage 6 cutover.
 

@@ -368,3 +368,6 @@
 - Boundary: this is only the Stage 6 foundation. No installed route changed,
   and the phase remains incomplete until every write class plus migration and
   recovery acceptance passes.
+- Next slice GREEN: command start/result now enforces project-root ownership,
+  stores one redacted command row, appends ordered started/recorded/completed
+  lifecycle events, and replays an operation ID without duplicate rows.

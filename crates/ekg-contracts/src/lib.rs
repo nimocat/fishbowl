@@ -195,6 +195,57 @@ pub struct RecordAttemptInput {
     pub data: WriteAttemptData,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RecordCommandStartedInput {
+    pub project: ProjectReference,
+    pub command_run_id: String,
+    pub command: Vec<String>,
+    pub working_directory: String,
+    pub started_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CommandStartedResult {
+    pub command_run_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RecordCommandResultInput {
+    pub project: ProjectReference,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command_run_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub operation_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub case_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attempt_id: Option<String>,
+    pub command: Vec<String>,
+    pub working_directory: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exit_status: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signal: Option<String>,
+    pub duration_ms: u64,
+    pub excerpt: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub raw_log_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub raw_log_digest: Option<String>,
+    pub started_at: String,
+    pub finished_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CommandResultWriteResult {
+    pub command_run_id: String,
+    pub created: bool,
+}
+
 impl Validate for ProjectReference {
     fn validate(&self) -> Result<(), ErrorCode> {
         match (&self.project_id, &self.project_root) {

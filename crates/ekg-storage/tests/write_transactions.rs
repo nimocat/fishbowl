@@ -1,6 +1,6 @@
 use ekg_contracts::{
-    ProjectReference, RecordAttemptInput, RecordProblemInput, SourceKey, WriteAttemptData,
-    WriteProblemData,
+    ProjectReference, RecordAttemptInput, RecordCommandResultInput, RecordCommandStartedInput,
+    RecordProblemInput, SourceKey, WriteAttemptData, WriteProblemData,
 };
 use ekg_storage::{WriteFaultPoint, WriteRepository};
 use rusqlite::Connection;
@@ -122,6 +122,57 @@ fn every_injected_problem_failure_rolls_back_the_complete_transaction() {
     }
 }
 
+#[test]
+fn command_lifecycle_is_project_owned_redacted_and_idempotent() {
+    let path = database("command");
+    let mut repository = WriteRepository::open(path.to_str().unwrap()).unwrap();
+    let started = repository
+        .record_command_started(RecordCommandStartedInput {
+            project: project("project-a"),
+            command_run_id: "run-1".into(),
+            command: vec!["tool".into(), "TOKEN=secret-value".into()],
+            working_directory: "/project/a".into(),
+            started_at: "2026-07-16T00:00:00Z".into(),
+        })
+        .unwrap();
+    assert_eq!(started.command_run_id, "run-1");
+    let input = RecordCommandResultInput {
+        project: project("project-a"),
+        command_run_id: Some("run-1".into()),
+        operation_id: Some("command-op".into()),
+        case_id: None,
+        attempt_id: None,
+        command: vec!["tool".into(), "--password=secret-value".into()],
+        working_directory: "/project/a".into(),
+        exit_status: Some(0),
+        signal: None,
+        duration_ms: 10,
+        excerpt: "authorization: secret-value".into(),
+        raw_log_path: None,
+        raw_log_digest: None,
+        started_at: "2026-07-16T00:00:00Z".into(),
+        finished_at: "2026-07-16T00:00:01Z".into(),
+    };
+    assert!(
+        repository
+            .record_command_result(input.clone())
+            .unwrap()
+            .created
+    );
+    assert!(!repository.record_command_result(input).unwrap().created);
+    drop(repository);
+    let connection = Connection::open(&path).unwrap();
+    assert_eq!(
+        connection
+            .query_row("SELECT count(*) FROM command_runs", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+    assert!(!database_text(&connection).contains("secret-value"));
+    std::fs::remove_file(path).unwrap();
+}
+
 fn problem_input(operation_id: &str) -> RecordProblemInput {
     RecordProblemInput {
         project: project("project-a"),
@@ -164,6 +215,8 @@ fn database(label: &str) -> std::path::PathBuf {
              CREATE TABLE fingerprints (id TEXT PRIMARY KEY, project_id TEXT, problem_node_id TEXT, algorithm TEXT, value TEXT, created_at TEXT, UNIQUE(project_id,algorithm,value));
              CREATE TABLE source_keys (id TEXT PRIMARY KEY, project_id TEXT, source_kind TEXT, source_key TEXT, node_id TEXT, created_at TEXT, UNIQUE(project_id,source_kind,source_key));
              CREATE TABLE operation_results (id TEXT PRIMARY KEY, project_id TEXT, operation_id TEXT, kind TEXT, result TEXT, created_at TEXT, UNIQUE(project_id,operation_id));
+             CREATE TABLE command_runs (id TEXT PRIMARY KEY, project_id TEXT, case_id TEXT, attempt_node_id TEXT, command TEXT, working_directory TEXT, exit_status INTEGER, signal TEXT, duration_ms INTEGER, excerpt TEXT, raw_log_path TEXT, raw_log_digest TEXT, started_at TEXT, finished_at TEXT);
+             CREATE TABLE artifacts (id TEXT PRIMARY KEY, project_id TEXT, node_id TEXT, kind TEXT, uri TEXT, digest TEXT, is_external INTEGER, metadata TEXT, created_at TEXT);
              CREATE TABLE events (sequence INTEGER PRIMARY KEY AUTOINCREMENT, project_id TEXT, type TEXT, aggregate_id TEXT, payload TEXT, occurred_at TEXT, case_id TEXT);
              CREATE VIRTUAL TABLE node_search USING fts5(project_id UNINDEXED,node_id UNINDEXED,title,body,tokenize='unicode61');
              INSERT INTO projects VALUES ('project-a','A',NULL,'/project/a','2026-07-16T00:00:00Z');
@@ -201,6 +254,7 @@ fn database_text(connection: &Connection) -> String {
         ("nodes", "data"),
         ("events", "payload"),
         ("operation_results", "result"),
+        ("command_runs", "command || excerpt"),
     ] {
         let mut statement = connection
             .prepare(&format!("SELECT {columns} FROM {table}"))
