@@ -1,5 +1,29 @@
 # Complete First Release Implementation Plan
 
+## Active Migration: Rust Hierarchical Retrieval Core
+
+**Status:** Round 1 vertical slice complete; daemon/MCP cutover pending (2026-07-16)
+
+The accepted direction is documented in
+`docs/specs/2026-07-16-rust-hierarchical-retrieval.md`. Durable storage,
+retrieval, ranking, Guardrail policy, graph traversal, transactions, redaction
+enforcement, and metrics will migrate to Rust. TypeScript remains a temporary
+protocol and presentation layer.
+
+Completed in the first slice:
+
+- dependency-free Rust Unicode prefix tree and bilingual query routing;
+- explicit Guardrail all-of/any-of semantics in Rust;
+- read-only Rust SQLite adapter with event-revision cache invalidation;
+- 10,000-Case cold/warm performance gates;
+- removal of an O(n²) correlated domain lookup from the Rust loading path.
+
+Next slices: versioned Rust daemon query contract, TypeScript MCP adapter
+cutover, deterministic hierarchy/community construction, bounded graph
+diffusion, then transactional write migration. The TypeScript application and
+storage core cannot be removed until parity, migration, recovery, and release
+gates pass.
+
 ## Active Follow-up: Query and Write Efficiency
 
 **Status:** Daemon/relevance optimization complete and release-verified (2026-07-15)

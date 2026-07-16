@@ -2,7 +2,28 @@
 
 ## Current Objective
 
-Complete final verification of the precise `finalize_work` workflow. The design and implementation plan are `docs/superpowers/specs/2026-07-15-finalize-work-schema-design.md` and `docs/superpowers/plans/2026-07-15-finalize-work-schema.md`.
+Migrate EKG's knowledge engine to Rust and introduce deterministic hierarchical
+retrieval. The active design is
+`docs/specs/2026-07-16-rust-hierarchical-retrieval.md`.
+
+## Rust Migration Status
+
+Round 1 is implemented on `codex/ekg-efficiency-rounds`. `ekg-core` provides a
+project/domain Unicode prefix tree with Han bigram routing and explicit
+Guardrail all-of/any-of semantics. `ekg-daemon` reads the existing core SQLite
+tables in query-only mode, builds one cached tree per project, and invalidates
+it using the project event revision.
+
+The first 10,000-Case daemon benchmark exposed a correlated per-node domain
+subquery: cold load was 10,010.541ms. Replacing it with one grouped CTE reduced
+debug cold load to 1,147.123ms (88.54%). The release result is 177.349ms cold,
+6.292µs warm p50, and 7.625µs warm p95. Pure release tree lookup is 1.417µs
+p95. These numbers exclude MCP transport and full response construction.
+
+The Rust query path is not yet wired into the installed daemon. Next, add the
+versioned Rust response contract and persistent process client, replay the
+TypeScript query/preflight golden set against Rust, then switch reads. Do not
+duplicate new retrieval or Guardrail policy in TypeScript.
 
 ## Status
 

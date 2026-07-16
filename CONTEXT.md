@@ -6,7 +6,12 @@ Engineering Knowledge Graph (EKG) is a local-first service for preserving the pa
 
 ## Architecture
 
-- Node.js 22 and TypeScript.
+- Migration target: Rust owns the knowledge engine; TypeScript is limited to
+  MCP/HTTP adaptation and browser presentation. The current Node.js 22 core
+  remains operational only until each Rust vertical slice passes parity.
+- The Rust workspace begins with `ekg-core` (Unicode hierarchical routing and
+  Guardrail policy) and `ekg-daemon` (read-only SQLite loading plus
+  revision-cached retrieval).
 - SQLite in WAL mode is the authoritative materialized store.
 - The append-only `events` table is an audit log and live-update cursor, not a complete event-sourcing replay log.
 - `KnowledgeService` is the transport-neutral application boundary.
@@ -52,6 +57,10 @@ Engineering Knowledge Graph (EKG) is a local-first service for preserving the pa
 - Snapshot structure is iteratively bounded by depth, entry count, and encoded bytes before recursive redaction; exports enforce per-collection and aggregate byte limits.
 - Snapshot import canonicalizes every non-external Artifact row and Artifact-node URI against destination project roots or the service data directory before mutation. External URIs remain unmaterialized references.
 - Text queries use project-scoped FTS5 candidates. Preflight uses a bounded FTS candidate set for relevant knowledge while still evaluating the complete project-scoped Guardrail set before applying caller limits.
+- The Rust migration replaces flat FTS-only candidate routing with a
+  deterministic project → domain → prefix tree → Case path, followed later by
+  deterministic k-core communities and bounded graph diffusion. Exact verified
+  knowledge and blocking Guardrails remain independent of approximate recall.
 - `get_case` defaults to the graph projection without history; summary and cursor-paged full projections keep large Case reads bounded.
 - `record_checkpoint` atomically dispatches up to 25 existing write commands under one project and one idempotency key.
 - `checkpoint_work` is the concise capture path: failures always record; routine successes may skip; optional RootCause/Solution assertions remain candidates until mixed verification.

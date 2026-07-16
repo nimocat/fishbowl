@@ -198,3 +198,25 @@
 - Decisions: Case reuse requires explicit `caseId` or exact normalized fingerprint; fuzzy text never selects a Case. Device verification maps to human-kind evidence but does not auto-confirm it. RootCause and Solution remain candidates under existing mixed-verification promotion policy.
 - TDD: Added pure conditional validation, graph/service rollback and idempotency, MCP discovery/path validation, authenticated daemon dispatch, and two-client daemon-backed MCP acceptance coverage.
 - Verification: Final release-gate results are recorded in `docs/handoff.md`.
+# 2026-07-16 - Rust Hierarchical Retrieval Round 1
+
+- Goal: begin a paper-informed tree retrieval migration and move the EKG core
+  from TypeScript to Rust while retaining the existing database and protocol.
+- Research: RAPTOR, GraphRAG, HippoRAG, HNSW, ColBERTv2, LightRAG, Adaptive
+  Radix Tree, and deterministic k-core GraphRAG hierarchy work informed a
+  three-stage design: exact routing tree, hierarchical knowledge tree, bounded
+  graph expansion/reranking.
+- RED: the legacy engine failed compound Chinese recall and alternative
+  Guardrail-trigger experiments. The first Rust SQLite benchmark also failed
+  its cold-start gate at 10,010.541ms because domain extraction used a
+  correlated subquery per node.
+- GREEN: added `ekg-core` and `ekg-daemon`; native tests cover Chinese routing,
+  project/domain isolation, any/all Guardrail semantics, existing-table SQLite
+  reads, revision cache reuse, and 10,000-Case bounds. A grouped CTE reduced
+  debug cold load by 88.54% to 1,147.123ms.
+- Release benchmark: 177.349ms cold SQLite-to-tree load; warm p50 6.292µs and
+  p95 7.625µs. Pure tree build was 132.340ms and query p95 1.417µs.
+- Boundary: this is a read-only migration slice and is not yet connected to
+  the installed MCP daemon. TypeScript remains the active engine until Rust
+  returns the complete bounded query/preflight contract.
+- EKG Case: `087bb44e-24ac-4a75-a49b-3a7f74935f89`.

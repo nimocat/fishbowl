@@ -13,6 +13,8 @@
     "test": "vitest run",
     "test:browser": "playwright test",
     "test:acceptance": "vitest run tests/acceptance",
+    "test:rust": "cargo test --workspace",
+    "test:rust:release": "cargo test --release --workspace",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "engines": {
