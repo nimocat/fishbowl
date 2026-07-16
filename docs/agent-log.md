@@ -519,3 +519,29 @@
   waits for confirmed exit and fails if a daemon survives. Focused CLI tests
   pass and a post-test process scan returns zero temporary daemons. Normal CLI
   and installed LaunchAgent startup remain detached.
+- Production cutover completed after explicit user authorization. Quiesced
+  backups are under `backups/native-cutover-20260717-011816`; all 18 business
+  tables passed strict-superset containment, the full backup hash became the
+  platform-default database hash, and rollback branch
+  `rollback/ekg-pre-rust-20260717-011816` preserves pre-cutover `a6d8fbd`.
+- Installed-data RED/GREEN 1: Trace Bench full Case returned HTTP 500 because
+  an absent history cursor bound `u64::MAX` into SQLite's signed INTEGER.
+  A focused test reproduced `ToSqlConversionFailure`; the read path now caps
+  absent or oversized cursors at `i64::MAX`. The installed Case endpoint then
+  returned 200 with five bounded history records.
+- Installed-data RED/GREEN 2: `ekg integrity` remained pending while the live
+  daemon owned the production database because integrity reopened it through
+  the writable schema manager. Integrity now opens every existing database
+  read-only with a bounded wait and preserves first-run initialization only
+  when no database exists. The installed command returns `quick_check: ok`
+  without stopping the daemon.
+- Final installed acceptance: LaunchAgent PID, descriptor PID, listener owner,
+  and both live database file descriptors resolve to one packaged Rust process;
+  no Node daemon, temporary test daemon, or `better-sqlite3` dependency remains.
+  Static/projects/graph/Case/activity/SSE returned 200 with hardened headers;
+  invalid Origin/Host returned 403 and unauthenticated RPC returned 401.
+  Counts after the idempotent acceptance checkpoint are 1,280 events, 81 Cases,
+  and 448 nodes. Final benchmark measured 0.344 ms warm RPC p95, 1.582 ms
+  checkpoint p95, and 0.027 ms daemon Preflight execution p95. Rust workspace
+  tests and Vitest 48/48 pass. The migration Case remains candidate until the
+  user confirms the installed experience, as required by the trust policy.

@@ -125,6 +125,36 @@ Keep the migration Case candidate until the user confirms the installed
 experience. Only then record human verification, close the Case, and mark the
 project goal complete.
 
+## Executed cutover record (2026-07-17)
+
+The user explicitly authorized the cutover. The production installation is now
+native Rust at commit `1df7bdb`; rollback branch
+`rollback/ekg-pre-rust-20260717-011816` preserves `a6d8fbd`. Quiesced source and
+default backups, hashes, and the prior descriptor/PID files are retained under:
+
+```text
+/Users/eric/Library/Application Support/EKG/backups/native-cutover-20260717-011816
+```
+
+The strict 18-table containment audit passed before the atomic rename. The
+installed idempotency checkpoint replayed the same Attempt ID without changing
+the event count on the second request. Two production-only acceptance defects
+were fixed before completion: unsigned full-Case history cursor overflow and a
+writable online integrity reopen. Final installed results are:
+
+- one packaged `ekg-rust-core` LaunchAgent owns the default database and IPv4
+  loopback listener; there is no Node or temporary test daemon;
+- `ekg integrity` returns `quick_check: ok` while that daemon remains online;
+- projects, graph, full Case/history, activity, static assets, and SSE pass;
+  cross-origin/invalid-Host reads return 403 and unauthenticated RPC returns 401;
+- database counts are 1,280 events, 81 Cases, and 448 nodes;
+- warm RPC p95 is 0.344 ms, checkpoint p95 is 1.582 ms, and daemon Preflight
+  execution p95 is 0.027 ms;
+- Rust workspace tests and all 48 TypeScript adapter/UI tests pass.
+
+Operational acceptance is complete. Trust promotion remains intentionally
+pending the user's post-install human confirmation.
+
 ## Rollback
 
 1. Boot out the native LaunchAgent and verify no process holds the database.
