@@ -11,8 +11,21 @@ use tower::ServiceExt;
 struct FixtureDispatcher;
 
 impl RpcDispatcher for FixtureDispatcher {
-    fn dispatch(&self, _: &DaemonOperation) -> Result<Value, ProtocolError> {
-        Ok(json!({"items": []}))
+    fn dispatch(&self, operation: &DaemonOperation) -> Result<Value, ProtocolError> {
+        Ok(match operation {
+            DaemonOperation::ListProjects(_) => json!([{
+                "id": "project-a", "name": "Project A", "description": null,
+                "root": "/project-a", "createdAt": "2026-07-16T00:00:00Z", "aliases": []
+            }]),
+            DaemonOperation::ResolveProject(_) => json!({
+                "id": "project-a", "name": "Project A", "description": null,
+                "root": "/project-a", "createdAt": "2026-07-16T00:00:00Z"
+            }),
+            DaemonOperation::ListRecentActivity(_) => json!({
+                "events": [], "limit": 25, "truncated": false, "nextSequence": 0
+            }),
+            _ => json!({"items": [], "limit": 25, "truncated": false}),
+        })
     }
 }
 
@@ -22,6 +35,7 @@ fn app() -> axum::Router {
             token: "a".repeat(64),
             daemon_version: "stage7-test".into(),
             replay_capacity: 8,
+            static_directory: None,
         },
         Arc::new(FixtureDispatcher),
     )
@@ -32,6 +46,7 @@ fn config() -> DaemonHttpConfig {
         token: "a".repeat(64),
         daemon_version: "stage7-test".into(),
         replay_capacity: 8,
+        static_directory: None,
     }
 }
 
@@ -159,4 +174,35 @@ async fn native_listener_binds_ipv4_loopback_only() {
         .unwrap();
     assert_eq!(running.address.ip(), std::net::Ipv4Addr::LOCALHOST);
     running.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn browser_read_api_and_sse_are_served_by_the_native_router() {
+    let projects = app()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/projects")
+                .header(header::HOST, "127.0.0.1:43123")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(projects.status(), StatusCode::OK);
+    let body = to_bytes(projects.into_body(), 4096).await.unwrap();
+    let value: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(value["projects"][0]["id"], "project-a");
+
+    let events = app()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/events?project_id=project-a&after=0")
+                .header(header::HOST, "127.0.0.1:43123")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(events.status(), StatusCode::OK);
+    assert_eq!(events.headers()[header::CONTENT_TYPE], "text/event-stream");
 }

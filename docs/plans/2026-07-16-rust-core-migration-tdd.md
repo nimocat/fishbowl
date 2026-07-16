@@ -643,6 +643,15 @@ Current progress:
   now invoke the native binary with explicit database/token/descriptor/pid
   arguments. No environment variable or Node daemon is used. The release build
   packages an executable arm64 binary at `dist/native/ekg-rust-core`.
+- The same native loopback server now owns Trace Bench read routes and static
+  assets: projects, bounded graph snapshots, activity, full Case detail, and
+  SSE event polling. SSE honors `Last-Event-ID`, caps active streams at 32,
+  emits bounded event batches one event at a time, and keeps browser delay out
+  of daemon execution metrics.
+- Browser endpoints retain loopback/same-origin and CSP protections. The
+  process-level test loads a real static page and graph after a native write;
+  the Router test verifies the SSE content type. The TypeScript web files are
+  now assets only, not a database-serving process.
 
 ## 15. Stage 8 — Remove the TypeScript core
 

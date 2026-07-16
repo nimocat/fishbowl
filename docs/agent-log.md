@@ -462,3 +462,9 @@
   startup execute `ekg-rust-core` directly with explicit path arguments and no
   environment configuration. `npm run build` produced an executable arm64
   native binary in `dist/native`.
+- Browser/SSE RED/GREEN: `/api/v1/projects` initially returned 404 from the
+  Rust Router. Native HTTP now serves projects, graph, activity, full Case,
+  static assets, and bounded SSE with Last-Event-ID and a 32-stream cap. A
+  child-process fixture proves a Rust-written Case is visible through the
+  browser graph and packaged-style static page. Workspace tests and strict
+  clippy remain green.

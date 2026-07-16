@@ -56,6 +56,10 @@ async fn run_daemon(arguments: &[String]) -> Result<(), Box<dyn std::error::Erro
             token,
             daemon_version: env!("CARGO_PKG_VERSION").into(),
             replay_capacity: 1000,
+            static_directory: options
+                .static_directory
+                .clone()
+                .or_else(default_static_directory),
         },
         dispatcher,
     )
@@ -80,12 +84,19 @@ async fn run_daemon(arguments: &[String]) -> Result<(), Box<dyn std::error::Erro
     Ok(())
 }
 
+fn default_static_directory() -> Option<PathBuf> {
+    let executable = env::current_exe().ok()?;
+    let directory = executable.parent()?.parent()?.join("web");
+    directory.is_dir().then_some(directory)
+}
+
 struct DaemonOptions {
     database: PathBuf,
     token_file: PathBuf,
     descriptor: PathBuf,
     pid_file: PathBuf,
     port: u16,
+    static_directory: Option<PathBuf>,
 }
 
 impl DaemonOptions {
@@ -95,6 +106,7 @@ impl DaemonOptions {
         let mut descriptor = None;
         let mut pid_file = None;
         let mut port = 0u16;
+        let mut static_directory = None;
         let mut index = 0;
         while index < arguments.len() {
             let name = arguments[index].as_str();
@@ -107,6 +119,7 @@ impl DaemonOptions {
                 "--descriptor" => descriptor = Some(PathBuf::from(value)),
                 "--pid-file" => pid_file = Some(PathBuf::from(value)),
                 "--port" => port = value.parse()?,
+                "--static-directory" => static_directory = Some(PathBuf::from(value)),
                 _ => return Err(format!("unknown daemon option: {name}").into()),
             }
             index += 2;
@@ -117,6 +130,7 @@ impl DaemonOptions {
             descriptor: descriptor.ok_or("--descriptor is required")?,
             pid_file: pid_file.ok_or("--pid-file is required")?,
             port,
+            static_directory,
         })
     }
 }

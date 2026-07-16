@@ -23,6 +23,7 @@ async fn native_http_dispatches_a_transactional_write_then_reads_it_without_type
             token: "native-token".into(),
             daemon_version: "stage7-test".into(),
             replay_capacity: 32,
+            static_directory: None,
         },
         dispatcher,
     );
@@ -131,6 +132,7 @@ async fn native_http_dispatches_a_transactional_write_then_reads_it_without_type
             token: "native-token".into(),
             daemon_version: "stage7-test-restarted".into(),
             replay_capacity: 32,
+            static_directory: None,
         },
         Arc::new(NativeDispatcher::open(&database).unwrap()),
     );
