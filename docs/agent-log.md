@@ -352,3 +352,19 @@
 - Decision: defer HNSW because the bilingual set remains Recall@5 100% and PPR
   closes the measured graph gap. An approximate index remains optional and
   non-authoritative if a future golden corpus proves a gap.
+
+## 2026-07-16 - Rust Migration Stage 6 Transaction Foundation
+
+- Goal: start the single-writer migration without introducing any dual-write
+  window.
+- RED: Problem/Attempt write tests failed at missing contracts and repository.
+- GREEN: added strict DTOs and transactional Rust writes with project
+  ownership, operation/source replay, deterministic event/edge order, FTS
+  indexing, fingerprints, recursive redaction, and four rollback injection
+  points.
+- Failure retained: the first sentinel run found `token: secret-value` leaked
+  the second whitespace token. Stateful cross-token redaction fixed the leak;
+  focused tests pass 3/3 and clippy is clean.
+- Boundary: this is only the Stage 6 foundation. No installed route changed,
+  and the phase remains incomplete until every write class plus migration and
+  recovery acceptance passes.

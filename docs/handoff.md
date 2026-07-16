@@ -75,6 +75,15 @@ Recall@5 from 0% to 100%; a 10,000-node bounded release benchmark measured
 multi-hop golden sets show no remaining recall gap that justifies an
 approximate index.
 
+Stage 6 is in progress and must not be cut over yet. The first Rust write
+vertical slice covers Problem and Attempt with project ownership,
+operation/source idempotency, event/edge/FTS ordering, recursive redaction, and
+transaction rollback at four injected mutation points. A focused sentinel
+test caught and fixed a `token: value` cross-word redaction leak. All remaining
+write classes, aggregate operations, migration/backup/recovery, and snapshot
+parity are still required; the installed TypeScript daemon remains the sole
+writer.
+
 The implementation order, TDD fixtures, phase exit gates, rollout states, and
 rollback rules are specified in
 `docs/plans/2026-07-16-rust-core-migration-tdd.md`. Stage 6 transactional Rust

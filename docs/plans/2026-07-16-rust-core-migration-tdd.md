@@ -478,6 +478,9 @@ Measured results:
 
 ## 13. Stage 6 — Rust storage and transactional writes
 
+**Status:** In progress; Problem/Attempt transaction foundation complete,
+installed writes remain TypeScript-only (2026-07-16)
+
 **Goal:** Rust becomes the only database writer.
 
 ### Migration rule
@@ -522,6 +525,19 @@ from TypeScript to Rust only after its parity suite passes.
 - All rollback injection points leave the database unchanged.
 - Existing production database migrates on a copy and passes integrity checks.
 - Backup and downgrade/recovery instructions are executable.
+
+Current progress:
+
+- Added strict Rust Problem/Attempt write DTOs and a writable repository with
+  one SQLite transaction per operation.
+- Project ownership, operation-ID replay, source-key replay/type checks,
+  event/edge/search ordering, recursive redaction, and four injected rollback
+  points pass focused tests.
+- A RED/GREEN cycle found that `token: value` could leak the value after a
+  whitespace separator; stateful cross-token redaction now covers it.
+- No installed write route has changed. Command writes, remaining graph nodes,
+  checkpoint/finalize, close/regression, relevance/merge, import/export, schema
+  migration, backup, and recovery remain required before Stage 6 cutover.
 
 ## 14. Stage 7 — Rust daemon ownership and end-to-end metrics
 

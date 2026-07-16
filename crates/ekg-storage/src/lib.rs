@@ -1,5 +1,9 @@
 //! Project-scoped, query-only repository for the existing EKG SQLite schema.
 
+mod write;
+
+pub use write::*;
+
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::time::Instant;

@@ -114,6 +114,87 @@ pub struct ProjectReference {
     pub project_root: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SourceKey {
+    pub kind: String,
+    pub key: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PromotionStatus {
+    pub status: NodeStatus,
+    pub missing_requirements: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NodeWriteResult {
+    pub case_id: String,
+    pub node_id: String,
+    pub promotion: PromotionStatus,
+    pub created: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct WriteProblemData {
+    pub summary: String,
+    #[serde(default)]
+    pub symptoms: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_observed_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub domain: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fingerprint: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RecordProblemInput {
+    pub project: ProjectReference,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub operation_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_key: Option<SourceKey>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub case_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub case_title: Option<String>,
+    pub data: WriteProblemData,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct WriteAttemptData {
+    pub hypothesis: String,
+    pub change: String,
+    pub outcome: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failure_explanation: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub decisive_difference: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RecordAttemptInput {
+    pub project: ProjectReference,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub operation_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_key: Option<SourceKey>,
+    pub case_id: String,
+    pub problem_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub previous_attempt_id: Option<String>,
+    pub data: WriteAttemptData,
+}
+
 impl Validate for ProjectReference {
     fn validate(&self) -> Result<(), ErrorCode> {
         match (&self.project_id, &self.project_root) {
