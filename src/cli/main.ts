@@ -23,6 +23,8 @@ export interface CliDependencies {
   stdout?: OutputStream
   stderr?: OutputStream
   backend?: AwaitableKnowledgeBackend
+  /** Test/process-owner hook; normal CLI daemons remain detached. */
+  daemonDetached?: boolean
 }
 
 function printJson(stream: OutputStream, value: unknown): void {
@@ -144,6 +146,7 @@ export async function runCli(argv: string[], dependencies: CliDependencies = {})
     }
     const installed = dependencies.backend ? undefined : await ensureInstalledDaemon({
       environment: { ...process.env, EKG_DATA_DIR: parsed.dataDirectory },
+      detached: dependencies.daemonDetached,
     })
     if (parsed.command.kind === 'serve') {
       const descriptor = installed?.descriptor

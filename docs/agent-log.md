@@ -511,3 +511,11 @@
   `--data-dir` correctly selected the old embedded recovery path and created
   none. The runbook now distinguishes that mode from installed LaunchAgent
   validation.
+- Installed cutover resource-leak RED/GREEN: production LaunchAgent correctly
+  started the packaged Rust binary, but process inspection exposed orphaned
+  daemons from earlier CLI tests under temporary databases. The tests had
+  spawned detached children and silently ignored cleanup failures. A test-only
+  process-ownership option now keeps those children attached; async cleanup
+  waits for confirmed exit and fails if a daemon survives. Focused CLI tests
+  pass and a post-test process scan returns zero temporary daemons. Normal CLI
+  and installed LaunchAgent startup remain detached.

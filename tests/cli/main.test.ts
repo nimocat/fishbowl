@@ -23,15 +23,27 @@ describe('CLI command dispatch', () => {
     const code = await runCli(argv, {
       stdout: { write: (value: string | Uint8Array) => ((stdout += value.toString()), true) },
       stderr: { write: (value: string | Uint8Array) => ((stderr += value.toString()), true) },
+      daemonDetached: false,
     })
     return { code, stdout, stderr }
   }
 
-  afterEach(() => {
+  afterEach(async () => {
     for (const path of sandboxes.splice(0)) {
       const pidFile = join(path, 'user-data', 'daemon.pid')
       if (existsSync(pidFile)) {
-        try { process.kill(Number(readFileSync(pidFile, 'utf8').trim()), 'SIGTERM') } catch { /* already stopped */ }
+        const pid = Number(readFileSync(pidFile, 'utf8').trim())
+        try { process.kill(pid, 'SIGTERM') } catch { /* already stopped */ }
+        for (let attempt = 0; attempt < 100; attempt += 1) {
+          try { process.kill(pid, 0) } catch { break }
+          await new Promise((resolve) => setTimeout(resolve, 10))
+        }
+        try {
+          process.kill(pid, 0)
+          throw new Error(`test-owned daemon ${pid} survived cleanup`)
+        } catch (error) {
+          if (error instanceof Error && error.message.includes('survived cleanup')) throw error
+        }
       }
       rmSync(path, { recursive: true, force: true })
     }

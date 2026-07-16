@@ -117,6 +117,9 @@ Against the real installed CLI and default data directory:
 7. Fixed native benchmark remains within the committed budgets.
 8. No Node daemon holds the database, and no TypeScript SQLite dependency is
    present in the installed package.
+9. The test suite leaves no `ekg-rust-core daemon` process whose database is
+   under a temporary test directory. Production process correctness does not
+   excuse leaked test daemons.
 
 Keep the migration Case candidate until the user confirms the installed
 experience. Only then record human verification, close the Case, and mark the

@@ -42,6 +42,7 @@ export async function ensureInstalledDaemon(options: {
   home?: string
   platform?: NodeJS.Platform
   nativeBinary?: string
+  detached?: boolean
   startupTimeoutMs?: number
   observeTiming?: (sample: DaemonTimingSample) => void
 } = {}) {
@@ -54,11 +55,12 @@ export async function ensureInstalledDaemon(options: {
   }
   try { return await connect() } catch { /* start once below */ }
   const nativeBinary = options.nativeBinary ?? defaultNativeBinary(options.platform ?? process.platform)
+  const detached = options.detached ?? true
   const child = spawn(nativeBinary, nativeDaemonArguments(initialized.paths), {
-    detached: true,
+    detached,
     stdio: 'ignore',
   })
-  child.unref()
+  if (detached) child.unref()
   const deadline = Date.now() + (options.startupTimeoutMs ?? 2_500)
   while (Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 25))
