@@ -2,7 +2,8 @@
 
 ## Active Migration: Rust Hierarchical Retrieval Core
 
-**Status:** Stages 0-1 complete; Stage 2 query parity pending (2026-07-16)
+**Status:** Stages 0-8 offline complete; installed production cutover awaits
+explicit user approval (2026-07-16)
 
 The accepted direction is documented in
 `docs/specs/2026-07-16-rust-hierarchical-retrieval.md`. Durable storage,

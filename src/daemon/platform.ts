@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -83,5 +83,9 @@ export function nativeDaemonArguments(paths: DaemonPaths): string[] {
 
 export function defaultNativeBinary(platform: NodeJS.Platform = process.platform): string {
   const executable = platform === 'win32' ? 'ekg-rust-core.exe' : 'ekg-rust-core'
-  return join(dirname(fileURLToPath(import.meta.url)), '..', 'native', executable)
+  const packaged = join(dirname(fileURLToPath(import.meta.url)), '..', 'native', executable)
+  if (existsSync(packaged)) return packaged
+  // Source-level tests execute from src/, while release adapters execute from dist/.
+  // Both resolve the same packaged native artifact; neither falls back to a TS core.
+  return join(process.cwd(), 'dist', 'native', executable)
 }

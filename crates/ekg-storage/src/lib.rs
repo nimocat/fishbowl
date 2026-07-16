@@ -1041,6 +1041,9 @@ impl ReadRepository {
                 )
                 .optional()?
         } else if let Some(root) = &input.project_root {
+            let root = std::fs::canonicalize(root)
+                .map(|path| path.to_string_lossy().into_owned())
+                .unwrap_or_else(|_| root.to_owned());
             self.connection.query_row(
                 "SELECT id FROM projects WHERE canonical_root = ? UNION SELECT projects.id FROM project_aliases JOIN projects ON projects.id = project_aliases.project_id WHERE project_aliases.root = ? LIMIT 1",
                 params![root, root], |row| row.get(0),

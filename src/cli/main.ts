@@ -3,20 +3,14 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { spawn } from 'node:child_process'
-import { join } from 'node:path'
 import type { Writable } from 'node:stream'
 
-import { KnowledgeService } from '../application/knowledge-service.js'
 import type { AwaitableKnowledgeBackend } from '../application/backend.js'
 import { ensureInstalledDaemon, initializeDaemonCredentials } from '../daemon/lifecycle.js'
 import { readDaemonDescriptor } from '../daemon/config.js'
 import { defaultNativeBinary, installCurrentUserDaemon, nativeDaemonArguments, uninstallCurrentUserDaemon } from '../daemon/platform.js'
-import type { ImportSource } from '../imports/import-service.js'
-import type { ProjectGraphSnapshot } from '../imports/snapshot.js'
-import { startTraceBenchServer } from '../http/server.js'
 import { runStdioServer } from '../mcp/stdio.js'
 import { RawLogStore } from '../logs/raw-log-store.js'
-import { closeDatabase, openDatabase } from '../storage/database.js'
 import { parseArguments, type CliCommand } from './arguments.js'
 import { runCommand } from './run-command.js'
 import { isDirectExecution } from './direct-execution.js'
@@ -41,7 +35,11 @@ function project(projectId: string): { projectId: string } {
 
 async function dispatch(service: AwaitableKnowledgeBackend, command: CliCommand): Promise<unknown> {
   switch (command.kind) {
-    case 'project-register': return await service.registerProject(command)
+    case 'project-register': return await service.registerProject({
+      root: command.root,
+      name: command.name,
+      description: command.description,
+    })
     case 'project-list': return await service.listProjects()
     case 'project-resolve': return await service.resolveProject({ projectId: command.projectId, projectRoot: command.projectRoot })
     case 'project-update': return await service.updateProject({ project: project(command.projectId), name: command.name, description: command.description, addAlias: command.addAlias })
@@ -54,9 +52,9 @@ async function dispatch(service: AwaitableKnowledgeBackend, command: CliCommand)
     case 'case-verify': return await service.recordVerification({ project: project(command.projectId), caseId: command.caseId, solutionId: command.solutionId, data: command.data as never, operationId: command.operationId })
     case 'case-close': return await service.closeCase({ project: project(command.projectId), caseId: command.caseId, operationId: command.operationId })
     case 'case-regress': return await service.markRegression({ project: project(command.projectId), caseId: command.caseId, solutionId: command.solutionId, fingerprint: command.fingerprint, observedContext: command.observedContext, operationId: command.operationId })
-    case 'import-preview': return await service.previewImport({ project: project(command.projectId), sources: command.sources as ImportSource[] })
+    case 'import-preview': return await service.previewImport({ project: project(command.projectId), sources: command.sources as never })
     case 'import-apply': return await service.applyImport({ project: project(command.projectId), previewId: command.previewId, proposalIds: command.proposalIds, operationId: command.operationId })
-    case 'import-graph': return await service.importProjectGraph({ project: project(command.projectId), archive: JSON.parse(readFileSync(command.file, 'utf8')) as ProjectGraphSnapshot, operationId: command.operationId })
+    case 'import-graph': return await service.importProjectGraph({ project: project(command.projectId), archive: JSON.parse(readFileSync(command.file, 'utf8')) as never, operationId: command.operationId })
     case 'export': return await service.exportProjectGraph({ project: project(command.projectId) })
     case 'activity': return await service.listRecentActivity({ project: project(command.projectId), afterSequence: command.afterSequence, limit: command.limit })
     case 'checkpoint': return await service.checkpointWork({
@@ -72,11 +70,22 @@ async function dispatch(service: AwaitableKnowledgeBackend, command: CliCommand)
   }
 }
 
-async function waitForShutdown(close: () => Promise<void>): Promise<void> {
-  await new Promise<void>((resolve) => {
-    const shutdown = () => { void close().finally(resolve) }
-    process.once('SIGINT', shutdown)
-    process.once('SIGTERM', shutdown)
+async function runNativeIntegrity(
+  dataDirectory: string,
+  stdout: OutputStream,
+  stderr: OutputStream,
+): Promise<number> {
+  const initialized = initializeDaemonCredentials({
+    environment: { ...process.env, EKG_DATA_DIR: dataDirectory },
+  })
+  const child = spawn(defaultNativeBinary(), [
+    'integrity', '--database', initialized.paths.databasePath,
+  ], { stdio: ['ignore', 'pipe', 'pipe'] })
+  child.stdout.on('data', (bytes: Buffer) => stdout.write(bytes))
+  child.stderr.on('data', (bytes: Buffer) => stderr.write(bytes))
+  return await new Promise<number>((resolve, reject) => {
+    child.once('error', reject)
+    child.once('exit', (code) => resolve(code ?? 1))
   })
 }
 
@@ -85,7 +94,6 @@ export async function runCli(argv: string[], dependencies: CliDependencies = {})
   const stderr = dependencies.stderr ?? process.stderr
   try {
     const parsed = parseArguments(argv)
-    const databasePath = join(parsed.dataDirectory, 'knowledge.db')
     if (parsed.command.kind === 'daemon') {
       const initialized = initializeDaemonCredentials({ environment: { ...process.env, EKG_DATA_DIR: parsed.dataDirectory } })
       if (parsed.command.action === 'install') {
@@ -128,91 +136,47 @@ export async function runCli(argv: string[], dependencies: CliDependencies = {})
       return running || parsed.command.action === 'stop' ? 0 : 1
     }
     if (parsed.command.kind === 'mcp-stdio') {
-      await runStdioServer(parsed.embedded ? { databasePath } : { backend: dependencies.backend })
+      await runStdioServer({ backend: dependencies.backend, dataDirectory: parsed.dataDirectory })
       return 0
     }
-    if (!parsed.embedded && parsed.command.kind !== 'serve' && parsed.command.kind !== 'integrity') {
-      const service = dependencies.backend ?? (await ensureInstalledDaemon()).backend
-      if (parsed.command.kind === 'run') {
-        const result = await runCommand({
-          service,
-          rawLogs: new RawLogStore(parsed.dataDirectory),
-          projectId: parsed.command.projectId,
-          taskDescription: parsed.command.taskDescription,
-          changedFiles: parsed.command.changedFiles,
-          argv: parsed.command.argv,
-          cwd: process.cwd(),
-          caseId: parsed.command.commandCaseId,
-          attemptId: parsed.command.attemptId,
-          stdout: stdout as Writable,
-          stderr: stderr as Writable,
-          warn: (message) => stderr.write(`Warning: ${message}\n`),
-        })
-        return result.exitCode
-      }
-      const result = await dispatch(service, parsed.command)
-      if (parsed.command.kind === 'export' && parsed.command.output) {
-        writeFileSync(parsed.command.output, `${JSON.stringify(result, null, 2)}\n`, { mode: 0o600 })
-        printJson(stdout, { output: parsed.command.output })
-      } else printJson(stdout, result)
+    if (parsed.command.kind === 'integrity') {
+      return await runNativeIntegrity(parsed.dataDirectory, stdout, stderr)
+    }
+    const installed = dependencies.backend ? undefined : await ensureInstalledDaemon({
+      environment: { ...process.env, EKG_DATA_DIR: parsed.dataDirectory },
+    })
+    if (parsed.command.kind === 'serve') {
+      const descriptor = installed?.descriptor
+      if (!descriptor?.browserPort) throw new Error('Native Trace Bench endpoint is unavailable')
+      stdout.write(`http://127.0.0.1:${descriptor.browserPort}\n`)
       return 0
     }
-    const database = openDatabase(databasePath)
-    try {
-      if (parsed.command.kind === 'serve') {
-        const running = await startTraceBenchServer({
-          service: new KnowledgeService(database),
-          port: parsed.command.port,
-        })
-        stdout.write(`http://${running.address.address}:${running.address.port}\n`)
-        await waitForShutdown(running.close)
-        return 0
-      }
-      if (parsed.command.kind === 'integrity') {
-        const rows = database.pragma('quick_check') as Array<{ quick_check: string }>
-        const ok = rows.every((row) => row.quick_check === 'ok')
-        printJson(stdout, {
-          ok,
-          check: 'quick_check',
-          results: rows,
-          ...(!ok && {
-            recovery: 'Create a backup of knowledge.db before recovery. Use `sqlite3 knowledge.db ".recover" > recovered.sql`, restore into a separate data directory, rerun `ekg integrity`, then use `ekg export`.',
-          }),
-        })
-        return ok ? 0 : 1
-      }
-      if (parsed.command.kind === 'run') {
-        const result = await runCommand({
-          service: new KnowledgeService(database),
-          rawLogs: new RawLogStore(parsed.dataDirectory),
-          projectId: parsed.command.projectId,
-          taskDescription: parsed.command.taskDescription,
-          changedFiles: parsed.command.changedFiles,
-          argv: parsed.command.argv,
-          cwd: process.cwd(),
-          caseId: parsed.command.commandCaseId,
-          attemptId: parsed.command.attemptId,
-          stdout: stdout as Writable,
-          stderr: stderr as Writable,
-          warn: (message) => stderr.write(`Warning: ${message}\n`),
-        })
-        if (result.blocked) printJson(stderr, { blocked: true, exitCode: result.exitCode })
-        if (result.signal && process.platform !== 'win32') {
-          process.kill(process.pid, result.signal)
-        }
-        return result.exitCode
-      }
-      const result = await dispatch(new KnowledgeService(database), parsed.command)
-      if (parsed.command.kind === 'export' && parsed.command.output) {
-        writeFileSync(parsed.command.output, `${JSON.stringify(result, null, 2)}\n`, { mode: 0o600 })
-        printJson(stdout, { output: parsed.command.output })
-      } else {
-        printJson(stdout, result)
-      }
-      return 0
-    } finally {
-      closeDatabase(database)
+    const service = dependencies.backend ?? installed?.backend
+    if (!service) throw new Error('Native daemon backend is unavailable')
+    if (parsed.command.kind === 'run') {
+      const result = await runCommand({
+        service,
+        rawLogs: new RawLogStore(parsed.dataDirectory),
+        projectId: parsed.command.projectId,
+        taskDescription: parsed.command.taskDescription,
+        changedFiles: parsed.command.changedFiles,
+        argv: parsed.command.argv,
+        cwd: process.cwd(),
+        caseId: parsed.command.commandCaseId,
+        attemptId: parsed.command.attemptId,
+        stdout: stdout as Writable,
+        stderr: stderr as Writable,
+        warn: (message) => stderr.write(`Warning: ${message}\n`),
+      })
+      if (result.blocked) printJson(stderr, { blocked: true, exitCode: result.exitCode })
+      return result.exitCode
     }
+    const result = await dispatch(service, parsed.command)
+    if (parsed.command.kind === 'export' && parsed.command.output) {
+      writeFileSync(parsed.command.output, `${JSON.stringify(result, null, 2)}\n`, { mode: 0o600 })
+      printJson(stdout, { output: parsed.command.output })
+    } else printJson(stdout, result)
+    return 0
   } catch (error) {
     const value = error instanceof Error
       ? { error: error.name, message: error.message }

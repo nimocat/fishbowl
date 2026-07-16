@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -28,7 +28,13 @@ describe('CLI command dispatch', () => {
   }
 
   afterEach(() => {
-    for (const path of sandboxes.splice(0)) rmSync(path, { recursive: true, force: true })
+    for (const path of sandboxes.splice(0)) {
+      const pidFile = join(path, 'user-data', 'daemon.pid')
+      if (existsSync(pidFile)) {
+        try { process.kill(Number(readFileSync(pidFile, 'utf8').trim()), 'SIGTERM') } catch { /* already stopped */ }
+      }
+      rmSync(path, { recursive: true, force: true })
+    }
   })
 
   it('registers, lists, resolves, updates, and queries a project as JSON', async () => {
@@ -109,7 +115,7 @@ describe('CLI command dispatch', () => {
     expect(corrupt.code).toBe(1)
     expect(corrupt.stdout).toBe('')
     expect(corrupt.stderr).toMatch(/read-only recovery mode/i)
-    expect(corrupt.stderr).toMatch(/backup/i)
+    expect(corrupt.stderr).toMatch(/back up/i)
     expect(corrupt.stderr).toMatch(/\.recover/i)
     expect(corrupt.stderr).toMatch(/export/i)
     expect(readFileSync(databasePath)).toEqual(corruptBytes)

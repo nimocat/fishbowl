@@ -556,7 +556,12 @@ fn resolve_project(c: &Connection, r: &ProjectReference) -> Result<String, Write
         })
         .transpose()?
         .flatten();
-    let by_root=r.project_root.as_ref().map(|root|c.query_row("SELECT projects.id FROM projects LEFT JOIN project_aliases ON project_aliases.project_id=projects.id WHERE canonical_root=? OR project_aliases.root=?",params![root,root],|row|row.get(0)).optional()).transpose()?.flatten();
+    let by_root = r.project_root.as_ref().map(|root| {
+        let root = std::fs::canonicalize(root)
+            .map(|path| path.to_string_lossy().into_owned())
+            .unwrap_or_else(|_| root.to_owned());
+        c.query_row("SELECT projects.id FROM projects LEFT JOIN project_aliases ON project_aliases.project_id=projects.id WHERE canonical_root=? OR project_aliases.root=?",params![root,root],|row|row.get(0)).optional().map_err(WriteError::from)
+    }).transpose()?.flatten();
     match (by_id, by_root) {
         (Some(a), Some(b)) if a != b => Err(WriteError::OwnershipMismatch),
         (Some(id), _) | (_, Some(id)) => Ok(id),

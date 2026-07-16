@@ -2481,6 +2481,9 @@ fn resolve_project(
             )
             .optional()?
     } else if let Some(root) = &project.project_root {
+        let root = std::fs::canonicalize(root)
+            .map(|path| path.to_string_lossy().into_owned())
+            .unwrap_or_else(|_| root.to_owned());
         transaction
             .query_row(
                 "SELECT id FROM projects WHERE canonical_root = ? UNION SELECT project_id FROM project_aliases WHERE root = ? LIMIT 1",

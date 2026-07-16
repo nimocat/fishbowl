@@ -1,29 +1,45 @@
-import type {
-  ArtifactData,
-  AttemptData,
-  GuardrailData,
-  ProblemData,
-  RootCauseData,
-  SolutionData,
-  VerificationData,
-} from '../domain/node-data.js'
-import type { NodeStatus, NodeType } from '../domain/graph-rules.js'
-import type { KnowledgeEvent } from '../events/event-journal.js'
-import type { Project, ProjectWithAliases } from '../projects/project-registry.js'
-import type { CaseSnapshot, NodeRecord } from '../cases/case-graph.js'
 import type { RawLogArtifactMetadata } from '../logs/raw-log-store.js'
-import type {
-  ApplyImportInput,
-  ApplyImportResult,
-  ImportPreviewResult,
-  PreviewImportInput,
-} from '../imports/import-service.js'
-import type {
-  ExportProjectGraphInput,
-  ImportProjectGraphInput,
-  ImportProjectGraphResult,
-  ProjectGraphSnapshot,
-} from '../imports/snapshot.js'
+
+// These are wire DTOs shared by the TypeScript adapters and the Rust daemon.
+// They intentionally contain no validation, persistence, ranking, or policy logic.
+export type NodeType = 'Problem' | 'Attempt' | 'RootCause' | 'Solution' | 'Verification' | 'SuccessCase' | 'Guardrail' | 'Artifact'
+export type NodeStatus = 'open' | 'candidate' | 'verified' | 'regressed' | 'retired'
+export type RelationType = 'ATTEMPTS_TO_SOLVE' | 'PRECEDED_BY' | 'FAILED_BECAUSE' | 'CAUSES' | 'ADDRESSES' | 'VERIFIED_BY' | 'REFERENCES' | 'INCLUDES' | 'PREVENTS' | 'SUPERSEDES'
+
+export interface ProblemData { summary: string; symptoms?: string[]; firstObservedAt?: string; domain?: string; fingerprint?: string }
+export interface AttemptData { hypothesis: string; change: string; outcome: 'failed' | 'succeeded' | 'inconclusive'; command?: string[]; failureExplanation?: string; decisiveDifference?: string }
+export interface RootCauseData { explanation: string; evidence: string[]; rejectedAlternatives?: string[]; confidence: number }
+export interface SolutionData { summary: string; applicability: string[]; limitations: string[]; sideEffects?: string[]; decisiveDifference: string }
+export interface VerificationData { kind: 'automated' | 'human'; succeeded: boolean; humanConfirmed?: boolean; environment?: Record<string, string>; command?: string[]; exitStatus?: number; sourceRevision?: string; excerpt?: string }
+export interface GuardrailData { guidance: string; enforcement: 'advise' | 'warn' | 'block'; criteria: { taskIncludes?: string[]; commandIncludes?: string[]; fileIncludes?: string[] } }
+export interface ArtifactData { kind: string; uri: string; digest?: string; mediaType?: string }
+
+export interface Project { id: string; name: string; description: string | null; root: string; createdAt: string }
+export interface ProjectAlias { id: string; projectId: string; root: string; createdAt: string }
+export interface ProjectWithAliases extends Project { aliases: ProjectAlias[] }
+export interface KnowledgeEvent { sequence: number; projectId: string; type: string; aggregateId: string; payload: unknown; occurredAt: string }
+export interface NodeRecord { id: string; caseId: string; type: NodeType; status: NodeStatus; data: Record<string, unknown>; createdAt: string }
+export interface EdgeRecord { id: string; caseId: string; sourceId: string; relation: RelationType; targetId: string; createdAt: string }
+export interface CaseSnapshot { id: string; projectId: string; title: string; status: NodeStatus; createdAt: string; nodes: NodeRecord[]; edges: EdgeRecord[] }
+
+export type ImportSource = { kind: 'file'; path: string } | { kind: 'git'; range: string }
+export interface PreviewImportInput { project: ProjectReference; sources: ImportSource[] }
+export interface ImportProposal { id: string; sourceKey: string; nodeType: NodeType; status: 'candidate'; caseTitle: string; data: Record<string, unknown> }
+export interface ImportPreviewResult { previewId: string; projectId: string; parserVersion: string; sourceDigest: string; createdAt: string; expiresAt: string; proposals: ImportProposal[] }
+export interface ApplyImportInput { project: ProjectReference; previewId: string; proposalIds: string[]; operationId: string }
+export interface ApplyImportResult { previewId: string; proposalIds: string[]; caseIds: string[]; nodeIds: string[]; created: number }
+
+export interface SnapshotCase { id: string; projectId: string; title: string; status: NodeStatus; createdAt: string }
+export interface SnapshotNode { id: string; caseId: string; type: NodeType; status: NodeStatus; data: Record<string, unknown>; createdAt: string }
+export interface SnapshotEdge { id: string; caseId: string; sourceId: string; relation: RelationType; targetId: string; createdAt: string }
+export interface SnapshotEvidence { id: string; projectId: string; nodeId: string; kind: 'automated' | 'human'; command: string[] | null; exitStatus: number | null; data: Record<string, unknown>; createdAt: string }
+export interface SnapshotFingerprint { id: string; projectId: string; problemNodeId: string; algorithm: string; value: string; createdAt: string }
+export interface SnapshotGuardrail { id: string; projectId: string; nodeId: string; enforcement: 'advise' | 'warn' | 'block'; criteria: Record<string, unknown>; createdAt: string }
+export interface SnapshotArtifact { id: string; projectId: string; nodeId: string | null; kind: string; uri: string; digest: string | null; isExternal: boolean; metadata: Record<string, unknown>; createdAt: string }
+export interface ProjectGraphSnapshot { format: 'engineering-knowledge-graph'; version: 1; exportedAt: string; project: { id: string; name: string; description: string | null; createdAt: string }; cases: SnapshotCase[]; nodes: SnapshotNode[]; edges: SnapshotEdge[]; evidence: SnapshotEvidence[]; fingerprints: SnapshotFingerprint[]; guardrails: SnapshotGuardrail[]; artifacts: SnapshotArtifact[] }
+export interface ExportProjectGraphInput { project: ProjectReference }
+export interface ImportProjectGraphInput { project: ProjectReference; archive: ProjectGraphSnapshot; operationId: string }
+export interface ImportProjectGraphResult { sourceProjectId: string; targetProjectId: string; idMap: Record<string, string>; created: { cases: number; nodes: number; edges: number; evidence: number; fingerprints: number; guardrails: number; artifacts: number } }
 
 export interface ProjectReference {
   projectId?: string

@@ -671,6 +671,10 @@ Current progress:
 
 **Goal:** Enforce the final architecture mechanically.
 
+**Status (2026-07-16):** Rust-only source architecture and offline acceptance
+are complete. Production installation cutover remains the sole open human
+gate; the installed daemon and production bytes were not changed.
+
 ### Removal targets
 
 ```text
@@ -702,6 +706,37 @@ validated against the Rust contract schema.
 - Installed EKG passes a real project preflight, query, checkpoint, and
   Trace Bench smoke test.
 - User explicitly approves production cutover.
+
+### Stage 8 implementation and acceptance
+
+- Added a mechanical architecture test that rejects `better-sqlite3`, core
+  imports from adapters, and reintroduction of the removed TypeScript policy,
+  ranking, persistence, or redaction files. Its initial RED run found all
+  three classes of violation; the final run is 3/3 green.
+- Removed the Node SQLite/HTTP daemon and the parallel TypeScript application,
+  graph, import, migration, policy, ranking, persistence, and redaction core.
+  TypeScript now contains protocol DTOs, MCP/Zod bounds, CLI/process adapters,
+  static presentation assets, local rotating raw-log capture, and timing
+  presentation only. The npm runtime no longer contains `better-sqlite3`.
+- Historical core fixtures now execute in the owning Rust crates. Adapter-only
+  tests remain in TypeScript, and CLI acceptance drives the packaged native
+  binary for project lifecycle, query, imports, snapshots, integrity,
+  checkpoint, and root-alias behavior.
+- The first native CLI acceptance exposed inconsistent macOS `/var` versus
+  `/private/var` root lookup. Rust now canonicalizes existing lookup roots
+  while retaining compatibility with archived synthetic roots.
+- Final gates: all Rust workspace tests pass; Vitest passes 48/48 across 13
+  adapter/acceptance files; production build and `git diff --check` pass. An
+  isolated copy of the production database passed `quick_check`, project
+  listing, Preflight, query, checkpoint, Browser activity, and Trace Bench API
+  smoke without modifying production.
+- Fixed release benchmark `native-daemon-release-v1`: warm RPC p95 0.337 ms,
+  checkpoint p95 2.367 ms, daemon Preflight execution p95 0.033 ms. Relative
+  to Stage 7's 1.065/4.924/0.115 ms, these observations are 68.4%, 51.9%, and
+  71.3% lower respectively. They remain observations on the same fixture, not
+  a claim that source deletion alone caused every difference.
+- The installed-state test is intentionally not run until explicit user
+  approval, because it changes the current-user daemon binary and writer.
 
 ## 16. Rollout states
 

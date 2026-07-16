@@ -476,3 +476,22 @@
   files. Stage 7 implementation/offline acceptance is complete. Production is
   still not switched; TypeScript core removal and installed-state acceptance
   belong to Stage 8 and retain the explicit human cutover gate.
+- Stage 8 RED: the new Rust-core boundary test failed on the runtime
+  `better-sqlite3` dependency, three adapter imports into the old Node core,
+  and seven explicitly forbidden parallel core files.
+- Stage 8 GREEN: removed 12,326 lines of obsolete TypeScript core and its
+  duplicate tests, consolidated cross-language DTOs as logic-free protocol
+  contracts, and retained adapter tests plus Rust-owned historical fixtures.
+  The architecture gate is 3/3, Vitest is 48/48, and all Rust workspace tests
+  pass.
+- Native CLI acceptance found two migration-only defects: source execution
+  initially resolved `src/native` instead of the packaged `dist/native`, and
+  registered `/private/var` roots could not be resolved through `/var`. The
+  binary resolver now supports source-level tests without a TS fallback, and
+  Rust root lookup canonicalizes existing paths while preserving synthetic
+  archive compatibility.
+- Stage 8 benchmark: warm RPC p95 0.337 ms, checkpoint p95 2.367 ms, and daemon
+  Preflight execution p95 0.033 ms (68.4%, 51.9%, and 71.3% below the Stage 7
+  observations). A production database copy passed integrity plus native
+  Preflight/query/checkpoint/Browser smoke. Production installation remains
+  unchanged pending explicit cutover approval.

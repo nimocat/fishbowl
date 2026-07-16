@@ -6,6 +6,23 @@ Migrate EKG's knowledge engine to Rust and introduce deterministic hierarchical
 retrieval. The active design is
 `docs/specs/2026-07-16-rust-hierarchical-retrieval.md`.
 
+## Authoritative Current Status (2026-07-16)
+
+Stages 0 through 8 are implemented and offline-accepted on
+`codex/ekg-efficiency-rounds`. Rust is the only persistence, migration,
+recovery, retrieval, ranking, graph, policy, import/export, redaction, HTTP,
+and daemon core. TypeScript is limited to protocol DTOs and MCP/CLI/browser
+adaptation; `better-sqlite3` and the old Node daemon/core have been removed.
+
+All Rust workspace tests, the 48/48 TypeScript adapter/CLI tests, production
+build, architecture boundary, fixed native release benchmark, and isolated
+production-database-copy smoke pass. The latest fixed fixture measured 0.337
+ms warm RPC p95, 2.367 ms checkpoint p95, and 0.033 ms daemon Preflight
+execution p95. The only remaining action is the explicit human-approved
+installed production cutover followed by real installed preflight, query,
+checkpoint, and Trace Bench smoke. Do not switch the current-user daemon or
+modify production data without that approval.
+
 ## Rust Migration Status
 
 Stages 0-1 are implemented on `codex/ekg-efficiency-rounds`. `ekg-core` provides a

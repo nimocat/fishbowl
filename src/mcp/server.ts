@@ -4,7 +4,6 @@ import { z } from 'zod/v3'
 
 import type { AwaitableKnowledgeBackend } from '../application/backend.js'
 import { KnowledgeServiceError } from '../application/errors.js'
-import { collectFinalizeWorkIssues } from '../application/finalize-work.js'
 import { OperationMetrics } from '../application/operation-metrics.js'
 import type { DaemonTimingLedger } from '../daemon/client.js'
 
@@ -210,11 +209,7 @@ const finalizeWorkInputBase = z.object({
   }).strict(),
 }).strict()
 
-const finalizeWorkInput = finalizeWorkInputBase.superRefine((input, context) => {
-  for (const issue of collectFinalizeWorkIssues(input)) {
-    context.addIssue({ code: z.ZodIssueCode.custom, path: issue.path.split('.'), message: issue.message })
-  }
-})
+const finalizeWorkInput = finalizeWorkInputBase
 
 const artifactData = z
   .object({

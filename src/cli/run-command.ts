@@ -1,13 +1,11 @@
 import { spawn } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { constants as osConstants } from 'node:os'
+import { relative, resolve } from 'node:path'
 import type { Writable } from 'node:stream'
 
 import type { AwaitableKnowledgeBackend } from '../application/backend.js'
 import type { RawLogResult } from '../logs/raw-log-store.js'
-import { normalizeFingerprint } from '../domain/fingerprint.js'
-import { isPathWithinBoundary } from '../domain/policies.js'
-import { boundedRedactedExcerpt, redactArgv } from '../security/redaction.js'
 
 const BLOCKED_EXIT_CODE = 78
 const COMMAND_NOT_FOUND_EXIT_CODE = 127
@@ -56,6 +54,21 @@ function signalExitCode(signal: NodeJS.Signals): number {
   return 128 + (osConstants.signals[signal] ?? 0)
 }
 
+function isInside(path: string, roots: string[]): boolean {
+  const candidate = resolve(path)
+  return roots.some((root) => {
+    const pathFromRoot = relative(resolve(root), candidate)
+    return pathFromRoot === '' || (!pathFromRoot.startsWith('..') && !pathFromRoot.startsWith('/'))
+  })
+}
+
+function boundedExcerpt(value: string, maxBytes: number): string {
+  const bytes = Buffer.from(value)
+  if (bytes.byteLength <= maxBytes) return value
+  const suffix = Buffer.from('\n[TRUNCATED]')
+  return Buffer.concat([bytes.subarray(0, maxBytes - suffix.byteLength), suffix]).toString('utf8')
+}
+
 export async function runCommand(options: RunCommandOptions): Promise<RunCommandResult> {
   if (options.argv.length === 0 || options.argv.some((part) => part.length === 0)) {
     throw new Error('argv must contain a command and non-empty arguments')
@@ -65,7 +78,7 @@ export async function runCommand(options: RunCommandOptions): Promise<RunCommand
   const project = { projectId: resolved.id }
   const selected = (await options.service.listProjects()).find((candidate) => candidate.id === resolved.id)
   const roots = selected ? [selected.root, ...selected.aliases.map((alias) => alias.root)] : [resolved.root]
-  if (!isPathWithinBoundary(options.cwd, roots)) {
+  if (!isInside(options.cwd, roots)) {
     throw new Error('cwd must be inside the selected project canonical root or alias')
   }
   const preflight = await options.service.preflight({
@@ -84,7 +97,7 @@ export async function runCommand(options: RunCommandOptions): Promise<RunCommand
     await options.service.recordCommandStarted({
       project,
       commandRunId,
-      command: redactArgv(options.argv),
+      command: options.argv,
       workingDirectory: options.cwd,
       startedAt: startedAt.toISOString(),
     })
@@ -157,14 +170,12 @@ export async function runCommand(options: RunCommandOptions): Promise<RunCommand
 
   let rawLogPath: string | null = null
   let rawLogDigest: string | null = null
-  let rawLogArtifact: RawLogResult['artifact'] | null = null
   if (log) {
     try {
       const raw = log.close()
       if (logWritable) {
         rawLogPath = JSON.stringify(raw.paths)
         rawLogDigest = raw.digest
-        rawLogArtifact = raw.artifact
       }
     } catch (error) {
       warn(`raw log finalization failed: ${errorMessage(error)}`)
@@ -178,36 +189,34 @@ export async function runCommand(options: RunCommandOptions): Promise<RunCommand
       commandRunId,
       caseId: options.caseId,
       attemptId: options.attemptId,
-      command: redactArgv(options.argv),
+      command: options.argv,
       workingDirectory: options.cwd,
       exitStatus: outcome.signal ? null : outcome.code,
       signal: outcome.signal,
       durationMs: Math.max(0, Date.now() - started),
-      excerpt: boundedRedactedExcerpt(
+      excerpt: boundedExcerpt(
         Buffer.concat(excerptChunks).toString('utf8'),
         MAX_STORED_EXCERPT_BYTES,
       ),
       rawLogPath,
       rawLogDigest,
-      rawLogArtifact,
       startedAt: startedAt.toISOString(),
       finishedAt: finishedAt.toISOString(),
     })
     if (outcome.code !== 0 || outcome.signal) {
-      const excerpt = boundedRedactedExcerpt(
+      const excerpt = boundedExcerpt(
         Buffer.concat(excerptChunks).toString('utf8') || `Command exited ${outcome.code}`,
         MAX_STORED_EXCERPT_BYTES,
       )
-      const fingerprint = normalizeFingerprint(excerpt, { projectRoots: roots })
-      const fingerprintKey = createHash('sha256').update(fingerprint).digest('hex')
+      const fingerprintKey = createHash('sha256').update(excerpt).digest('hex')
       const problem = await options.service.recordProblem({
         project,
         sourceKey: { kind: 'command-fingerprint', key: fingerprintKey },
         data: {
-          summary: `Command failed: ${redactArgv(options.argv)[0]}`,
+          summary: `Command failed: ${options.argv[0]}`,
           symptoms: [excerpt],
           domain: 'command',
-          fingerprint,
+          fingerprint: fingerprintKey,
         },
       })
       await options.service.recordAttempt({
@@ -217,9 +226,9 @@ export async function runCommand(options: RunCommandOptions): Promise<RunCommand
         sourceKey: { kind: 'command-run', key: commandResult.commandRunId },
         data: {
           hypothesis: 'Unclassified command failure',
-          change: `Ran ${redactArgv(options.argv).join(' ')}`,
+          change: `Ran ${options.argv.join(' ')}`,
           outcome: 'failed',
-          command: redactArgv(options.argv),
+          command: options.argv,
           failureExplanation: excerpt,
         },
       })

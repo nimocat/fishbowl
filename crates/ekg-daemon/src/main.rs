@@ -9,6 +9,7 @@ use ekg_contracts::PROTOCOL_VERSION;
 use ekg_daemon::http::{DaemonHttpConfig, RpcDispatcher, serve_loopback};
 use ekg_daemon::native::NativeDispatcher;
 use ekg_daemon::protocol::ProtocolSession;
+use ekg_storage::DatabaseManager;
 use serde_json::json;
 use uuid::Uuid;
 
@@ -17,9 +18,44 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let arguments = env::args().skip(1).collect::<Vec<_>>();
     if arguments.first().map(String::as_str) == Some("daemon") {
         run_daemon(&arguments[1..]).await
+    } else if arguments.first().map(String::as_str) == Some("integrity") {
+        match run_integrity(&arguments[1..]) {
+            Ok(()) => Ok(()),
+            Err(message) => {
+                eprintln!(
+                    "{}",
+                    json!({
+                        "error": "INTEGRITY_FAILED",
+                        "message": message,
+                        "recovery": "Open in read-only recovery mode. Back up knowledge.db, use sqlite3 .recover into a separate database, verify it, then export from the recovered copy."
+                    })
+                );
+                std::process::exit(1)
+            }
+        }
     } else {
         run_stdio(&arguments)
     }
+}
+
+fn run_integrity(arguments: &[String]) -> Result<(), String> {
+    if arguments.len() != 2 || arguments[0] != "--database" {
+        return Err("usage: ekg-rust-core integrity --database <path>".into());
+    }
+    let database = DatabaseManager::open(Path::new(&arguments[1])).map_err(|_| {
+        "Database failed read-only preflight; original bytes were preserved".to_owned()
+    })?;
+    let results = database
+        .quick_check()
+        .map_err(|_| "Database quick_check failed; original bytes were preserved".to_owned())?;
+    if results.iter().any(|value| value != "ok") {
+        return Err("Database quick_check did not return ok; original bytes were preserved".into());
+    }
+    println!(
+        "{}",
+        json!({"ok": true, "check": "quick_check", "results": results})
+    );
+    Ok(())
 }
 
 fn run_stdio(arguments: &[String]) -> Result<(), Box<dyn std::error::Error>> {

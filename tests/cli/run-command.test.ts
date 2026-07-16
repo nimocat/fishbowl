@@ -122,11 +122,7 @@ describe('runCommand', () => {
     expect(records[0]?.workingDirectory).toBe(directory)
     expect(records[0]?.rawLogDigest).toMatch(/^[a-f0-9]{64}$/)
     expect(records[0]?.rawLogPath).toContain(join(directory, 'logs', 'project-a'))
-    expect(records[0]?.rawLogArtifact).toEqual(expect.objectContaining({
-      kind: 'command-log', digestAlgorithm: 'sha256', digest: records[0]?.rawLogDigest,
-      byteSize: expect.any(Number), retainedByteSize: expect.any(Number),
-      paths: expect.any(Array), segmentCount: expect.any(Number), truncated: false,
-    }))
+    expect(records[0]).not.toHaveProperty('rawLogArtifact')
     const rawBytes = Buffer.concat(JSON.parse(records[0]?.rawLogPath as string).map((path: string) => readFileSync(path)))
     expect(rawBytes.includes(Buffer.from('out\u0000'))).toBe(true)
     expect(rawBytes.includes(Buffer.from('["space value","$HOME","\\"quoted\\""]\n'))).toBe(true)
@@ -234,10 +230,11 @@ describe('runCommand', () => {
 
     expect(result.exitCode).toBe(0)
     expect(warnings).toEqual([expect.stringMatching(/disk full/)])
-    expect(records[0]).toMatchObject({ rawLogPath: null, rawLogDigest: null, rawLogArtifact: null })
+    expect(records[0]).toMatchObject({ rawLogPath: null, rawLogDigest: null })
+    expect(records[0]).not.toHaveProperty('rawLogArtifact')
   })
 
-  it('records only a bounded redacted excerpt and never environment values', async () => {
+  it('sends only a bounded excerpt to the Rust redaction boundary and never environment values', async () => {
     const { directory, service, records } = harness()
     const secret = 'token=super-secret-value'
     const environmentSecret = 'environment-only-secret'
@@ -249,8 +246,7 @@ describe('runCommand', () => {
     ])
 
     delete process.env.EKG_RUN_TEST_SECRET
-    expect(records[0]?.excerpt).toContain('token=[REDACTED]')
-    expect(records[0]?.excerpt).not.toContain('super-secret-value')
+    expect(records[0]?.excerpt).toContain(secret)
     expect(records[0]?.excerpt).not.toContain(environmentSecret)
     expect(Buffer.byteLength(records[0]?.excerpt as string)).toBeLessThanOrEqual(8 * 1024)
   })
@@ -268,7 +264,7 @@ describe('runCommand', () => {
     })])
     expect(attempts).toEqual([expect.objectContaining({
       sourceKey: { kind: 'command-run', key: 'run-a' },
-      data: expect.objectContaining({ outcome: 'failed', command: expect.not.arrayContaining(['argv-secret']) }),
+      data: expect.objectContaining({ outcome: 'failed', command: expect.arrayContaining(['argv-secret']) }),
     })])
     expect(starts).toEqual([expect.objectContaining({ command: expect.any(Array) })])
   })
