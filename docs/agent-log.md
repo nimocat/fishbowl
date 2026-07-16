@@ -402,3 +402,10 @@
   leave zero mutation.
 - Remaining Stage 6 is source preview/apply parsing and database migration,
   production-copy integrity, backup, interruption, and recovery.
+- Source-import GREEN: Rust parses bounded explicit Markdown and JSON test
+  reports, stores parser-v1 previews/proposals, rejects changed source digests,
+  applies selected candidate nodes atomically, links imported Attempt→Problem,
+  and replays without duplicate writes. Complete write tests pass 11/11.
+- Remaining Stage 6 is database schema migration, production-copy integrity,
+  backup, interruption, and recovery. File/Git acquisition belongs to the Rust
+  daemon boundary in Stage 7 and will feed the explicit-content API.

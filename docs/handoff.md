@@ -83,9 +83,10 @@ caught and fixed a `token: value` cross-word redaction leak. Project
 registration/update is now also Rust-owned with canonical path conflicts and
 atomic metadata/alias updates. Versioned snapshot export/import is Rust-owned
 with deterministic remapping, trust downgrade, redaction, relation/cycle
-validation, and local Artifact relocation. Source preview/apply plus migration/
-backup/recovery are still required. The installed TypeScript daemon remains
-the sole writer.
+validation, and local Artifact relocation. Explicit-content Markdown/JSON
+preview and apply are also Rust-owned with stale-source detection and candidate
+trust. Schema migration/backup/recovery are still required. The installed
+TypeScript daemon remains the sole writer.
 
 The individual causal-node write set is now complete in Rust: RootCause,
 Solution, Verification, Artifact, and Guardrail enforce project/Case ownership,

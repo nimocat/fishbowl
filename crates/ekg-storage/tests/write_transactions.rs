@@ -1,12 +1,13 @@
 use std::collections::BTreeMap;
 
 use ekg_contracts::{
-    ApplyCaseMergeInput, CheckpointProblemInput, CheckpointRootCauseAssertion,
-    CheckpointSolutionAssertion, CheckpointWorkInput, CheckpointWrite, CloseCaseInput,
-    ExportProjectGraphInput, FinalizeCommitInput, FinalizeMergeInput, FinalizeRootCauseInput,
-    FinalizeSolutionInput, FinalizeVerificationInput, FinalizeWorkInput, ImportProjectGraphInput,
-    MarkRegressionInput, NodeStatus, ProjectReference, RecordArtifactInput, RecordAttemptInput,
-    RecordCheckpointInput, RecordCommandResultInput, RecordCommandStartedInput,
+    ApplyCaseMergeInput, ApplyImportContentInput, CheckpointProblemInput,
+    CheckpointRootCauseAssertion, CheckpointSolutionAssertion, CheckpointWorkInput,
+    CheckpointWrite, CloseCaseInput, ExportProjectGraphInput, FinalizeCommitInput,
+    FinalizeMergeInput, FinalizeRootCauseInput, FinalizeSolutionInput, FinalizeVerificationInput,
+    FinalizeWorkInput, ImportContentSource, ImportProjectGraphInput, MarkRegressionInput,
+    NodeStatus, PreviewImportContentInput, ProjectReference, RecordArtifactInput,
+    RecordAttemptInput, RecordCheckpointInput, RecordCommandResultInput, RecordCommandStartedInput,
     RecordGuardrailInput, RecordProblemInput, RecordRootCauseInput, RecordSolutionInput,
     RecordVerificationInput, RegisterProjectInput, RegressionOutcomeContract, RelationType,
     ReportRelevanceInput, SnapshotEdge, SourceKey, SuggestCaseMergesInput, UpdateProjectInput,
@@ -896,6 +897,79 @@ fn snapshot_export_import_is_bounded_redacted_atomic_and_idempotent() {
     std::fs::remove_dir(target_root).unwrap();
 }
 
+#[test]
+fn source_preview_and_apply_are_bounded_stale_safe_atomic_and_idempotent() {
+    let path = database("source-import");
+    let mut repository = WriteRepository::open(path.to_str().unwrap()).unwrap();
+    let sources = vec![ImportContentSource {
+        path_hint: "report.md".into(),
+        content: "# Camera token: hidden\nfirst failure\n# Export\nsecond failure".into(),
+    }, ImportContentSource {
+        path_hint: "tests.json".into(),
+        content: r#"{"testResults":[{"name":"suite","assertionResults":[{"title":"fails","status":"failed","message":"boom"}]}]}"#.into(),
+    }];
+    let preview = repository
+        .preview_import_content(PreviewImportContentInput {
+            project: project("project-a"),
+            sources: sources.clone(),
+        })
+        .unwrap();
+    assert_eq!(preview.proposals.len(), 4);
+    assert!(!serde_json::to_string(&preview).unwrap().contains("hidden"));
+    let selected = preview
+        .proposals
+        .iter()
+        .map(|proposal| proposal.id.clone())
+        .collect::<Vec<_>>();
+    let input = ApplyImportContentInput {
+        project: project("project-a"),
+        preview_id: preview.preview_id,
+        proposal_ids: selected,
+        operation_id: "apply-source-import".into(),
+        sources: sources.clone(),
+    };
+    let first = repository.apply_import_content(input.clone()).unwrap();
+    assert_eq!(first.created, 4);
+    let replay = repository.apply_import_content(input).unwrap();
+    assert_eq!(replay.created, 0);
+    assert_eq!(replay.node_ids, first.node_ids);
+    let connection = Connection::open(&path).unwrap();
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT count(*) FROM edges WHERE relation='ATTEMPTS_TO_SOLVE'",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+        1
+    );
+    drop(connection);
+
+    let stale_preview = repository
+        .preview_import_content(PreviewImportContentInput {
+            project: project("project-a"),
+            sources: sources.clone(),
+        })
+        .unwrap();
+    let before = counts(&path);
+    let mut changed = sources;
+    changed[0].content.push_str(" changed");
+    assert!(
+        repository
+            .apply_import_content(ApplyImportContentInput {
+                project: project("project-a"),
+                preview_id: stale_preview.preview_id,
+                proposal_ids: vec![stale_preview.proposals[0].id.clone()],
+                operation_id: "stale-source-import".into(),
+                sources: changed,
+            })
+            .is_err()
+    );
+    assert_eq!(counts(&path), before);
+    std::fs::remove_file(path).unwrap();
+}
+
 fn problem_input(operation_id: &str) -> RecordProblemInput {
     RecordProblemInput {
         project: project("project-a"),
@@ -938,6 +1012,8 @@ fn database(label: &str) -> std::path::PathBuf {
              CREATE TABLE fingerprints (id TEXT PRIMARY KEY, project_id TEXT, problem_node_id TEXT, algorithm TEXT, value TEXT, created_at TEXT, UNIQUE(project_id,algorithm,value));
              CREATE TABLE source_keys (id TEXT PRIMARY KEY, project_id TEXT, source_kind TEXT, source_key TEXT, node_id TEXT, created_at TEXT, UNIQUE(project_id,source_kind,source_key));
              CREATE TABLE operation_results (id TEXT PRIMARY KEY, project_id TEXT, operation_id TEXT, kind TEXT, result TEXT, created_at TEXT, UNIQUE(project_id,operation_id));
+             CREATE TABLE import_previews (id TEXT PRIMARY KEY, project_id TEXT, source_digest TEXT, status TEXT, created_at TEXT, applied_at TEXT, parser_version TEXT, source_manifest TEXT, expires_at TEXT, UNIQUE(project_id,id));
+             CREATE TABLE import_proposals (id TEXT PRIMARY KEY, project_id TEXT, preview_id TEXT, source_key TEXT, node_type TEXT, payload TEXT, selected INTEGER DEFAULT 0, created_at TEXT, UNIQUE(project_id,preview_id,source_key));
              CREATE TABLE command_runs (id TEXT PRIMARY KEY, project_id TEXT, case_id TEXT, attempt_node_id TEXT, command TEXT, working_directory TEXT, exit_status INTEGER, signal TEXT, duration_ms INTEGER, excerpt TEXT, raw_log_path TEXT, raw_log_digest TEXT, started_at TEXT, finished_at TEXT);
              CREATE TABLE artifacts (id TEXT PRIMARY KEY, project_id TEXT, node_id TEXT, kind TEXT, uri TEXT, digest TEXT, is_external INTEGER, metadata TEXT, created_at TEXT);
              CREATE TABLE evidence (id TEXT PRIMARY KEY, project_id TEXT, node_id TEXT, kind TEXT, command TEXT, exit_status INTEGER, data TEXT, created_at TEXT);

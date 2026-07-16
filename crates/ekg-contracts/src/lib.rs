@@ -304,6 +304,63 @@ pub struct ImportProjectGraphResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ImportContentSource {
+    pub path_hint: String,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PreviewImportContentInput {
+    pub project: ProjectReference,
+    pub sources: Vec<ImportContentSource>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ImportProposalRecord {
+    pub id: String,
+    pub source_key: String,
+    pub node_type: NodeType,
+    pub status: NodeStatus,
+    pub case_title: String,
+    pub data: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ImportPreviewResult {
+    pub preview_id: String,
+    pub project_id: String,
+    pub parser_version: String,
+    pub source_digest: String,
+    pub created_at: String,
+    pub expires_at: String,
+    pub proposals: Vec<ImportProposalRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ApplyImportContentInput {
+    pub project: ProjectReference,
+    pub preview_id: String,
+    pub proposal_ids: Vec<String>,
+    pub operation_id: String,
+    pub sources: Vec<ImportContentSource>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ApplyImportContentResult {
+    pub preview_id: String,
+    pub proposal_ids: Vec<String>,
+    pub case_ids: Vec<String>,
+    pub node_ids: Vec<String>,
+    pub created: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SourceKey {
     pub kind: String,
     pub key: String,

@@ -549,14 +549,18 @@ Current progress:
   deterministic SHA-256 remapping, trust downgrade, project-root redaction and
   safe local Artifact relocation. Invalid archives mutate nothing; retries are
   operation-idempotent.
+- Added Rust-owned explicit-content preview/apply parsing for Markdown and JSON
+  failed-test reports. It preserves parser-v1, 32-source/1 MiB bounds, preview
+  expiry, source-digest staleness, proposal ownership, candidate-only writes,
+  Problem/Attempt linkage, and operation replay. Rust daemon acquisition of
+  explicit file/Git sources will feed this core API in Stage 7.
 - Project ownership, operation-ID replay, source-key replay/type checks,
   event/edge/search ordering, recursive redaction, and four injected rollback
   points pass focused tests.
 - A RED/GREEN cycle found that `token: value` could leak the value after a
   whitespace separator; stateful cross-token redaction now covers it.
-- No installed write route has changed. Source preview/apply parsing, schema
-  migration, production-copy integrity, backup, and recovery remain required
-  before Stage 6 cutover.
+- No installed write route has changed. Schema migration, production-copy
+  integrity, backup, and recovery remain required before Stage 6 cutover.
 
 ## 14. Stage 7 — Rust daemon ownership and end-to-end metrics
 
