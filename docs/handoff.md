@@ -25,6 +25,12 @@ versioned Rust response contract and persistent process client, replay the
 TypeScript query/preflight golden set against Rust, then switch reads. Do not
 duplicate new retrieval or Guardrail policy in TypeScript.
 
+The implementation order, TDD fixtures, phase exit gates, rollout states, and
+rollback rules are specified in
+`docs/plans/2026-07-16-rust-core-migration-tdd.md`. Stage 1 contract ownership
+is the next executable slice; the plan alone does not authorize production
+routing changes.
+
 ## Status
 
 `finalize_work` is implemented across the application service, authenticated daemon allowlist, and MCP adapter. It atomically records failed and successful Attempts, candidate RootCause/Solution, bounded verification evidence, and external commit/merge fact Artifacts. It does not execute Git, tests, builds, or device validation. MCP collection items are concrete strings and cross-field errors identify their field paths. Final release-gate results follow after verification.

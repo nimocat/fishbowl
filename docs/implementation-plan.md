@@ -24,6 +24,12 @@ diffusion, then transactional write migration. The TypeScript application and
 storage core cannot be removed until parity, migration, recovery, and release
 gates pass.
 
+The executable phase-by-phase migration and TDD plan is
+`docs/plans/2026-07-16-rust-core-migration-tdd.md`. It defines shared
+cross-language fixtures, RED/GREEN/shadow/cutover rules, read-only shadowing,
+single-writer migration, per-stage performance and retrieval gates, and
+rollback conditions.
+
 ## Active Follow-up: Query and Write Efficiency
 
 **Status:** Daemon/relevance optimization complete and release-verified (2026-07-15)

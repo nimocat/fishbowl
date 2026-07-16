@@ -1,5 +1,22 @@
 # Agent Log
 
+## 2026-07-16 - Rust Migration and TDD Plan
+
+- Goal: convert the accepted Rust/tree direction into an executable migration
+  plan that keeps production safe at every phase.
+- Decision: contract ownership precedes query cutover; reads may shadow but
+  writes may never dual-run. Rust must return complete public results before
+  TypeScript stops being the compatibility oracle.
+- Plan: stages cover baseline, contracts, query reads, preflight and
+  Guardrails, deterministic hierarchy, bounded graph/semantic retrieval,
+  transactional writes, Rust daemon ownership, and TypeScript core removal.
+- TDD: shared redacted JSON fixtures drive TypeScript compatibility and Rust
+  RED tests. Every stage has correctness, isolation, redaction, performance,
+  retrieval-quality, rollout, and rollback gates.
+- Next: create `ekg-contracts`, canonical query/preflight/get-case fixtures,
+  persistent Rust request protocol, and a serialization-only TypeScript shadow
+  adapter.
+
 ## 2026-07-14 CST - Query/Write Efficiency Plan Approved
 
 - Goal: Resolve the end-to-end efficiency problems observed in the `s1-pro-compact` workload while preserving existing EKG contracts and history.

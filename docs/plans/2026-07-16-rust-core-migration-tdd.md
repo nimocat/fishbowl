@@ -1,0 +1,560 @@
+# EKG Rust Core Migration and TDD Plan
+
+**Date:** 2026-07-16
+
+**Status:** Approved direction; executable migration plan
+
+**Branch:** `codex/ekg-efficiency-rounds`
+
+**Related design:** `docs/specs/2026-07-16-rust-hierarchical-retrieval.md`
+
+## 1. Objective
+
+Move every EKG knowledge-engine responsibility from TypeScript to Rust without
+losing existing knowledge, project isolation, redaction, idempotency, causal
+history, promotion rules, Guardrail behavior, or local recovery.
+
+After migration:
+
+- Rust owns domain validation, storage, migrations, indexing, retrieval,
+  ranking, graph traversal, policy, transactions, redaction enforcement,
+  metrics, daemon lifecycle, and recovery.
+- TypeScript owns only MCP schema adaptation and browser-facing presentation.
+- SQLite remains the only authoritative durable knowledge store.
+- Raw command logs remain outside SQLite under the existing retention policy.
+- Exact verified knowledge and blocking Guardrails cannot be suppressed by
+  approximate retrieval.
+
+The migration will reuse proven algorithms, but it will not embed a complete
+third-party RAG framework into the trusted core.
+
+## 2. Non-negotiable invariants
+
+Every phase must preserve all of the following:
+
+1. Every read and mutation is explicitly project-scoped.
+2. Worktree aliases resolve to exactly one registered project.
+3. Raw logs, credentials, environment values, and unredacted excerpts never
+   enter SQLite knowledge text.
+4. Only a verified Guardrail with `enforcement=block` may block execution.
+5. Candidate or imported assertions cannot become verified by assertion alone.
+6. Operation ID and source-key retries are idempotent.
+7. Case graph and append-only event mutations commit atomically.
+8. Failed Attempts and regression history are never deleted.
+9. No migration phase permits concurrent TypeScript and Rust writers.
+10. A performance gain is rejected if recall, trust, isolation, or recovery
+    regresses.
+
+## 3. Current and target topology
+
+### Current
+
+```text
+MCP / CLI / HTTP
+        |
+TypeScript daemon
+        |
+TypeScript KnowledgeService
+        |
+SQLite + FTS5
+```
+
+### Transitional
+
+```text
+MCP / browser presentation (TypeScript)
+        |
+versioned local RPC
+        |
+Rust daemon
+  |-- Rust contracts and policy
+  |-- Rust storage and transactions
+  |-- Rust hierarchical retrieval
+  `-- SQLite + revisioned in-memory indexes
+```
+
+### Final
+
+```text
+TypeScript MCP adapter       Browser UI
+          \                   /
+           versioned Rust daemon
+                    |
+         deterministic routing tree
+                    |
+       hierarchical knowledge communities
+                    |
+          bounded graph expansion
+                    |
+               SQLite
+```
+
+## 4. TDD operating model
+
+Every behavior slice follows the same cycle.
+
+### RED
+
+- Add a language-neutral JSON fixture describing input, expected output,
+  expected stable error, and expected durable effects.
+- Replay it against the current TypeScript engine to establish compatibility.
+- Add a Rust test that fails because the capability is missing.
+- For improvements that intentionally differ, record the old output and the
+  new expected outcome explicitly; never silently redefine parity.
+
+### GREEN
+
+- Implement the smallest Rust behavior that satisfies the fixture.
+- Keep all SQLite queries explicitly scoped by project ID and Case ID.
+- Keep the TypeScript production path unchanged until the phase exit gate.
+
+### REFACTOR
+
+- Remove duplicated Rust logic, add bounded types, and inspect query plans.
+- Run debug correctness tests and release performance tests separately.
+- Record before/after latency, response size, recall, and memory.
+
+### SHADOW
+
+- Send the same read request to TypeScript and Rust.
+- Return the TypeScript result to the caller.
+- Compare Rust results asynchronously using redacted digests and bounded
+  mismatch metadata; never persist raw request text in metrics.
+- Writes are never dual-executed.
+
+### CUTOVER
+
+- Enable Rust for one read operation at a time.
+- Retain a bounded emergency fallback only while that phase is candidate.
+- Remove fallback after an observation window and final acceptance.
+
+## 5. Shared test assets
+
+Create these assets before further cutover work:
+
+```text
+fixtures/contracts/
+  projects.json
+  query_knowledge.json
+  preflight.json
+  get_case.json
+  checkpoint_work.json
+  finalize_work.json
+  import_export.json
+  errors.json
+
+fixtures/retrieval/
+  bilingual_golden.json
+  guardrail_golden.json
+  multihop_golden.json
+  global_local_golden.json
+  regressions.json
+```
+
+Each fixture contains only redacted synthetic engineering knowledge. Required
+golden-set categories:
+
+- Chinese compound terms with inserted or omitted middle words.
+- English exact, prefix, and paraphrased queries.
+- fingerprint, file, symbol, test, and argv exact matches.
+- schema/version applicability conflicts.
+- candidate, verified, regressed, retired, and superseded Cases.
+- blocking, warning, advisory, all-of, and any-of Guardrails.
+- multi-hop Problem → Attempt → RootCause → Solution → Verification paths.
+- unrelated large Cases that must not flood compact results.
+- two projects containing identical text to prove isolation.
+
+## 6. Measurement protocol
+
+Every phase publishes one row in the efficiency ledger with:
+
+- fixture revision and source commit;
+- cold and warm p50/p95/p99;
+- queue, execution, serialization, and transport duration;
+- request and response bytes;
+- Recall@1, Recall@3, Recall@5, MRR, and nDCG@5;
+- exact-match recall and blocking-Guardrail recall;
+- peak resident memory and index build duration;
+- SQLite statements and write transactions per workflow;
+- mismatch count against the compatibility oracle.
+
+Debug tests use generous scheduler-safe budgets. Strict latency gates run only
+in release mode and never concurrently with unrelated stress suites.
+
+Initial reference points:
+
+| Path | Cold | Warm p50 | Warm p95 |
+| --- | ---: | ---: | ---: |
+| Existing MCP observed end-to-end | n/a | 3–6s perceived | n/a |
+| Existing service preflight | n/a | 17ms | 34ms |
+| Initial Rust SQLite/tree, O(n²) | 10,010.541ms | 17.833µs | 22.084µs |
+| Rust SQLite/tree after linear CTE, debug | 1,147.123ms | 17.750µs | 21.916µs |
+| Rust SQLite/tree, release | 177.349ms | 6.292µs | 7.625µs |
+
+## 7. Stage 0 — Baseline and Rust vertical slice
+
+**Status:** Complete in commit `49c51fd`.
+
+### Scope
+
+- Rust workspace and core types.
+- Unicode lexical routing and Han bigrams.
+- Project → domain → prefix tree → Case routing.
+- Guardrail all-of and explicit any-of semantics.
+- Query-only SQLite reader and event-revision cache.
+- 10,000-Case debug/release benchmark.
+
+### Proven failure
+
+The first SQLite loader used a correlated domain subquery for every node and
+required 10,010.541ms for 10,000 Cases.
+
+### Decisive fix
+
+One grouped `case_domains` CTE plus a scoped join reduced debug cold load by
+88.54%; release cold load is 177.349ms.
+
+### Exit gate
+
+- Rust native correctness and performance tests pass.
+- Existing TypeScript tests remain green.
+- Rust is query-only and cannot mutate production data.
+
+## 8. Stage 1 — Contract ownership and parity harness
+
+**Goal:** Rust owns complete response and error contracts before it serves any
+production operation.
+
+### Files
+
+```text
+crates/ekg-contracts/
+crates/ekg-core/src/error.rs
+crates/ekg-daemon/src/protocol.rs
+fixtures/contracts/
+src/rust/contract-adapter.ts
+tests/contracts/
+```
+
+### RED tests
+
+1. Serialize every current public input/result/error from TypeScript into
+   canonical fixture JSON.
+2. Rust rejects unknown fields, invalid enum values, unbounded arrays, and
+   project references containing both/neither ID and root.
+3. Rust error responses match stable error codes without leaking raw inputs.
+4. Rust output ordering is deterministic across repeated runs.
+5. TypeScript decodes Rust results without interpreting policy or querying
+   SQLite.
+
+### GREEN implementation
+
+- Add serde DTOs and bounded constructors.
+- Version the daemon protocol independently from the SQLite schema.
+- Add canonical JSON response fixtures and cross-language replay commands.
+- Add request ID replay and stable error envelopes.
+
+### Exit gate
+
+- 100% fixture parity for read contracts.
+- Zero policy or SQLite imports in the TypeScript Rust adapter.
+- Contract replay p95 below 10ms excluding process startup.
+- Protocol mismatch returns recovery guidance.
+
+### Rollback
+
+No production routing changes occur in this phase.
+
+## 9. Stage 2 — `query_knowledge` read cutover
+
+**Goal:** Rust returns the complete bounded `query_knowledge` result.
+
+### RED tests
+
+1. Exact fingerprint/file/symbol/command matches outrank lexical matches.
+2. Chinese compound query recalls the expected Case.
+3. Node type, status, domain, command, file, fingerprint, and limit filters are
+   project-scoped and composable.
+4. Two projects with identical text never cross-contaminate.
+5. Results report stable truncation and deterministic ordering.
+6. Existing schema-v7 database opens read-only without mutation.
+
+### GREEN implementation
+
+- Add `ekg-storage` read repository with prepared, scoped SQL.
+- Replace the prototype character tree with a compressed radix/ART-equivalent
+  only if benchmark evidence shows a material improvement.
+- Return complete Case title and compact node records from Rust.
+- Add project-revision incremental cache invalidation.
+
+### Shadow gate
+
+- Replay at least 1,000 synthetic and retained redacted queries.
+- Exact-match parity: 100%.
+- Existing expected results: Recall@5 no regression.
+- New bilingual golden set: Recall@5 at least 95%.
+- Rust response p95 below 50ms warm and 250ms cold for the large fixture.
+- Mismatch diagnostics contain IDs and reason codes only.
+
+### Cutover
+
+- Route `query_knowledge` to Rust.
+- Keep TypeScript fallback disabled by default and available only through a
+  temporary local recovery switch.
+- Remove the fallback after the observation window.
+
+## 10. Stage 3 — Preflight, ranking, and Guardrails
+
+**Goal:** Rust owns all preflight selection and trusted blocking policy.
+
+### RED tests
+
+1. Every verified blocking Guardrail is evaluated independently of candidate
+   limits and approximate retrieval.
+2. Candidate or warning Guardrails never block.
+3. Existing all-of semantics stay unchanged.
+4. New `taskIncludesAny`, `commandIncludesAny`, and `fileIncludesAny` are
+   explicit and deterministic.
+5. Common terms such as `build`, `test`, and `fix` cannot displace exact file,
+   command, fingerprint, or verified knowledge matches.
+6. Default preflight remains at most five cards and below 12KiB.
+7. Ranking explanations identify every score component.
+
+### GREEN implementation
+
+- Move promotion, regression, Guardrail, and relevance policy into `ekg-core`.
+- Load verified Guardrails into an independent deterministic routing index.
+- Add compact Case-card construction and response-size compaction in Rust.
+- Add content-free cache-hit, candidate-count, card-count, and timing metrics.
+
+### Exit gate
+
+- Blocking Guardrail recall: 100%.
+- Blocking false positives: 0 on the golden set.
+- Preflight Recall@5 at least 95% and not below the TypeScript oracle.
+- Warm daemon-internal p95 below 50ms.
+- Default response below 12KiB.
+
+## 11. Stage 4 — Deterministic hierarchical knowledge tree
+
+**Goal:** Support local and global engineering questions without scanning every
+Case or relying on nondeterministic communities.
+
+### RED tests
+
+1. The same graph revision always produces byte-identical hierarchy metadata.
+2. Incremental updates rebuild only affected project/domain branches.
+3. A global query returns community summaries with supporting Case IDs.
+4. A local query descends to concrete evidence without returning unrelated
+   community contents.
+5. Summary invalidation follows source revision changes.
+6. No summary can confer verified status or replace primary evidence.
+
+### GREEN implementation
+
+- Add project → domain → deterministic k-core community → Case → node tree.
+- Build structural summaries first: counts, statuses, fingerprints, files,
+  commands, and verified conclusions.
+- Add optional generated summaries only as versioned candidate artifacts.
+- Keep summary creation outside the query hot path.
+
+### Exit gate
+
+- Hierarchy determinism: 100% over repeated builds.
+- Incremental rebuild touches only expected branches.
+- Global-query nDCG@5 materially exceeds flat lexical baseline.
+- Every summary result carries supporting Case IDs.
+- Release rebuild stays within the agreed memory and latency budget.
+
+## 12. Stage 5 — Bounded graph expansion and optional semantic recall
+
+**Goal:** Recover multi-hop and paraphrased knowledge after deterministic
+candidate pruning.
+
+### RED tests
+
+1. Bounded PPR retrieves expected RootCause/Solution paths from a seed Problem.
+2. Traversal cannot cross project boundaries.
+3. Node/edge/iteration budgets terminate dense or adversarial subgraphs.
+4. Approximate semantic results never outrank exact verified matches solely by
+   similarity.
+5. Disabling semantic retrieval produces a complete deterministic fallback.
+
+### GREEN implementation
+
+- Add PPR over the selected project-local subgraph.
+- Add edge-type and trust-aware weights.
+- Evaluate HNSW only after lexical/tree candidates and only if the golden set
+  proves a recall gap.
+- Evaluate late interaction only over a small bounded candidate set.
+
+### Exit gate
+
+- Multi-hop Recall@5 improves over Stage 4.
+- Exact-match and Guardrail metrics do not regress.
+- P95 remains inside the end-to-end target.
+- Semantic index is optional, local, rebuildable, and non-authoritative.
+
+## 13. Stage 6 — Rust storage and transactional writes
+
+**Goal:** Rust becomes the only database writer.
+
+### Migration rule
+
+Reads may be shadowed. Writes may not. Each write operation switches atomically
+from TypeScript to Rust only after its parity suite passes.
+
+### Operation order
+
+1. `record_command_started` / `record_command_result`
+2. Problem and Attempt
+3. RootCause, Solution, Verification, Artifact, Guardrail
+4. `record_checkpoint`
+5. `checkpoint_work`
+6. `finalize_work`
+7. close, regression, relevance, merge proposals
+8. import/export and schema migration
+
+### RED tests per operation
+
+- success graph, edges, status, event order, and result;
+- invalid payload with zero mutation;
+- cross-project ownership rejection;
+- operation-ID replay;
+- source-key replay and type conflict;
+- injected failure after every mutation step with full rollback;
+- redaction sentinel absent from every SQLite projection;
+- interrupted process recovery.
+
+### GREEN implementation
+
+- Add `ekg-storage` repositories and one explicit transaction boundary per
+  application operation.
+- Port schema migrations with backup-first recovery.
+- Preserve existing IDs, timestamps, event sequence, and schema semantics.
+- Add SQLite authorizer/query-only modes for read paths where appropriate.
+
+### Exit gate
+
+- Byte/semantic parity on exported project snapshots.
+- Zero dual-writer paths.
+- All rollback injection points leave the database unchanged.
+- Existing production database migrates on a copy and passes integrity checks.
+- Backup and downgrade/recovery instructions are executable.
+
+## 14. Stage 7 — Rust daemon ownership and end-to-end metrics
+
+**Goal:** Replace the Node daemon while retaining MCP/browser compatibility.
+
+### RED tests
+
+- loopback-only bind, Host/origin enforcement, bearer authentication;
+- request limit, timeout, retry, replay, and protocol mismatch;
+- daemon crash/restart with no partial mutation;
+- macOS launchd and Windows current-user lifecycle contracts;
+- queue, execution, serialization, and transmission metrics;
+- MCP host delay reported separately from daemon time.
+
+### GREEN implementation
+
+- Rust authenticated loopback server and SSE event stream.
+- Rust owns the SQLite connection pool and project cache.
+- TypeScript MCP adapter becomes a stateless protocol translator.
+- Browser consumes the stable HTTP/SSE contract.
+
+### Exit gate
+
+- Warm CLI end-to-end p95 below 250ms.
+- Warm checkpoint p95 below 300ms.
+- Daemon-internal preflight p95 below 100ms.
+- No normal TypeScript process opens SQLite.
+- Restart/replay acceptance passes on macOS and Windows.
+
+## 15. Stage 8 — Remove the TypeScript core
+
+**Goal:** Enforce the final architecture mechanically.
+
+### Removal targets
+
+```text
+src/application/knowledge-service.ts
+src/application/query-planner.ts
+src/application/relevance.ts
+src/domain/* policy implementations
+src/storage/* runtime implementations
+TypeScript daemon SQLite ownership
+```
+
+Shared TypeScript DTOs may remain only when generated from or mechanically
+validated against the Rust contract schema.
+
+### Architecture tests
+
+- TypeScript MCP and web directories cannot import SQLite, storage, graph,
+  policy, ranking, or redaction implementation modules.
+- Package dependency graph contains no `better-sqlite3` runtime dependency.
+- Rust daemon is required for normal operation; embedded recovery is an
+  explicit Rust mode.
+
+### Final exit gate
+
+- All historical TypeScript acceptance fixtures pass against Rust.
+- Full migration, backup, restore, export/import, and daemon lifecycle tests
+  pass.
+- Performance and retrieval metrics meet every prior phase budget.
+- Installed EKG passes a real project preflight, query, checkpoint, and
+  Trace Bench smoke test.
+- User explicitly approves production cutover.
+
+## 16. Rollout states
+
+Each operation moves through explicit states:
+
+```text
+ts-only
+  → rust-shadow-read
+  → rust-read-candidate
+  → rust-read-default
+  → rust-only
+```
+
+Write operations use only:
+
+```text
+ts-only
+  → offline parity verified
+  → rust-only
+```
+
+Rollback is allowed from Rust reads to TypeScript reads while both are
+compatible. After Rust writes a newer schema, rollback means restoring the
+pre-migration backup or using an explicitly compatible reader; it never means
+letting an older TypeScript writer open a newer database.
+
+## 17. Efficiency ledger and EKG recording
+
+At the end of every stage:
+
+1. Run the fixed release benchmark fixture.
+2. Record the prior and new measurements with percentage change.
+3. Record failed and inconclusive routes separately.
+4. Attach the source commit and fixture revision.
+5. Keep the Case candidate until real installed-daemon validation and human
+   approval confirm the cutover.
+
+Use EKG Case `087bb44e-24ac-4a75-a49b-3a7f74935f89` for the migration history.
+
+## 18. Immediate next implementation slice
+
+Stage 1 begins with these tasks:
+
+1. Create `crates/ekg-contracts` with read DTOs and stable error codes.
+2. Generate redacted query/preflight/get-case fixtures from the TypeScript
+   contract tests.
+3. Add Rust RED tests for strict input bounds and canonical output ordering.
+4. Add a persistent Rust process protocol with request ID replay.
+5. Add a TypeScript adapter that performs serialization only.
+6. Run shadow parity without changing installed-daemon responses.
+
+No hierarchy, vector, or write work begins until Stage 1 contract parity is
+green. This prevents later phases from optimizing an unstable boundary.
