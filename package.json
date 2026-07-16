@@ -9,7 +9,7 @@
   "exports": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.build.json && node scripts/copy-static-assets.mjs && node scripts/prepare-bin.mjs",
+    "build": "node scripts/clean-dist.mjs && node scripts/build-native.mjs && tsc -p tsconfig.build.json && node scripts/copy-static-assets.mjs && node scripts/prepare-bin.mjs",
     "test": "vitest run",
     "test:browser": "playwright test",
     "test:acceptance": "vitest run tests/acceptance",

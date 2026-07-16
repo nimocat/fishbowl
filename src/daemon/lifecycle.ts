@@ -4,6 +4,7 @@ import { homedir } from 'node:os'
 
 import { DaemonClient, createDaemonBackend } from './client.js'
 import { ensureDaemonCredentials, readDaemonDescriptor, resolveDaemonPaths } from './config.js'
+import { defaultNativeBinary, nativeDaemonArguments } from './platform.js'
 
 export function connectInstalledDaemon(options: {
   environment?: Record<string, string | undefined>
@@ -39,7 +40,7 @@ export async function ensureInstalledDaemon(options: {
   environment?: Record<string, string | undefined>
   home?: string
   platform?: NodeJS.Platform
-  entryPoint?: string
+  nativeBinary?: string
   startupTimeoutMs?: number
 } = {}) {
   const initialized = initializeDaemonCredentials(options)
@@ -50,12 +51,10 @@ export async function ensureInstalledDaemon(options: {
     return { paths: initialized.paths, descriptor, client, backend: createDaemonBackend(client) }
   }
   try { return await connect() } catch { /* start once below */ }
-  const entryPoint = options.entryPoint ?? process.argv[1]
-  if (!entryPoint) throw new Error('EKG daemon is unavailable and the CLI entry point is unknown; run `ekg daemon install`')
-  const child = spawn(process.execPath, [entryPoint, 'daemon', 'foreground'], {
+  const nativeBinary = options.nativeBinary ?? defaultNativeBinary(options.platform ?? process.platform)
+  const child = spawn(nativeBinary, nativeDaemonArguments(initialized.paths), {
     detached: true,
     stdio: 'ignore',
-    env: { ...process.env, ...options.environment, EKG_DATA_DIR: initialized.paths.dataDirectory },
   })
   child.unref()
   const deadline = Date.now() + (options.startupTimeoutMs ?? 2_500)

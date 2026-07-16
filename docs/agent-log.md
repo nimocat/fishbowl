@@ -453,3 +453,12 @@
   dispatcher using the persisted manifest; outside files and `--help..HEAD`
   are rejected. The first Git fixture exposed that safe revisions must permit
   `~`/`^`; the allowlist was corrected without allowing leading options.
+- Process RED/GREEN: the child-process test initially timed out because the
+  Rust binary had no daemon mode. It now publishes an atomic private descriptor,
+  accepts authenticated RPC, survives a kill/restart with persisted operation
+  replay, and creates no duplicate Project. A follow-up assertion correctly
+  compares persisted results rather than transport request IDs.
+- Lifecycle GREEN: launchd, Windows HKCU Run, CLI foreground, and on-demand
+  startup execute `ekg-rust-core` directly with explicit path arguments and no
+  environment configuration. `npm run build` produced an executable arm64
+  native binary in `dist/native`.

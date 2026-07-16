@@ -1,18 +1,16 @@
 #!/usr/bin/env node
 
-import { readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
-import { homedir } from 'node:os'
+import { spawn } from 'node:child_process'
 import { join } from 'node:path'
 import type { Writable } from 'node:stream'
 
 import { KnowledgeService } from '../application/knowledge-service.js'
 import type { AwaitableKnowledgeBackend } from '../application/backend.js'
 import { ensureInstalledDaemon, initializeDaemonCredentials } from '../daemon/lifecycle.js'
-import { writeDaemonDescriptor, readDaemonDescriptor } from '../daemon/config.js'
-import { startDaemonServer } from '../daemon/server.js'
-import { installCurrentUserDaemon, uninstallCurrentUserDaemon } from '../daemon/platform.js'
-import { migrateLegacyDatabaseIfNeeded } from '../daemon/migration.js'
+import { readDaemonDescriptor } from '../daemon/config.js'
+import { defaultNativeBinary, installCurrentUserDaemon, nativeDaemonArguments, uninstallCurrentUserDaemon } from '../daemon/platform.js'
 import type { ImportSource } from '../imports/import-service.js'
 import type { ProjectGraphSnapshot } from '../imports/snapshot.js'
 import { startTraceBenchServer } from '../http/server.js'
@@ -99,24 +97,13 @@ export async function runCli(argv: string[], dependencies: CliDependencies = {})
         return 0
       }
       if (parsed.command.action === 'foreground') {
-        await migrateLegacyDatabaseIfNeeded({
-          paths: initialized.paths,
-          home: homedir(),
-          platform: process.platform,
+        const child = spawn(defaultNativeBinary(), nativeDaemonArguments(initialized.paths), {
+          stdio: 'inherit',
         })
-        const running = await startDaemonServer({ databasePath: initialized.paths.databasePath, token: initialized.token, daemonVersion: '0.1.0' })
-        writeDaemonDescriptor(initialized.paths, {
-          protocolVersion: 1, daemonVersion: '0.1.0', host: '127.0.0.1',
-          port: running.address.port, instanceId: running.instanceId, pid: process.pid,
-          browserPort: running.traceBench?.address.port,
-          startedAt: new Date().toISOString(),
+        return await new Promise<number>((resolve, reject) => {
+          child.once('error', reject)
+          child.once('exit', (code) => resolve(code ?? 1))
         })
-        writeFileSync(initialized.paths.pidFile, `${process.pid}\n`, { mode: 0o600 })
-        try { await waitForShutdown(running.close) } finally {
-          rmSync(initialized.paths.descriptorFile, { force: true })
-          rmSync(initialized.paths.pidFile, { force: true })
-        }
-        return 0
       }
       let descriptor
       try { descriptor = readDaemonDescriptor({ paths: initialized.paths }) } catch {

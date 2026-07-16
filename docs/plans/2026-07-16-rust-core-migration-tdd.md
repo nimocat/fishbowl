@@ -631,6 +631,18 @@ Current progress:
   depend on process memory and changed source bytes still hit the core stale
   digest check. Path escape and option-injection fixtures are rejected without
   echoing source content.
+- Added the production native process entry: it reads the token from a private
+  file, opens/migrates through Rust, binds an ephemeral loopback port, and
+  atomically publishes a mode-0600 descriptor and pid file. Graceful shutdown
+  removes them; abrupt death is recovered by replacing the stale descriptor.
+- A child-process acceptance test performs an authenticated write, kills the
+  daemon, starts a new instance, replays the persisted operation, and proves a
+  single Project remains. Request IDs remain transport-local while operation
+  results survive restart.
+- macOS LaunchAgent, Windows HKCU Run, CLI foreground, and automatic startup
+  now invoke the native binary with explicit database/token/descriptor/pid
+  arguments. No environment variable or Node daemon is used. The release build
+  packages an executable arm64 binary at `dist/native/ekg-rust-core`.
 
 ## 15. Stage 8 — Remove the TypeScript core
 

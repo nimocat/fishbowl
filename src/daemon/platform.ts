@@ -1,8 +1,10 @@
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
+import { resolveDaemonPaths, type DaemonPaths } from './config.js'
 import { launchAgentPlist, macosInstallCommands, macosUninstallCommands } from './macos-launchd.js'
 import { windowsRunCommand, windowsRunRegistrationArgs, windowsRunRemovalArgs } from './windows-run.js'
 
@@ -15,20 +17,20 @@ export interface PlatformRegistrationResult {
 export function installCurrentUserDaemon(options: {
   platform?: NodeJS.Platform
   home?: string
-  nodePath?: string
-  entryPoint?: string
+  nativeBinary?: string
+  paths?: DaemonPaths
   uid?: number
 } = {}): PlatformRegistrationResult {
   const platform = options.platform ?? process.platform
   const home = options.home ?? homedir()
-  const nodePath = options.nodePath ?? process.execPath
-  const entryPoint = options.entryPoint ?? process.argv[1]
-  if (!entryPoint) throw new Error('Cannot determine EKG CLI entry point')
+  const nativeBinary = options.nativeBinary ?? defaultNativeBinary(platform)
+  const paths = options.paths ?? resolveDaemonPaths({ platform, home, environment: process.env })
+  const daemonArguments = nativeDaemonArguments(paths)
   if (platform === 'darwin') {
     const directory = join(home, 'Library', 'LaunchAgents')
     const location = join(directory, 'io.ekg.daemon.plist')
     mkdirSync(directory, { recursive: true, mode: 0o700 })
-    writeFileSync(location, launchAgentPlist({ nodePath, entryPoint }), { mode: 0o600 })
+    writeFileSync(location, launchAgentPlist({ executablePath: nativeBinary, arguments: daemonArguments }), { mode: 0o600 })
     for (const [index, command] of macosInstallCommands(location, options.uid ?? process.getuid?.() ?? 0).entries()) {
       try { execFileSync(command.file, command.args, { stdio: 'ignore' }) } catch (error) {
         if (index !== 0) throw error // An absent prior service is expected on first install.
@@ -37,7 +39,7 @@ export function installCurrentUserDaemon(options: {
     return { platform: 'darwin', location, dataPreserved: true }
   }
   if (platform === 'win32') {
-    const command = windowsRunCommand(nodePath, entryPoint)
+    const command = windowsRunCommand(nativeBinary, daemonArguments)
     execFileSync('reg.exe', windowsRunRegistrationArgs(command), { stdio: 'ignore' })
     return { platform: 'win32', location: WINDOWS_LOCATION, dataPreserved: true }
   }
@@ -67,3 +69,19 @@ export function uninstallCurrentUserDaemon(options: {
 }
 
 const WINDOWS_LOCATION = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run'
+
+export function nativeDaemonArguments(paths: DaemonPaths): string[] {
+  return [
+    'daemon',
+    '--database', paths.databasePath,
+    '--token-file', paths.tokenFile,
+    '--descriptor', paths.descriptorFile,
+    '--pid-file', paths.pidFile,
+    '--port', '0',
+  ]
+}
+
+export function defaultNativeBinary(platform: NodeJS.Platform = process.platform): string {
+  const executable = platform === 'win32' ? 'ekg-rust-core.exe' : 'ekg-rust-core'
+  return join(dirname(fileURLToPath(import.meta.url)), '..', 'native', executable)
+}

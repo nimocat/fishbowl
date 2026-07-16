@@ -5,8 +5,8 @@ function quote(value: string): string {
   return `"${value.replaceAll('"', '\\"')}"`
 }
 
-export function windowsRunCommand(nodePath: string, entryPoint: string): string {
-  return `${quote(nodePath)} ${quote(entryPoint)} daemon foreground`
+export function windowsRunCommand(executablePath: string, daemonArguments: string[]): string {
+  return [executablePath, ...daemonArguments].map(quote).join(' ')
 }
 
 export function windowsRunRegistrationArgs(command: string): string[] {
