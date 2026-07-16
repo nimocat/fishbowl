@@ -1,13 +1,16 @@
 use std::collections::BTreeMap;
 
 use ekg_contracts::{
-    ApplyCaseMergeInput, CloseCaseInput, MarkRegressionInput, NodeStatus, ProjectReference,
-    RecordArtifactInput, RecordAttemptInput, RecordCommandResultInput, RecordCommandStartedInput,
-    RecordGuardrailInput, RecordProblemInput, RecordRootCauseInput, RecordSolutionInput,
-    RecordVerificationInput, RegressionOutcomeContract, ReportRelevanceInput, SourceKey,
-    SuggestCaseMergesInput, WriteArtifactData, WriteAttemptData, WriteGuardrailCriteria,
-    WriteGuardrailData, WriteProblemData, WriteRootCauseData, WriteSolutionData,
-    WriteVerificationData,
+    ApplyCaseMergeInput, CheckpointProblemInput, CheckpointRootCauseAssertion,
+    CheckpointSolutionAssertion, CheckpointWorkInput, CheckpointWrite, CloseCaseInput,
+    FinalizeCommitInput, FinalizeMergeInput, FinalizeRootCauseInput, FinalizeSolutionInput,
+    FinalizeVerificationInput, FinalizeWorkInput, MarkRegressionInput, NodeStatus,
+    ProjectReference, RecordArtifactInput, RecordAttemptInput, RecordCheckpointInput,
+    RecordCommandResultInput, RecordCommandStartedInput, RecordGuardrailInput, RecordProblemInput,
+    RecordRootCauseInput, RecordSolutionInput, RecordVerificationInput, RegressionOutcomeContract,
+    ReportRelevanceInput, SourceKey, SuggestCaseMergesInput, WriteArtifactData, WriteAttemptData,
+    WriteGuardrailCriteria, WriteGuardrailData, WriteProblemData, WriteRootCauseData,
+    WriteSolutionData, WriteVerificationData,
 };
 use ekg_storage::{WriteFaultPoint, WriteRepository};
 use rusqlite::Connection;
@@ -447,6 +450,212 @@ fn merge_proposals_are_reviewed_project_local_and_idempotent() {
                 .get::<_, i64>(0))
             .unwrap(),
         1
+    );
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn checkpoint_is_one_outer_transaction_and_replays_without_inner_duplicates() {
+    let path = database("checkpoint");
+    let before = counts(&path);
+    let mut repository = WriteRepository::open(path.to_str().unwrap()).unwrap();
+    let valid = CheckpointProblemInput {
+        operation_id: None,
+        source_key: Some(SourceKey {
+            kind: "checkpoint".into(),
+            key: "one".into(),
+        }),
+        case_id: None,
+        case_title: Some("Checkpoint one".into()),
+        data: WriteProblemData {
+            summary: "first".into(),
+            symptoms: Vec::new(),
+            first_observed_at: None,
+            domain: Some("test".into()),
+            fingerprint: Some("checkpoint-one".into()),
+        },
+    };
+    let invalid = CheckpointProblemInput {
+        data: WriteProblemData {
+            summary: String::new(),
+            ..valid.data.clone()
+        },
+        source_key: Some(SourceKey {
+            kind: "checkpoint".into(),
+            key: "invalid".into(),
+        }),
+        ..valid.clone()
+    };
+    assert!(
+        repository
+            .record_checkpoint(RecordCheckpointInput {
+                project: project("project-a"),
+                operation_id: "checkpoint-fail".into(),
+                writes: vec![
+                    CheckpointWrite::Problem(valid.clone()),
+                    CheckpointWrite::Problem(invalid)
+                ],
+            })
+            .is_err()
+    );
+    assert_eq!(counts(&path), before);
+
+    let second = CheckpointProblemInput {
+        data: WriteProblemData {
+            summary: "second".into(),
+            fingerprint: Some("checkpoint-two".into()),
+            ..valid.data.clone()
+        },
+        source_key: Some(SourceKey {
+            kind: "checkpoint".into(),
+            key: "two".into(),
+        }),
+        ..valid.clone()
+    };
+    let input = RecordCheckpointInput {
+        project: project("project-a"),
+        operation_id: "checkpoint-ok".into(),
+        writes: vec![
+            CheckpointWrite::Problem(valid),
+            CheckpointWrite::Problem(second),
+        ],
+    };
+    let first = repository.record_checkpoint(input.clone()).unwrap();
+    assert!(first.created);
+    assert_eq!(first.results.len(), 2);
+    let replay = repository.record_checkpoint(input).unwrap();
+    assert!(!replay.created);
+    assert_eq!(replay.results, first.results);
+    drop(repository);
+    let connection = Connection::open(&path).unwrap();
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT count(*) FROM cases WHERE project_id = 'project-a'",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+        2
+    );
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn checkpoint_work_and_finalize_are_atomic_compact_and_idempotent() {
+    let path = database("aggregate-work");
+    let mut repository = WriteRepository::open(path.to_str().unwrap()).unwrap();
+    let routine = repository
+        .checkpoint_work(CheckpointWorkInput {
+            project: project("project-a"),
+            operation_id: "routine".into(),
+            case_id: None,
+            task: "routine task".into(),
+            outcome: "succeeded".into(),
+            summary: "no notable change".into(),
+            importance: Some("routine".into()),
+            fingerprint: None,
+            files: Vec::new(),
+            command: None,
+            evidence: Vec::new(),
+            root_cause: None,
+            solution: None,
+            human_confirmed: false,
+        })
+        .unwrap();
+    assert!(!routine.recorded);
+    let checkpoint = repository
+        .checkpoint_work(CheckpointWorkInput {
+            project: project("project-a"),
+            operation_id: "notable".into(),
+            case_id: None,
+            task: "notable failure".into(),
+            outcome: "failed".into(),
+            summary: "bounded failure".into(),
+            importance: Some("notable".into()),
+            fingerprint: Some("notable-failure".into()),
+            files: vec!["src/file.rs".into()],
+            command: Some(vec!["cargo".into(), "test".into()]),
+            evidence: vec!["focused failure".into()],
+            root_cause: Some(CheckpointRootCauseAssertion {
+                explanation: "missing route".into(),
+                confidence: 0.9,
+                rejected_alternatives: Vec::new(),
+            }),
+            solution: Some(CheckpointSolutionAssertion {
+                summary: "add route".into(),
+                applicability: vec!["writer".into()],
+                limitations: vec!["local".into()],
+                decisive_difference: "atomic".into(),
+            }),
+            human_confirmed: false,
+        })
+        .unwrap();
+    assert!(checkpoint.recorded);
+    assert!(checkpoint.root_cause_id.is_some());
+    assert!(checkpoint.solution_id.is_some());
+
+    let finalize = FinalizeWorkInput {
+        project: project("project-a"),
+        operation_id: "finalize".into(),
+        case_id: None,
+        task: "finish migration".into(),
+        outcome: "succeeded".into(),
+        summary: "implemented route".into(),
+        fingerprint: Some("finish-migration".into()),
+        files: vec!["src/write.rs".into()],
+        commit: Some(FinalizeCommitInput {
+            sha: "abc123".into(),
+            message: "feat: route".into(),
+            branch: Some("codex/test".into()),
+        }),
+        failed_attempts: Vec::new(),
+        root_cause: Some(FinalizeRootCauseInput {
+            explanation: "route absent".into(),
+            confidence: 0.95,
+            evidence: vec!["RED".into()],
+            rejected_alternatives: Vec::new(),
+        }),
+        solution: Some(FinalizeSolutionInput {
+            summary: "route added".into(),
+            applicability: vec!["writer".into()],
+            limitations: vec!["schema v7".into()],
+            decisive_difference: "Rust owns write".into(),
+        }),
+        verifications: vec![FinalizeVerificationInput {
+            kind: "automated".into(),
+            succeeded: true,
+            command: Some(vec!["cargo".into(), "test".into()]),
+            excerpt: "passed".into(),
+            environment: BTreeMap::new(),
+            human_confirmed: false,
+        }],
+        merge: FinalizeMergeInput {
+            status: "pending".into(),
+            source_branch: Some("codex/test".into()),
+            target_branch: Some("main".into()),
+            merge_commit: None,
+            summary: None,
+        },
+    };
+    let result = repository.finalize_work(finalize.clone()).unwrap();
+    assert!(result.recorded);
+    assert_eq!(result.attempt_ids.len(), 1);
+    assert_eq!(result.verification_ids.len(), 1);
+    assert_eq!(result.artifact_ids.len(), 2);
+    let replay = repository.finalize_work(finalize).unwrap();
+    assert_eq!(replay, result);
+    drop(repository);
+    let connection = Connection::open(&path).unwrap();
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT count(*) FROM artifacts WHERE kind IN ('git-commit','git-merge')",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+        2
     );
     std::fs::remove_file(path).unwrap();
 }

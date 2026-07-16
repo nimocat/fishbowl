@@ -1,18 +1,21 @@
 use chrono::Utc;
 use ekg_contracts::{
-    ApplyCaseMergeInput, ArtifactWriteResult, CloseCaseInput, CloseCaseResult,
-    CommandResultWriteResult, CommandStartedResult, MarkRegressionInput, MergeProposalContract,
-    NodeStatus, NodeWriteResult, ProjectReference, PromotionStatus, RecordArtifactInput,
-    RecordAttemptInput, RecordCommandResultInput, RecordCommandStartedInput, RecordGuardrailInput,
-    RecordProblemInput, RecordRootCauseInput, RecordSolutionInput, RecordVerificationInput,
-    RegressionOutcomeContract, RegressionResultContract, ReportRelevanceInput, SourceKey,
-    SuggestCaseMergesInput, Validate,
+    ApplyCaseMergeInput, ArtifactWriteResult, CheckpointSkipReason, CheckpointWorkInput,
+    CheckpointWorkResult, CheckpointWrite, CheckpointWriteResult, CloseCaseInput, CloseCaseResult,
+    CommandResultWriteResult, CommandStartedResult, FinalizeWorkInput, FinalizeWorkResult,
+    MarkRegressionInput, MergeProposalContract, NodeStatus, NodeWriteResult, ProjectReference,
+    PromotionStatus, RecordArtifactInput, RecordAttemptInput, RecordCheckpointInput,
+    RecordCheckpointResult, RecordCommandResultInput, RecordCommandStartedInput,
+    RecordGuardrailInput, RecordProblemInput, RecordRootCauseInput, RecordSolutionInput,
+    RecordVerificationInput, RegressionOutcomeContract, RegressionResultContract,
+    ReportRelevanceInput, SourceKey, SuggestCaseMergesInput, Validate, WriteAttemptData,
+    WriteProblemData, WriteRootCauseData, WriteSolutionData, WriteVerificationData,
 };
 use ekg_core::{
     ApplicabilityBoundary, PromotionEvidence, PromotionRequirement, RegressionOutcome,
     evaluate_promotion, evaluate_regression,
 };
-use rusqlite::{Connection, OptionalExtension, Transaction, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
@@ -80,7 +83,7 @@ impl WriteRepository {
             return Err(WriteError::Validation("problem summary"));
         }
         validate_identity(input.operation_id.as_deref(), input.source_key.as_ref())?;
-        let transaction = self.connection.transaction()?;
+        let transaction = self.connection.savepoint()?;
         let project_id = resolve_project(&transaction, &input.project)?;
         if let Some(mut result) = replay_operation::<NodeWriteResult>(
             &transaction,
@@ -228,7 +231,7 @@ impl WriteRepository {
             return Err(WriteError::Validation("attempt data"));
         }
         validate_identity(input.operation_id.as_deref(), input.source_key.as_ref())?;
-        let transaction = self.connection.transaction()?;
+        let transaction = self.connection.savepoint()?;
         let project_id = resolve_project(&transaction, &input.project)?;
         if let Some(mut result) = replay_operation::<NodeWriteResult>(
             &transaction,
@@ -345,7 +348,7 @@ impl WriteRepository {
         {
             return Err(WriteError::Validation("command start"));
         }
-        let transaction = self.connection.transaction()?;
+        let transaction = self.connection.savepoint()?;
         let project_id = resolve_project(&transaction, &input.project)?;
         require_project_path(&transaction, &project_id, &input.working_directory)?;
         let result = CommandStartedResult {
@@ -377,7 +380,7 @@ impl WriteRepository {
         if input.command.is_empty() || input.command.iter().any(|part| part.trim().is_empty()) {
             return Err(WriteError::Validation("command result"));
         }
-        let transaction = self.connection.transaction()?;
+        let transaction = self.connection.savepoint()?;
         let project_id = resolve_project(&transaction, &input.project)?;
         if let Some(mut result) = replay_operation::<CommandResultWriteResult>(
             &transaction,
@@ -482,7 +485,7 @@ impl WriteRepository {
             return Err(WriteError::Validation("root cause"));
         }
         validate_identity(input.operation_id.as_deref(), input.source_key.as_ref())?;
-        let transaction = self.connection.transaction()?;
+        let transaction = self.connection.savepoint()?;
         let project_id = resolve_project(&transaction, &input.project)?;
         if let Some(mut result) = replay_operation::<NodeWriteResult>(
             &transaction,
@@ -543,13 +546,15 @@ impl WriteRepository {
         let data = redact_value(serde_json::to_value(&input.data)?);
         let node_id = insert_node(
             &transaction,
-            &project_id,
-            &input.case_id,
-            &case_title,
-            "RootCause",
-            status_text(input.status.unwrap_or(NodeStatus::Candidate)),
-            &data,
-            &now,
+            NodeInsert {
+                project_id: &project_id,
+                case_id: &input.case_id,
+                case_title: &case_title,
+                node_type: "RootCause",
+                status: status_text(input.status.unwrap_or(NodeStatus::Candidate)),
+                data: &data,
+                now: &now,
+            },
         )?;
         add_edge(
             &transaction,
@@ -609,7 +614,7 @@ impl WriteRepository {
             return Err(WriteError::Validation("solution"));
         }
         validate_identity(input.operation_id.as_deref(), input.source_key.as_ref())?;
-        let transaction = self.connection.transaction()?;
+        let transaction = self.connection.savepoint()?;
         let project_id = resolve_project(&transaction, &input.project)?;
         if let Some(mut result) = replay_operation::<NodeWriteResult>(
             &transaction,
@@ -649,13 +654,15 @@ impl WriteRepository {
         let data = redact_value(serde_json::to_value(&input.data)?);
         let node_id = insert_node(
             &transaction,
-            &project_id,
-            &input.case_id,
-            &case_title,
-            "Solution",
-            "candidate",
-            &data,
-            &now,
+            NodeInsert {
+                project_id: &project_id,
+                case_id: &input.case_id,
+                case_title: &case_title,
+                node_type: "Solution",
+                status: "candidate",
+                data: &data,
+                now: &now,
+            },
         )?;
         add_edge(
             &transaction,
@@ -715,7 +722,7 @@ impl WriteRepository {
             return Err(WriteError::Validation("verification"));
         }
         validate_identity(input.operation_id.as_deref(), input.source_key.as_ref())?;
-        let transaction = self.connection.transaction()?;
+        let transaction = self.connection.savepoint()?;
         let project_id = resolve_project(&transaction, &input.project)?;
         if let Some(mut result) = replay_operation::<NodeWriteResult>(
             &transaction,
@@ -755,17 +762,19 @@ impl WriteRepository {
         let data = redact_value(serde_json::to_value(&input.data)?);
         let node_id = insert_node(
             &transaction,
-            &project_id,
-            &input.case_id,
-            &case_title,
-            "Verification",
-            if input.data.succeeded {
-                "verified"
-            } else {
-                "open"
+            NodeInsert {
+                project_id: &project_id,
+                case_id: &input.case_id,
+                case_title: &case_title,
+                node_type: "Verification",
+                status: if input.data.succeeded {
+                    "verified"
+                } else {
+                    "open"
+                },
+                data: &data,
+                now: &now,
             },
-            &data,
-            &now,
         )?;
         add_edge(
             &transaction,
@@ -823,7 +832,7 @@ impl WriteRepository {
             return Err(WriteError::Validation("artifact"));
         }
         validate_identity(input.operation_id.as_deref(), input.source_key.as_ref())?;
-        let transaction = self.connection.transaction()?;
+        let transaction = self.connection.savepoint()?;
         let project_id = resolve_project(&transaction, &input.project)?;
         if let Some(mut result) = replay_operation::<ArtifactWriteResult>(
             &transaction,
@@ -850,13 +859,15 @@ impl WriteRepository {
         let data = redact_value(serde_json::to_value(&input.data)?);
         let node_id = insert_node(
             &transaction,
-            &project_id,
-            &input.case_id,
-            &case_title,
-            "Artifact",
-            "candidate",
-            &data,
-            &now,
+            NodeInsert {
+                project_id: &project_id,
+                case_id: &input.case_id,
+                case_title: &case_title,
+                node_type: "Artifact",
+                status: "candidate",
+                data: &data,
+                now: &now,
+            },
         )?;
         add_edge(
             &transaction,
@@ -927,7 +938,7 @@ impl WriteRepository {
             return Err(WriteError::Validation("guardrail"));
         }
         validate_identity(input.operation_id.as_deref(), input.source_key.as_ref())?;
-        let transaction = self.connection.transaction()?;
+        let transaction = self.connection.savepoint()?;
         let project_id = resolve_project(&transaction, &input.project)?;
         if let Some(mut result) = replay_operation::<NodeWriteResult>(
             &transaction,
@@ -951,13 +962,15 @@ impl WriteRepository {
         let data = redact_value(serde_json::to_value(&input.data)?);
         let node_id = insert_node(
             &transaction,
-            &project_id,
-            &input.case_id,
-            &case_title,
-            "Guardrail",
-            status_text(input.status.unwrap_or(NodeStatus::Candidate)),
-            &data,
-            &now,
+            NodeInsert {
+                project_id: &project_id,
+                case_id: &input.case_id,
+                case_title: &case_title,
+                node_type: "Guardrail",
+                status: status_text(input.status.unwrap_or(NodeStatus::Candidate)),
+                data: &data,
+                now: &now,
+            },
         )?;
         add_edge(
             &transaction,
@@ -1007,7 +1020,7 @@ impl WriteRepository {
 
     pub fn close_case(&mut self, input: CloseCaseInput) -> Result<CloseCaseResult, WriteError> {
         input.project.validate().map_err(|_| WriteError::Contract)?;
-        let transaction = self.connection.transaction()?;
+        let transaction = self.connection.savepoint()?;
         let project_id = resolve_project(&transaction, &input.project)?;
         if let Some(result) = replay_operation::<CloseCaseResult>(
             &transaction,
@@ -1053,7 +1066,7 @@ impl WriteRepository {
         if input.fingerprint.trim().is_empty() {
             return Err(WriteError::Validation("regression fingerprint"));
         }
-        let transaction = self.connection.transaction()?;
+        let transaction = self.connection.savepoint()?;
         let project_id = resolve_project(&transaction, &input.project)?;
         if let Some(result) = replay_operation::<RegressionResultContract>(
             &transaction,
@@ -1156,7 +1169,7 @@ impl WriteRepository {
         {
             return Err(WriteError::Validation("context digest"));
         }
-        let transaction = self.connection.transaction()?;
+        let transaction = self.connection.savepoint()?;
         let project_id = resolve_project(&transaction, &input.project)?;
         require_case(&transaction, &project_id, &input.case_id)?;
         transaction.execute(
@@ -1172,7 +1185,7 @@ impl WriteRepository {
         input: SuggestCaseMergesInput,
     ) -> Result<Vec<MergeProposalContract>, WriteError> {
         input.project.validate().map_err(|_| WriteError::Contract)?;
-        let transaction = self.connection.transaction()?;
+        let transaction = self.connection.savepoint()?;
         let project_id = resolve_project(&transaction, &input.project)?;
         let cases = transaction
             .prepare("SELECT id, title FROM cases WHERE project_id = ? AND status <> 'retired' ORDER BY created_at DESC, id DESC LIMIT 200")?
@@ -1226,7 +1239,7 @@ impl WriteRepository {
         input: ApplyCaseMergeInput,
     ) -> Result<MergeProposalContract, WriteError> {
         input.project.validate().map_err(|_| WriteError::Contract)?;
-        let transaction = self.connection.transaction()?;
+        let transaction = self.connection.savepoint()?;
         let project_id = resolve_project(&transaction, &input.project)?;
         if let Some(result) = replay_operation::<MergeProposalContract>(
             &transaction,
@@ -1276,39 +1289,695 @@ impl WriteRepository {
         transaction.commit()?;
         Ok(proposal)
     }
+
+    pub fn record_checkpoint(
+        &mut self,
+        input: RecordCheckpointInput,
+    ) -> Result<RecordCheckpointResult, WriteError> {
+        input.project.validate().map_err(|_| WriteError::Contract)?;
+        if input.operation_id.trim().is_empty()
+            || input.writes.is_empty()
+            || input.writes.len() > 25
+        {
+            return Err(WriteError::Validation("checkpoint"));
+        }
+        self.connection
+            .execute_batch("SAVEPOINT rust_record_checkpoint")?;
+        let outcome = (|| {
+            let project_id = resolve_project(&self.connection, &input.project)?;
+            if let Some(mut replay) = replay_operation::<RecordCheckpointResult>(
+                &self.connection,
+                &project_id,
+                Some(&input.operation_id),
+                "record_checkpoint",
+            )? {
+                replay.created = false;
+                return Ok(replay);
+            }
+            let mut results = Vec::with_capacity(input.writes.len());
+            for write in input.writes {
+                let result = match write {
+                    CheckpointWrite::Problem(value) => {
+                        CheckpointWriteResult::Node(self.record_problem(RecordProblemInput {
+                            project: input.project.clone(),
+                            operation_id: value.operation_id,
+                            source_key: value.source_key,
+                            case_id: value.case_id,
+                            case_title: value.case_title,
+                            data: value.data,
+                        })?)
+                    }
+                    CheckpointWrite::Attempt(value) => {
+                        CheckpointWriteResult::Node(self.record_attempt(RecordAttemptInput {
+                            project: input.project.clone(),
+                            operation_id: value.operation_id,
+                            source_key: value.source_key,
+                            case_id: value.case_id,
+                            problem_id: value.problem_id,
+                            previous_attempt_id: value.previous_attempt_id,
+                            data: value.data,
+                        })?)
+                    }
+                    CheckpointWrite::RootCause(value) => CheckpointWriteResult::Node(
+                        self.record_root_cause(RecordRootCauseInput {
+                            project: input.project.clone(),
+                            operation_id: value.operation_id,
+                            source_key: value.source_key,
+                            case_id: value.case_id,
+                            problem_id: value.problem_id,
+                            failed_attempt_ids: value.failed_attempt_ids,
+                            status: value.status,
+                            human_confirmed: value.human_confirmed,
+                            data: value.data,
+                        })?,
+                    ),
+                    CheckpointWrite::Solution(value) => {
+                        CheckpointWriteResult::Node(self.record_solution(RecordSolutionInput {
+                            project: input.project.clone(),
+                            operation_id: value.operation_id,
+                            source_key: value.source_key,
+                            case_id: value.case_id,
+                            root_cause_id: value.root_cause_id,
+                            data: value.data,
+                        })?)
+                    }
+                    CheckpointWrite::Verification(value) => CheckpointWriteResult::Node(
+                        self.record_verification(RecordVerificationInput {
+                            project: input.project.clone(),
+                            operation_id: value.operation_id,
+                            source_key: value.source_key,
+                            case_id: value.case_id,
+                            solution_id: value.solution_id,
+                            data: value.data,
+                        })?,
+                    ),
+                    CheckpointWrite::Artifact(value) => CheckpointWriteResult::Artifact(
+                        self.record_artifact(RecordArtifactInput {
+                            project: input.project.clone(),
+                            operation_id: value.operation_id,
+                            source_key: value.source_key,
+                            case_id: value.case_id,
+                            verification_id: value.verification_id,
+                            data: value.data,
+                            metadata: value.metadata,
+                            is_external: value.is_external,
+                        })?,
+                    ),
+                    CheckpointWrite::Guardrail(value) => CheckpointWriteResult::Node(
+                        self.record_guardrail(RecordGuardrailInput {
+                            project: input.project.clone(),
+                            operation_id: value.operation_id,
+                            source_key: value.source_key,
+                            case_id: value.case_id,
+                            root_cause_id: value.root_cause_id,
+                            status: value.status,
+                            data: value.data,
+                        })?,
+                    ),
+                };
+                results.push(result);
+            }
+            let result = RecordCheckpointResult {
+                results,
+                created: true,
+            };
+            store_operation(
+                &self.connection,
+                &project_id,
+                Some(&input.operation_id),
+                "record_checkpoint",
+                &result,
+            )?;
+            Ok(result)
+        })();
+        match outcome {
+            Ok(result) => {
+                self.connection
+                    .execute_batch("RELEASE rust_record_checkpoint")?;
+                Ok(result)
+            }
+            Err(error) => {
+                self.connection.execute_batch(
+                    "ROLLBACK TO rust_record_checkpoint; RELEASE rust_record_checkpoint",
+                )?;
+                Err(error)
+            }
+        }
+    }
+
+    pub fn checkpoint_work(
+        &mut self,
+        input: CheckpointWorkInput,
+    ) -> Result<CheckpointWorkResult, WriteError> {
+        input.project.validate().map_err(|_| WriteError::Contract)?;
+        if input.operation_id.trim().is_empty()
+            || input.task.trim().is_empty()
+            || input.summary.trim().is_empty()
+            || !matches!(
+                input.outcome.as_str(),
+                "failed" | "succeeded" | "inconclusive"
+            )
+        {
+            return Err(WriteError::Validation("checkpoint work"));
+        }
+        self.connection
+            .execute_batch("SAVEPOINT rust_checkpoint_work")?;
+        let outcome = (|| {
+            let project_id = resolve_project(&self.connection, &input.project)?;
+            if let Some(replay) = replay_operation::<CheckpointWorkResult>(
+                &self.connection,
+                &project_id,
+                Some(&input.operation_id),
+                "checkpoint_work",
+            )? {
+                return Ok(replay);
+            }
+            if input.importance.as_deref() == Some("routine") && input.outcome == "succeeded" {
+                let result = CheckpointWorkResult {
+                    recorded: false,
+                    reason: Some(CheckpointSkipReason::RoutineSuccess),
+                    created_case: false,
+                    case_id: None,
+                    problem_id: None,
+                    attempt_id: None,
+                    root_cause_id: None,
+                    solution_id: None,
+                };
+                store_operation(
+                    &self.connection,
+                    &project_id,
+                    Some(&input.operation_id),
+                    "checkpoint_work",
+                    &result,
+                )?;
+                return Ok(result);
+            }
+            let (case_id, problem_id, previous_attempt_id, created_case) =
+                if let Some(case_id) = &input.case_id {
+                    let (problem, previous) = case_anchor(&self.connection, &project_id, case_id)?;
+                    (case_id.clone(), problem, previous, false)
+                } else {
+                    let problem = self.record_problem(RecordProblemInput {
+                        project: input.project.clone(),
+                        operation_id: Some(format!("{}:problem", input.operation_id)),
+                        source_key: None,
+                        case_id: None,
+                        case_title: Some(input.task.clone()),
+                        data: WriteProblemData {
+                            summary: input.task.clone(),
+                            symptoms: vec![input.summary.clone()],
+                            first_observed_at: None,
+                            domain: None,
+                            fingerprint: input.fingerprint.clone(),
+                        },
+                    })?;
+                    (problem.case_id, problem.node_id, None, problem.created)
+                };
+            let attempt = self.record_attempt(RecordAttemptInput {
+                project: input.project.clone(),
+                operation_id: Some(format!("{}:attempt", input.operation_id)),
+                source_key: None,
+                case_id: case_id.clone(),
+                problem_id: problem_id.clone(),
+                previous_attempt_id,
+                data: WriteAttemptData {
+                    hypothesis: input.task.clone(),
+                    change: input.summary.clone(),
+                    outcome: input.outcome.clone(),
+                    command: input.command.clone(),
+                    failure_explanation: (input.outcome == "failed").then(|| input.summary.clone()),
+                    decisive_difference: (input.outcome == "succeeded")
+                        .then(|| input.summary.clone()),
+                },
+            })?;
+            let root_cause_id = if let Some(root) = &input.root_cause {
+                Some(
+                    self.record_root_cause(RecordRootCauseInput {
+                        project: input.project.clone(),
+                        operation_id: Some(format!("{}:root-cause", input.operation_id)),
+                        source_key: None,
+                        case_id: case_id.clone(),
+                        problem_id: problem_id.clone(),
+                        failed_attempt_ids: if input.outcome == "failed" {
+                            vec![attempt.node_id.clone()]
+                        } else {
+                            Vec::new()
+                        },
+                        status: Some(NodeStatus::Candidate),
+                        human_confirmed: false,
+                        data: WriteRootCauseData {
+                            explanation: root.explanation.clone(),
+                            evidence: if input.evidence.is_empty() {
+                                vec![input.summary.clone()]
+                            } else {
+                                input.evidence.clone()
+                            },
+                            rejected_alternatives: root.rejected_alternatives.clone(),
+                            confidence: root.confidence,
+                        },
+                    })?
+                    .node_id,
+                )
+            } else {
+                None
+            };
+            let solution_id = if let Some(solution) = &input.solution {
+                let root_cause_id = root_cause_id.as_ref().ok_or(WriteError::Validation(
+                    "checkpoint solution requires root cause",
+                ))?;
+                Some(
+                    self.record_solution(RecordSolutionInput {
+                        project: input.project.clone(),
+                        operation_id: Some(format!("{}:solution", input.operation_id)),
+                        source_key: None,
+                        case_id: case_id.clone(),
+                        root_cause_id: root_cause_id.clone(),
+                        data: WriteSolutionData {
+                            summary: solution.summary.clone(),
+                            applicability: solution.applicability.clone(),
+                            limitations: solution.limitations.clone(),
+                            side_effects: Vec::new(),
+                            decisive_difference: solution.decisive_difference.clone(),
+                            applicability_boundary: Default::default(),
+                            human_verification_required: input.human_confirmed,
+                            non_automatable_reason: None,
+                        },
+                    })?
+                    .node_id,
+                )
+            } else {
+                None
+            };
+            let result = CheckpointWorkResult {
+                recorded: true,
+                reason: None,
+                created_case,
+                case_id: Some(case_id),
+                problem_id: Some(problem_id),
+                attempt_id: Some(attempt.node_id),
+                root_cause_id,
+                solution_id,
+            };
+            store_operation(
+                &self.connection,
+                &project_id,
+                Some(&input.operation_id),
+                "checkpoint_work",
+                &result,
+            )?;
+            Ok(result)
+        })();
+        finish_outer_savepoint(&self.connection, "rust_checkpoint_work", outcome)
+    }
+
+    pub fn finalize_work(
+        &mut self,
+        input: FinalizeWorkInput,
+    ) -> Result<FinalizeWorkResult, WriteError> {
+        input.project.validate().map_err(|_| WriteError::Contract)?;
+        validate_finalize(&input)?;
+        self.connection
+            .execute_batch("SAVEPOINT rust_finalize_work")?;
+        let outcome = (|| {
+            let project_id = resolve_project(&self.connection, &input.project)?;
+            if let Some(replay) = replay_operation::<FinalizeWorkResult>(
+                &self.connection,
+                &project_id,
+                Some(&input.operation_id),
+                "finalize_work",
+            )? {
+                return Ok(replay);
+            }
+            let (case_id, problem_id, mut previous_attempt_id, created_case) =
+                if let Some(case_id) = &input.case_id {
+                    let (problem, previous) = case_anchor(&self.connection, &project_id, case_id)?;
+                    (case_id.clone(), problem, previous, false)
+                } else {
+                    let problem = self.record_problem(RecordProblemInput {
+                        project: input.project.clone(),
+                        operation_id: Some(format!("{}:problem", input.operation_id)),
+                        source_key: None,
+                        case_id: None,
+                        case_title: Some(input.task.clone()),
+                        data: WriteProblemData {
+                            summary: input.task.clone(),
+                            symptoms: vec![input.summary.clone()],
+                            first_observed_at: None,
+                            domain: None,
+                            fingerprint: input.fingerprint.clone(),
+                        },
+                    })?;
+                    (problem.case_id, problem.node_id, None, problem.created)
+                };
+            let mut attempt_ids = Vec::new();
+            for (index, failed) in input.failed_attempts.iter().enumerate() {
+                let attempt = self.record_attempt(RecordAttemptInput {
+                    project: input.project.clone(),
+                    operation_id: Some(format!("{}:failed-attempt:{index}", input.operation_id)),
+                    source_key: None,
+                    case_id: case_id.clone(),
+                    problem_id: problem_id.clone(),
+                    previous_attempt_id,
+                    data: WriteAttemptData {
+                        hypothesis: failed.hypothesis.clone(),
+                        change: failed.change.clone(),
+                        outcome: "failed".into(),
+                        command: failed.command.clone(),
+                        failure_explanation: Some(failed.failure_explanation.clone()),
+                        decisive_difference: None,
+                    },
+                })?;
+                previous_attempt_id = Some(attempt.node_id.clone());
+                attempt_ids.push(attempt.node_id);
+            }
+            if input.outcome == "succeeded" {
+                let attempt = self.record_attempt(RecordAttemptInput {
+                    project: input.project.clone(),
+                    operation_id: Some(format!("{}:succeeded-attempt", input.operation_id)),
+                    source_key: None,
+                    case_id: case_id.clone(),
+                    problem_id: problem_id.clone(),
+                    previous_attempt_id,
+                    data: WriteAttemptData {
+                        hypothesis: input.task.clone(),
+                        change: input.summary.clone(),
+                        outcome: "succeeded".into(),
+                        command: None,
+                        failure_explanation: None,
+                        decisive_difference: Some(
+                            input
+                                .solution
+                                .as_ref()
+                                .map_or(input.summary.clone(), |value| {
+                                    value.decisive_difference.clone()
+                                }),
+                        ),
+                    },
+                })?;
+                attempt_ids.push(attempt.node_id);
+            }
+            let root_cause_id = if let Some(root) = &input.root_cause {
+                Some(
+                    self.record_root_cause(RecordRootCauseInput {
+                        project: input.project.clone(),
+                        operation_id: Some(format!("{}:root-cause", input.operation_id)),
+                        source_key: None,
+                        case_id: case_id.clone(),
+                        problem_id: problem_id.clone(),
+                        failed_attempt_ids: attempt_ids
+                            .iter()
+                            .take(input.failed_attempts.len())
+                            .cloned()
+                            .collect(),
+                        status: Some(NodeStatus::Candidate),
+                        human_confirmed: false,
+                        data: WriteRootCauseData {
+                            explanation: root.explanation.clone(),
+                            evidence: root.evidence.clone(),
+                            rejected_alternatives: root.rejected_alternatives.clone(),
+                            confidence: root.confidence,
+                        },
+                    })?
+                    .node_id,
+                )
+            } else {
+                None
+            };
+            let solution_id =
+                if let (Some(solution), Some(root_cause_id)) = (&input.solution, &root_cause_id) {
+                    Some(
+                        self.record_solution(RecordSolutionInput {
+                            project: input.project.clone(),
+                            operation_id: Some(format!("{}:solution", input.operation_id)),
+                            source_key: None,
+                            case_id: case_id.clone(),
+                            root_cause_id: root_cause_id.clone(),
+                            data: WriteSolutionData {
+                                summary: solution.summary.clone(),
+                                applicability: solution.applicability.clone(),
+                                limitations: solution.limitations.clone(),
+                                side_effects: Vec::new(),
+                                decisive_difference: solution.decisive_difference.clone(),
+                                applicability_boundary: Default::default(),
+                                human_verification_required: false,
+                                non_automatable_reason: None,
+                            },
+                        })?
+                        .node_id,
+                    )
+                } else {
+                    None
+                };
+            let mut verification_ids = Vec::new();
+            if let Some(solution_id) = &solution_id {
+                for (index, verification) in input.verifications.iter().enumerate() {
+                    let result = self.record_verification(RecordVerificationInput {
+                        project: input.project.clone(),
+                        operation_id: Some(format!("{}:verification:{index}", input.operation_id)),
+                        source_key: None,
+                        case_id: case_id.clone(),
+                        solution_id: solution_id.clone(),
+                        data: WriteVerificationData {
+                            kind: if verification.kind == "automated" {
+                                "automated".into()
+                            } else {
+                                "human".into()
+                            },
+                            succeeded: verification.succeeded,
+                            human_confirmed: verification.human_confirmed,
+                            environment: verification.environment.clone(),
+                            command: verification.command.clone(),
+                            exit_status: None,
+                            source_revision: None,
+                            excerpt: Some(verification.excerpt.clone()),
+                        },
+                    })?;
+                    verification_ids.push(result.node_id);
+                }
+            }
+            let mut artifact_ids = Vec::new();
+            if let Some(commit) = &input.commit {
+                artifact_ids.push(record_delivery_artifact(&self.connection, &project_id, &case_id, &problem_id, "git-commit", &format!("git:commit:{}", commit.sha),
+                    json!({"sha": commit.sha, "message": commit.message, "branch": commit.branch, "files": input.files}))?);
+            }
+            artifact_ids.push(record_delivery_artifact(
+                &self.connection,
+                &project_id,
+                &case_id,
+                &problem_id,
+                "git-merge",
+                &format!(
+                    "git:merge:{}",
+                    input
+                        .merge
+                        .merge_commit
+                        .as_deref()
+                        .unwrap_or(&input.merge.status)
+                ),
+                serde_json::to_value(&input.merge)?,
+            )?);
+            let result = FinalizeWorkResult {
+                recorded: true,
+                created_case,
+                case_id: case_id.clone(),
+                problem_id,
+                attempt_ids,
+                root_cause_id,
+                solution_id,
+                verification_ids,
+                artifact_ids,
+                merge_recorded: true,
+                promotion: evaluate_case_promotion(&self.connection, &project_id, &case_id, false)?,
+            };
+            store_operation(
+                &self.connection,
+                &project_id,
+                Some(&input.operation_id),
+                "finalize_work",
+                &result,
+            )?;
+            Ok(result)
+        })();
+        finish_outer_savepoint(&self.connection, "rust_finalize_work", outcome)
+    }
 }
 
-fn insert_node(
-    transaction: &Transaction<'_>,
+fn finish_outer_savepoint<T>(
+    connection: &Connection,
+    name: &str,
+    outcome: Result<T, WriteError>,
+) -> Result<T, WriteError> {
+    match outcome {
+        Ok(result) => {
+            connection.execute_batch(&format!("RELEASE {name}"))?;
+            Ok(result)
+        }
+        Err(error) => {
+            connection.execute_batch(&format!("ROLLBACK TO {name}; RELEASE {name}"))?;
+            Err(error)
+        }
+    }
+}
+
+fn case_anchor(
+    connection: &Connection,
     project_id: &str,
     case_id: &str,
-    case_title: &str,
-    node_type: &str,
-    status: &str,
-    data: &Value,
-    now: &str,
+) -> Result<(String, Option<String>), WriteError> {
+    require_case(connection, project_id, case_id)?;
+    let problem_id = connection
+        .query_row(
+            "SELECT nodes.id FROM nodes JOIN cases ON cases.id = nodes.case_id WHERE nodes.case_id = ? AND nodes.type = 'Problem' AND cases.project_id = ? ORDER BY nodes.created_at, nodes.id LIMIT 1",
+            params![case_id, project_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?
+        .ok_or(WriteError::Validation("case problem"))?;
+    let previous = connection
+        .query_row(
+            "SELECT nodes.id FROM nodes JOIN cases ON cases.id = nodes.case_id WHERE nodes.case_id = ? AND nodes.type = 'Attempt' AND cases.project_id = ? ORDER BY nodes.created_at DESC, nodes.id DESC LIMIT 1",
+            params![case_id, project_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    Ok((problem_id, previous))
+}
+
+fn validate_finalize(input: &FinalizeWorkInput) -> Result<(), WriteError> {
+    if input.operation_id.trim().is_empty()
+        || input.task.trim().is_empty()
+        || input.summary.trim().is_empty()
+        || !matches!(
+            input.outcome.as_str(),
+            "failed" | "succeeded" | "inconclusive"
+        )
+        || !matches!(
+            input.merge.status.as_str(),
+            "merged" | "pending" | "not-required" | "conflict"
+        )
+    {
+        return Err(WriteError::Validation("finalize"));
+    }
+    if input.outcome == "succeeded"
+        && (input.commit.is_none() || !input.verifications.iter().any(|item| item.succeeded))
+    {
+        return Err(WriteError::Validation("successful finalize evidence"));
+    }
+    if input.outcome != "succeeded" && input.failed_attempts.is_empty() {
+        return Err(WriteError::Validation("failed finalize attempts"));
+    }
+    if !input.verifications.is_empty() && input.solution.is_none() {
+        return Err(WriteError::Validation("finalize verification solution"));
+    }
+    if input.solution.is_some() && input.root_cause.is_none() {
+        return Err(WriteError::Validation("finalize solution root cause"));
+    }
+    for verification in &input.verifications {
+        if !matches!(verification.kind.as_str(), "automated" | "device" | "human")
+            || verification.kind == "automated"
+                && verification.command.as_ref().is_none_or(Vec::is_empty)
+            || verification.kind == "device"
+                && verification
+                    .environment
+                    .get("destination")
+                    .is_none_or(|value| value.trim().is_empty())
+            || verification.kind == "automated" && verification.human_confirmed
+        {
+            return Err(WriteError::Validation("finalize verification"));
+        }
+    }
+    Ok(())
+}
+
+fn record_delivery_artifact(
+    connection: &Connection,
+    project_id: &str,
+    case_id: &str,
+    problem_id: &str,
+    kind: &str,
+    uri: &str,
+    metadata: Value,
 ) -> Result<String, WriteError> {
+    let case_title = require_case(connection, project_id, case_id)?;
+    require_node(connection, project_id, case_id, problem_id, "Problem")?;
+    let now = timestamp();
+    let data = json!({"kind": kind, "uri": redact_string(uri)});
+    let node_id = insert_node(
+        connection,
+        NodeInsert {
+            project_id,
+            case_id,
+            case_title: &case_title,
+            node_type: "Artifact",
+            status: "candidate",
+            data: &data,
+            now: &now,
+        },
+    )?;
+    add_edge(
+        connection,
+        project_id,
+        case_id,
+        problem_id,
+        "REFERENCES",
+        &node_id,
+        &now,
+    )?;
+    let artifact_id = id();
+    connection.execute(
+        "INSERT INTO artifacts (id, project_id, node_id, kind, uri, digest, is_external, metadata, created_at) VALUES (?, ?, ?, ?, ?, NULL, 1, ?, ?)",
+        params![artifact_id, project_id, node_id, kind, redact_string(uri), serde_json::to_string(&redact_value(metadata))?, now],
+    )?;
+    append_event(
+        connection,
+        project_id,
+        Some(case_id),
+        "artifact.recorded",
+        &artifact_id,
+        &json!({"caseId": case_id, "nodeId": node_id, "artifactId": artifact_id}),
+        &now,
+    )?;
+    Ok(artifact_id)
+}
+
+struct NodeInsert<'a> {
+    project_id: &'a str,
+    case_id: &'a str,
+    case_title: &'a str,
+    node_type: &'a str,
+    status: &'a str,
+    data: &'a Value,
+    now: &'a str,
+}
+
+fn insert_node(transaction: &Connection, input: NodeInsert<'_>) -> Result<String, WriteError> {
     let node_id = id();
     transaction.execute(
         "INSERT INTO nodes (id, case_id, type, status, data, created_at) VALUES (?, ?, ?, ?, ?, ?)",
         params![
             node_id,
-            case_id,
-            node_type,
-            status,
-            serde_json::to_string(data)?,
-            now
+            input.case_id,
+            input.node_type,
+            input.status,
+            serde_json::to_string(input.data)?,
+            input.now
         ],
     )?;
-    index_node(transaction, project_id, &node_id, case_title, data)?;
+    index_node(
+        transaction,
+        input.project_id,
+        &node_id,
+        input.case_title,
+        input.data,
+    )?;
     append_event(
         transaction,
-        project_id,
-        Some(case_id),
+        input.project_id,
+        Some(input.case_id),
         "node.added",
         &node_id,
-        &json!({"caseId": case_id, "nodeId": node_id, "type": node_type, "status": status}),
-        now,
+        &json!({"caseId": input.case_id, "nodeId": node_id, "type": input.node_type, "status": input.status}),
+        input.now,
     )?;
     Ok(node_id)
 }
@@ -1392,7 +2061,7 @@ fn load_merge_proposal(
 }
 
 fn evaluate_case_promotion(
-    transaction: &Transaction<'_>,
+    transaction: &Connection,
     project_id: &str,
     case_id: &str,
     mutate: bool,
@@ -1549,7 +2218,7 @@ fn validate_identity(
 }
 
 fn resolve_project(
-    transaction: &Transaction<'_>,
+    transaction: &Connection,
     project: &ProjectReference,
 ) -> Result<String, WriteError> {
     let project_id = if let Some(project_id) = &project.project_id {
@@ -1575,7 +2244,7 @@ fn resolve_project(
 }
 
 fn require_case(
-    transaction: &Transaction<'_>,
+    transaction: &Connection,
     project_id: &str,
     case_id: &str,
 ) -> Result<String, WriteError> {
@@ -1590,7 +2259,7 @@ fn require_case(
 }
 
 fn require_node(
-    transaction: &Transaction<'_>,
+    transaction: &Connection,
     project_id: &str,
     case_id: &str,
     node_id: &str,
@@ -1607,7 +2276,7 @@ fn require_node(
 }
 
 fn replay_operation<T: DeserializeOwned>(
-    transaction: &Transaction<'_>,
+    transaction: &Connection,
     project_id: &str,
     operation_id: Option<&str>,
     kind: &str,
@@ -1633,7 +2302,7 @@ fn replay_operation<T: DeserializeOwned>(
 }
 
 fn require_project_path(
-    transaction: &Transaction<'_>,
+    transaction: &Connection,
     project_id: &str,
     path: &str,
 ) -> Result<(), WriteError> {
@@ -1660,7 +2329,7 @@ fn require_project_path(
 }
 
 fn replay_source(
-    transaction: &Transaction<'_>,
+    transaction: &Connection,
     project_id: &str,
     source: Option<&SourceKey>,
     expected_type: &str,
@@ -1685,7 +2354,7 @@ fn replay_source(
 }
 
 fn store_source(
-    transaction: &Transaction<'_>,
+    transaction: &Connection,
     project_id: &str,
     source: Option<&SourceKey>,
     node_id: &str,
@@ -1701,7 +2370,7 @@ fn store_source(
 }
 
 fn store_operation<T: Serialize>(
-    transaction: &Transaction<'_>,
+    transaction: &Connection,
     project_id: &str,
     operation_id: Option<&str>,
     kind: &str,
@@ -1717,7 +2386,7 @@ fn store_operation<T: Serialize>(
 }
 
 fn add_edge(
-    transaction: &Transaction<'_>,
+    transaction: &Connection,
     project_id: &str,
     case_id: &str,
     source_id: &str,
@@ -1742,7 +2411,7 @@ fn add_edge(
 }
 
 fn append_event(
-    transaction: &Transaction<'_>,
+    transaction: &Connection,
     project_id: &str,
     case_id: Option<&str>,
     event_type: &str,
@@ -1758,7 +2427,7 @@ fn append_event(
 }
 
 fn index_node(
-    transaction: &Transaction<'_>,
+    transaction: &Connection,
     project_id: &str,
     node_id: &str,
     title: &str,
@@ -1833,10 +2502,7 @@ fn redact_string(value: &str) -> String {
         }
         let lower = part.to_ascii_lowercase();
         let credential = lower.trim_start_matches('-');
-        if ["password:", "token:", "authorization:", "secret:"]
-            .iter()
-            .any(|marker| credential == *marker)
-        {
+        if ["password:", "token:", "authorization:", "secret:"].contains(&credential) {
             parts.push(format!("{part}[REDACTED]"));
             redact_next = true;
         } else if [

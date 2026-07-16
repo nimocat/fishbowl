@@ -75,15 +75,14 @@ Recall@5 from 0% to 100%; a 10,000-node bounded release benchmark measured
 multi-hop golden sets show no remaining recall gap that justifies an
 approximate index.
 
-Stage 6 is in progress and must not be cut over yet. The first Rust write
-vertical slice covers Problem and Attempt with project ownership,
-operation/source idempotency, event/edge/FTS ordering, recursive redaction, and
-transaction rollback at four injected mutation points. A focused sentinel
-test caught and fixed a `token: value` cross-word redaction leak. All remaining
-node write classes, aggregate operations, migration/backup/recovery, and
-snapshot parity are still required. Command start/result is also implemented
-with project-root ownership, lifecycle events, argv/excerpt redaction, and
-operation replay. The installed TypeScript daemon remains the sole writer.
+Stage 6 is in progress and must not be cut over yet. Rust now covers individual
+node/command/lifecycle writes plus aggregate checkpoint and finalization under
+project ownership, operation/source idempotency, event/edge/FTS ordering,
+recursive redaction, and injected rollback tests. A focused sentinel test
+caught and fixed a `token: value` cross-word redaction leak. Project
+registration/update, import/export, snapshot parity, and migration/backup/
+recovery are still required. The installed TypeScript daemon remains the sole
+writer.
 
 The individual causal-node write set is now complete in Rust: RootCause,
 Solution, Verification, Artifact, and Guardrail enforce project/Case ownership,
@@ -98,7 +97,11 @@ also in Rust. Regression reuses fingerprint/applicability policy and only
 mutates a verified Solution inside its declared boundary. Similarity creates
 deterministic project-local proposals only; an explicit idempotent apply is
 required before retiring the source Case and adding supersession state.
-Checkpoint/finalize and portability/migration work remain pending.
+`record_checkpoint`, `checkpoint_work`, and `finalize_work` are now implemented
+with one outer named savepoint and duplicate-free operation replay. Failed
+aggregate validation rolls back every nested write; commit and merge inputs are
+recorded only as bounded external facts. Portability/migration work remains
+pending.
 
 The implementation order, TDD fixtures, phase exit gates, rollout states, and
 rollback rules are specified in

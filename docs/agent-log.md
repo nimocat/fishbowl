@@ -380,3 +380,10 @@
   proposal, and explicit merge apply now preserve project ownership and
   operation replay. Similarity never merges automatically; regression only
   mutates a verified Solution when fingerprint and applicability both match.
+- Aggregate GREEN: nested SQLite savepoints let `record_checkpoint`,
+  `checkpoint_work`, and `finalize_work` reuse individual write semantics while
+  retaining one outer commit/rollback boundary. The complete transaction suite
+  passes 8/8, operation replay creates no duplicate inner records, and Git
+  commit/merge details remain external facts only.
+- Remaining Stage 6: project registration/update, import/export snapshot parity,
+  schema migration on a production copy, backup, interruption, and recovery.

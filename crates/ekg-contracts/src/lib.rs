@@ -497,6 +497,277 @@ pub struct ApplyCaseMergeInput {
     pub operation_id: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "kind", content = "input", rename_all = "camelCase")]
+pub enum CheckpointWrite {
+    Problem(CheckpointProblemInput),
+    Attempt(CheckpointAttemptInput),
+    RootCause(CheckpointRootCauseInput),
+    Solution(CheckpointSolutionInput),
+    Verification(CheckpointVerificationInput),
+    Artifact(CheckpointArtifactInput),
+    Guardrail(CheckpointGuardrailInput),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CheckpointProblemInput {
+    pub operation_id: Option<String>,
+    pub source_key: Option<SourceKey>,
+    pub case_id: Option<String>,
+    pub case_title: Option<String>,
+    pub data: WriteProblemData,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CheckpointAttemptInput {
+    pub operation_id: Option<String>,
+    pub source_key: Option<SourceKey>,
+    pub case_id: String,
+    pub problem_id: String,
+    pub previous_attempt_id: Option<String>,
+    pub data: WriteAttemptData,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CheckpointRootCauseInput {
+    pub operation_id: Option<String>,
+    pub source_key: Option<SourceKey>,
+    pub case_id: String,
+    pub problem_id: String,
+    #[serde(default)]
+    pub failed_attempt_ids: Vec<String>,
+    pub status: Option<NodeStatus>,
+    #[serde(default)]
+    pub human_confirmed: bool,
+    pub data: WriteRootCauseData,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CheckpointSolutionInput {
+    pub operation_id: Option<String>,
+    pub source_key: Option<SourceKey>,
+    pub case_id: String,
+    pub root_cause_id: String,
+    pub data: WriteSolutionData,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CheckpointVerificationInput {
+    pub operation_id: Option<String>,
+    pub source_key: Option<SourceKey>,
+    pub case_id: String,
+    pub solution_id: String,
+    pub data: WriteVerificationData,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CheckpointArtifactInput {
+    pub operation_id: Option<String>,
+    pub source_key: Option<SourceKey>,
+    pub case_id: String,
+    pub verification_id: String,
+    pub data: WriteArtifactData,
+    #[serde(default)]
+    pub metadata: BTreeMap<String, Value>,
+    #[serde(default)]
+    pub is_external: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CheckpointGuardrailInput {
+    pub operation_id: Option<String>,
+    pub source_key: Option<SourceKey>,
+    pub case_id: String,
+    pub root_cause_id: String,
+    pub status: Option<NodeStatus>,
+    pub data: WriteGuardrailData,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RecordCheckpointInput {
+    pub project: ProjectReference,
+    pub operation_id: String,
+    pub writes: Vec<CheckpointWrite>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(untagged)]
+pub enum CheckpointWriteResult {
+    Node(NodeWriteResult),
+    Artifact(ArtifactWriteResult),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RecordCheckpointResult {
+    pub results: Vec<CheckpointWriteResult>,
+    pub created: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CheckpointWorkInput {
+    pub project: ProjectReference,
+    pub operation_id: String,
+    pub case_id: Option<String>,
+    pub task: String,
+    pub outcome: String,
+    pub summary: String,
+    pub importance: Option<String>,
+    pub fingerprint: Option<String>,
+    #[serde(default)]
+    pub files: Vec<String>,
+    pub command: Option<Vec<String>>,
+    #[serde(default)]
+    pub evidence: Vec<String>,
+    pub root_cause: Option<CheckpointRootCauseAssertion>,
+    pub solution: Option<CheckpointSolutionAssertion>,
+    #[serde(default)]
+    pub human_confirmed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CheckpointRootCauseAssertion {
+    pub explanation: String,
+    pub confidence: f64,
+    #[serde(default)]
+    pub rejected_alternatives: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CheckpointSolutionAssertion {
+    pub summary: String,
+    pub applicability: Vec<String>,
+    pub limitations: Vec<String>,
+    pub decisive_difference: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum CheckpointSkipReason {
+    RoutineSuccess,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CheckpointWorkResult {
+    pub recorded: bool,
+    pub reason: Option<CheckpointSkipReason>,
+    pub created_case: bool,
+    pub case_id: Option<String>,
+    pub problem_id: Option<String>,
+    pub attempt_id: Option<String>,
+    pub root_cause_id: Option<String>,
+    pub solution_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FinalizeCommitInput {
+    pub sha: String,
+    pub message: String,
+    pub branch: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FinalizeFailedAttemptInput {
+    pub hypothesis: String,
+    pub change: String,
+    pub failure_explanation: String,
+    pub command: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FinalizeRootCauseInput {
+    pub explanation: String,
+    pub confidence: f64,
+    pub evidence: Vec<String>,
+    #[serde(default)]
+    pub rejected_alternatives: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FinalizeSolutionInput {
+    pub summary: String,
+    pub applicability: Vec<String>,
+    pub limitations: Vec<String>,
+    pub decisive_difference: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FinalizeVerificationInput {
+    pub kind: String,
+    pub succeeded: bool,
+    pub command: Option<Vec<String>>,
+    pub excerpt: String,
+    #[serde(default)]
+    pub environment: BTreeMap<String, String>,
+    #[serde(default)]
+    pub human_confirmed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FinalizeMergeInput {
+    pub status: String,
+    pub source_branch: Option<String>,
+    pub target_branch: Option<String>,
+    pub merge_commit: Option<String>,
+    pub summary: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FinalizeWorkInput {
+    pub project: ProjectReference,
+    pub operation_id: String,
+    pub case_id: Option<String>,
+    pub task: String,
+    pub outcome: String,
+    pub summary: String,
+    pub fingerprint: Option<String>,
+    #[serde(default)]
+    pub files: Vec<String>,
+    pub commit: Option<FinalizeCommitInput>,
+    #[serde(default)]
+    pub failed_attempts: Vec<FinalizeFailedAttemptInput>,
+    pub root_cause: Option<FinalizeRootCauseInput>,
+    pub solution: Option<FinalizeSolutionInput>,
+    #[serde(default)]
+    pub verifications: Vec<FinalizeVerificationInput>,
+    pub merge: FinalizeMergeInput,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FinalizeWorkResult {
+    pub recorded: bool,
+    pub created_case: bool,
+    pub case_id: String,
+    pub problem_id: String,
+    pub attempt_ids: Vec<String>,
+    pub root_cause_id: Option<String>,
+    pub solution_id: Option<String>,
+    pub verification_ids: Vec<String>,
+    pub artifact_ids: Vec<String>,
+    pub merge_recorded: bool,
+    pub promotion: PromotionStatus,
+}
+
 impl Validate for ProjectReference {
     fn validate(&self) -> Result<(), ErrorCode> {
         match (&self.project_id, &self.project_root) {

@@ -166,9 +166,11 @@ The executable Stage 0-8 plan is in
 `docs/plans/2026-07-16-rust-core-migration-tdd.md`. Rust now owns the read
 contract, query-only schema-v7 retrieval, Preflight policy, deterministic
 project/domain/k-core hierarchy, and bounded trust-aware PPR. TypeScript
-remains the installed writer and daemon until transactional write parity,
-native daemon packaging, and the installed-state acceptance gates pass.
-Writes are never dual-routed.
+remains the installed writer and daemon. Rust transactional writes now cover
+commands, all causal nodes, lifecycle/relevance/merge, checkpoints, and
+finalization; project/import/export and migration/recovery remain before write
+parity. Native daemon packaging and installed-state acceptance follow. Writes
+are never dual-routed.
 
 ## Final Review Fix Wave
 

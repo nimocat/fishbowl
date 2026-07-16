@@ -478,7 +478,7 @@ Measured results:
 
 ## 13. Stage 6 — Rust storage and transactional writes
 
-**Status:** In progress; Problem/Attempt transaction foundation complete,
+**Status:** In progress; operation writes through aggregate/lifecycle complete,
 installed writes remain TypeScript-only (2026-07-16)
 
 **Goal:** Rust becomes the only database writer.
@@ -537,14 +537,18 @@ Current progress:
   guardrail rows, and Rust-owned mixed-verification promotion.
 - Added Case close/regression, digest-only relevance feedback, deterministic
   project-local merge proposals, and explicit idempotent merge application.
+- Added `record_checkpoint`, `checkpoint_work`, and `finalize_work` under one
+  outer named savepoint while reusing the individually tested write methods.
+  Invalid aggregates leave zero mutation, operation replay is duplicate-free,
+  and commit/merge facts remain bounded external Artifacts rather than actions.
 - Project ownership, operation-ID replay, source-key replay/type checks,
   event/edge/search ordering, recursive redaction, and four injected rollback
   points pass focused tests.
 - A RED/GREEN cycle found that `token: value` could leak the value after a
   whitespace separator; stateful cross-token redaction now covers it.
-- No installed write route has changed. `record_checkpoint`, checkpoint/
-  finalize, import/export, schema
-  migration, backup, and recovery remain required before Stage 6 cutover.
+- No installed write route has changed. Project registration/update,
+  import/export, schema migration, production-copy integrity, backup, and
+  recovery remain required before Stage 6 cutover.
 
 ## 14. Stage 7 — Rust daemon ownership and end-to-end metrics
 
