@@ -409,3 +409,14 @@
 - Remaining Stage 6 is database schema migration, production-copy integrity,
   backup, interruption, and recovery. File/Git acquisition belongs to the Rust
   daemon boundary in Stage 7 and will feed the explicit-content API.
+- Schema GREEN: Rust now inspects existing bytes read-only, migrates schema
+  v1-v7 only after a consistent SQLite backup, backfills Case-owned history,
+  rolls back injected pre-commit failures, restores only to a new destination,
+  and rejects corrupt/newer stores without byte changes. Focused migration
+  tests pass 4/4.
+- Production-copy acceptance: the installed 2.9 MiB database was copied through
+  SQLite online backup. Rust reported schema 7 and `quick_check: ok`; typed
+  snapshot counts exactly matched SQL at 59 Cases, 288 nodes, 363 edges, 23
+  evidence rows, and 8 non-command-log Artifacts. Production was not modified.
+- Stage 6 implementation/offline acceptance is complete. Installed routing
+  remains TypeScript-only and moves once, without dual writes, in Stage 7.

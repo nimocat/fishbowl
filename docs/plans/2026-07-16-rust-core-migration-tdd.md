@@ -478,8 +478,8 @@ Measured results:
 
 ## 13. Stage 6 — Rust storage and transactional writes
 
-**Status:** In progress; operation writes through aggregate/lifecycle complete,
-installed writes remain TypeScript-only (2026-07-16)
+**Status:** Implementation and offline acceptance complete; installed cutover
+is deferred to Stage 7 daemon ownership (2026-07-16)
 
 **Goal:** Rust becomes the only database writer.
 
@@ -554,13 +554,20 @@ Current progress:
   expiry, source-digest staleness, proposal ownership, candidate-only writes,
   Problem/Attempt linkage, and operation replay. Rust daemon acquisition of
   explicit file/Git sources will feed this core API in Stage 7.
+- Added backup-first Rust schema-v7 management: read-only quick/version
+  inspection, v1-v7 compatibility migration, v6 event ownership backfill,
+  transactional fault rollback, consistent backup, restore-to-new-path,
+  permission hardening, and corrupt/newer byte preservation.
 - Project ownership, operation-ID replay, source-key replay/type checks,
   event/edge/search ordering, recursive redaction, and four injected rollback
   points pass focused tests.
 - A RED/GREEN cycle found that `token: value` could leak the value after a
   whitespace separator; stateful cross-token redaction now covers it.
-- No installed write route has changed. Schema migration, production-copy
-  integrity, backup, and recovery remain required before Stage 6 cutover.
+- A consistent copy of the installed 2.9 MiB schema-v7 database passed Rust
+  `quick_check` and typed export with exact SQL count parity: 59 Cases, 288
+  nodes, 363 edges, 23 evidence rows, and 8 non-command-log Artifacts.
+- No installed route has changed and there is no dual-write path. Stage 7 owns
+  the one-time daemon/protocol cutover after native lifecycle acceptance.
 
 ## 14. Stage 7 — Rust daemon ownership and end-to-end metrics
 

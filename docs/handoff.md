@@ -85,8 +85,11 @@ atomic metadata/alias updates. Versioned snapshot export/import is Rust-owned
 with deterministic remapping, trust downgrade, redaction, relation/cycle
 validation, and local Artifact relocation. Explicit-content Markdown/JSON
 preview and apply are also Rust-owned with stale-source detection and candidate
-trust. Schema migration/backup/recovery are still required. The installed
-TypeScript daemon remains the sole writer.
+trust. Backup-first schema v1-v7 migration, fault rollback, restore-to-new-path,
+and corrupt/newer preservation are complete. An online backup of the installed
+database passed Rust quick-check and snapshot/SQL parity (59/288/363/23/8).
+Stage 6 implementation is complete; the installed TypeScript daemon remains the
+sole writer until Stage 7 performs the tested one-time native daemon cutover.
 
 The individual causal-node write set is now complete in Rust: RootCause,
 Solution, Verification, Artifact, and Guardrail enforce project/Case ownership,

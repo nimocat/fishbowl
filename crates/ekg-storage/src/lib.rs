@@ -1,9 +1,11 @@
 //! Project-scoped, query-only repository for the existing EKG SQLite schema.
 
 mod import;
+mod schema;
 mod snapshot;
 mod write;
 
+pub use schema::*;
 pub use write::*;
 
 use std::cell::RefCell;
