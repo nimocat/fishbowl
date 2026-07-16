@@ -2,7 +2,7 @@
 
 ## Active Migration: Rust Hierarchical Retrieval Core
 
-**Status:** Round 1 vertical slice complete; daemon/MCP cutover pending (2026-07-16)
+**Status:** Stages 0-1 complete; Stage 2 query parity pending (2026-07-16)
 
 The accepted direction is documented in
 `docs/specs/2026-07-16-rust-hierarchical-retrieval.md`. Durable storage,
@@ -18,11 +18,17 @@ Completed in the first slice:
 - 10,000-Case cold/warm performance gates;
 - removal of an O(n²) correlated domain lookup from the Rust loading path.
 
-Next slices: versioned Rust daemon query contract, TypeScript MCP adapter
-cutover, deterministic hierarchy/community construction, bounded graph
-diffusion, then transactional write migration. The TypeScript application and
-storage core cannot be removed until parity, migration, recovery, and release
-gates pass.
+Stage 1 adds an independent `ekg-contracts` crate, strict versioned DTOs for
+`queryKnowledge`, `preflight`, and `getCase`, shared redacted JSON fixtures, a
+serialization-only TypeScript adapter, stable sanitized errors, and bounded
+request-ID replay. Release replay p95 is 3µs excluding process startup. No
+production route changed.
+
+Next slices: full Rust `queryKnowledge` result construction and shadow parity,
+then read cutover, deterministic hierarchy/community construction, bounded
+graph diffusion, and transactional write migration. The TypeScript application
+and storage core cannot be removed until parity, migration, recovery, and
+release gates pass.
 
 The executable phase-by-phase migration and TDD plan is
 `docs/plans/2026-07-16-rust-core-migration-tdd.md`. It defines shared

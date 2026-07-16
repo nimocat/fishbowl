@@ -19,6 +19,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "ekg-contracts"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "ekg-core"
 version = "0.1.0"
 
@@ -26,6 +34,7 @@ version = "0.1.0"
 name = "ekg-daemon"
 version = "0.1.0"
 dependencies = [
+ "ekg-contracts",
  "ekg-core",
  "rusqlite",
  "serde",

@@ -1,0 +1,596 @@
+//! Versioned, language-neutral contracts for the Rust daemon boundary.
+//!
+//! Deserialization is deliberately strict. Semantic size and exclusivity
+//! constraints are enforced by [`Validate`] before any request reaches policy
+//! or storage code.
+
+use std::collections::BTreeMap;
+
+use serde::de::Error as _;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde_json::Value;
+
+pub const PROTOCOL_VERSION: u32 = 1;
+const MAX_REQUEST_ID: usize = 200;
+const MAX_REFERENCE: usize = 4096;
+const MAX_TEXT: usize = 16_384;
+const MAX_FILTERS: usize = 100;
+const MAX_RESULTS: usize = 1000;
+
+pub trait Validate {
+    fn validate(&self) -> Result<(), ErrorCode>;
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ErrorCode {
+    InvalidArgument,
+    ValidationFailed,
+    PayloadTooLarge,
+    NotFound,
+    Conflict,
+    OwnershipMismatch,
+    OperationConflict,
+    PathOutsideProject,
+    InvalidRequest,
+    ProtocolMismatch,
+    InternalError,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ErrorBody {
+    pub code: ErrorCode,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FailureEnvelope {
+    pub ok: False,
+    pub request_id: String,
+    pub error: ErrorBody,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SuccessEnvelope<T> {
+    pub ok: True,
+    pub request_id: String,
+    pub result: T,
+}
+
+impl<T: Validate> Validate for SuccessEnvelope<T> {
+    fn validate(&self) -> Result<(), ErrorCode> {
+        validate_string(&self.request_id, MAX_REQUEST_ID, ErrorCode::InvalidRequest)?;
+        self.result.validate()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct True;
+
+impl Serialize for True {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_bool(true)
+    }
+}
+
+impl<'de> Deserialize<'de> for True {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        if bool::deserialize(deserializer)? {
+            Ok(Self)
+        } else {
+            Err(D::Error::custom("expected true"))
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct False;
+
+impl Serialize for False {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_bool(false)
+    }
+}
+
+impl<'de> Deserialize<'de> for False {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        if bool::deserialize(deserializer)? {
+            Err(D::Error::custom("expected false"))
+        } else {
+            Ok(Self)
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProjectReference {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_root: Option<String>,
+}
+
+impl Validate for ProjectReference {
+    fn validate(&self) -> Result<(), ErrorCode> {
+        match (&self.project_id, &self.project_root) {
+            (Some(id), None) => validate_string(id, MAX_REFERENCE, ErrorCode::InvalidArgument),
+            (None, Some(root)) => validate_string(root, MAX_REFERENCE, ErrorCode::InvalidArgument),
+            _ => Err(ErrorCode::InvalidArgument),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RequestEnvelope {
+    pub protocol_version: u32,
+    pub request_id: String,
+    #[serde(flatten)]
+    pub operation: ReadOperation,
+}
+
+impl Validate for RequestEnvelope {
+    fn validate(&self) -> Result<(), ErrorCode> {
+        if self.protocol_version != PROTOCOL_VERSION {
+            return Err(ErrorCode::ProtocolMismatch);
+        }
+        validate_string(&self.request_id, MAX_REQUEST_ID, ErrorCode::InvalidRequest)?;
+        self.operation.validate()
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "operation", content = "input")]
+pub enum ReadOperation {
+    #[serde(rename = "queryKnowledge")]
+    QueryKnowledge(QueryKnowledgeInput),
+    #[serde(rename = "preflight")]
+    Preflight(PreflightInput),
+    #[serde(rename = "getCase")]
+    GetCase(GetCaseInput),
+}
+
+impl Validate for ReadOperation {
+    fn validate(&self) -> Result<(), ErrorCode> {
+        match self {
+            Self::QueryKnowledge(value) => value.validate(),
+            Self::Preflight(value) => value.validate(),
+            Self::GetCase(value) => value.validate(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QueryKnowledgeInput {
+    pub project: ProjectReference,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub domain: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub node_types: Option<Vec<NodeType>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub statuses: Option<Vec<NodeStatus>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fingerprint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<usize>,
+}
+
+impl Validate for QueryKnowledgeInput {
+    fn validate(&self) -> Result<(), ErrorCode> {
+        self.project.validate()?;
+        for value in [
+            &self.text,
+            &self.domain,
+            &self.file,
+            &self.command,
+            &self.fingerprint,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            validate_string(value, MAX_TEXT, ErrorCode::InvalidArgument)?;
+        }
+        validate_len(self.node_types.as_deref(), MAX_FILTERS)?;
+        validate_len(self.statuses.as_deref(), MAX_FILTERS)?;
+        validate_limit(self.limit)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PreflightInput {
+    pub project: ProjectReference,
+    pub task_description: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub changed_files: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fingerprint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<DetailLevel>,
+}
+
+impl Validate for PreflightInput {
+    fn validate(&self) -> Result<(), ErrorCode> {
+        self.project.validate()?;
+        validate_string(&self.task_description, MAX_TEXT, ErrorCode::InvalidArgument)?;
+        validate_string_vec(self.changed_files.as_deref())?;
+        validate_string_vec(self.command.as_deref())?;
+        if let Some(value) = &self.fingerprint {
+            validate_string(value, MAX_TEXT, ErrorCode::InvalidArgument)?;
+        }
+        validate_limit(self.limit)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct GetCaseInput {
+    pub project: ProjectReference,
+    pub case_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<CaseDetailLevel>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub history_limit: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub history_before_sequence: Option<u64>,
+}
+
+impl Validate for GetCaseInput {
+    fn validate(&self) -> Result<(), ErrorCode> {
+        self.project.validate()?;
+        validate_string(&self.case_id, MAX_REFERENCE, ErrorCode::InvalidArgument)?;
+        validate_limit(self.history_limit)
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum DetailLevel {
+    Brief,
+    Standard,
+    Full,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum CaseDetailLevel {
+    Summary,
+    Graph,
+    Full,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum NodeType {
+    Problem,
+    Attempt,
+    RootCause,
+    Solution,
+    Verification,
+    SuccessCase,
+    Guardrail,
+    Artifact,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum NodeStatus {
+    Open,
+    Candidate,
+    Verified,
+    Regressed,
+    Retired,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NodeRecord {
+    pub id: String,
+    pub case_id: String,
+    #[serde(rename = "type")]
+    pub node_type: NodeType,
+    pub status: NodeStatus,
+    pub data: BTreeMap<String, Value>,
+    pub created_at: String,
+}
+
+impl Validate for NodeRecord {
+    fn validate(&self) -> Result<(), ErrorCode> {
+        for value in [&self.id, &self.case_id, &self.created_at] {
+            validate_string(value, MAX_REFERENCE, ErrorCode::InvalidRequest)?;
+        }
+        if self.data.len() > MAX_FILTERS {
+            return Err(ErrorCode::PayloadTooLarge);
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct KnowledgeQueryItem {
+    pub project_id: String,
+    pub case_id: String,
+    pub case_title: String,
+    pub node: NodeRecord,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QueryKnowledgeResult {
+    pub items: Vec<KnowledgeQueryItem>,
+    pub limit: usize,
+    pub truncated: bool,
+}
+
+impl Validate for QueryKnowledgeResult {
+    fn validate(&self) -> Result<(), ErrorCode> {
+        if self.items.len() > MAX_RESULTS || self.limit > MAX_RESULTS {
+            return Err(ErrorCode::PayloadTooLarge);
+        }
+        for item in &self.items {
+            item.node.validate()?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PreflightGuardrail {
+    pub node: NodeRecord,
+    pub blocks: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum MatchKind {
+    ExactFingerprint,
+    BlockingGuardrail,
+    ExactFile,
+    ExactCommand,
+    VerifiedKnowledge,
+    Text,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MatchReason {
+    pub kind: MatchKind,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PreflightCard {
+    pub case_id: String,
+    pub case_title: String,
+    pub score: f64,
+    pub why_matched: Vec<MatchReason>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failed_attempt: Option<NodeRecord>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub root_cause: Option<NodeRecord>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub solution: Option<NodeRecord>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub guardrails: Option<Vec<PreflightGuardrail>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PreflightResult {
+    pub blocked: bool,
+    pub cards: Vec<PreflightCard>,
+    pub guardrails: Vec<PreflightGuardrail>,
+    pub failed_attempts: Vec<NodeRecord>,
+    pub root_causes: Vec<NodeRecord>,
+    pub solutions: Vec<NodeRecord>,
+    pub uncertain: Vec<NodeRecord>,
+    pub truncated: bool,
+    pub expansion_case_ids: Vec<String>,
+}
+
+impl Validate for PreflightResult {
+    fn validate(&self) -> Result<(), ErrorCode> {
+        for len in [
+            self.cards.len(),
+            self.guardrails.len(),
+            self.failed_attempts.len(),
+            self.root_causes.len(),
+            self.solutions.len(),
+            self.uncertain.len(),
+            self.expansion_case_ids.len(),
+        ] {
+            if len > MAX_RESULTS {
+                return Err(ErrorCode::PayloadTooLarge);
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum RelationType {
+    AttemptsToSolve,
+    PrecededBy,
+    FailedBecause,
+    Causes,
+    Addresses,
+    VerifiedBy,
+    References,
+    Includes,
+    Prevents,
+    Supersedes,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EdgeRecord {
+    pub id: String,
+    pub case_id: String,
+    pub source_id: String,
+    pub relation: RelationType,
+    pub target_id: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CaseCounts {
+    pub nodes: usize,
+    pub edges: usize,
+    pub evidence: usize,
+    pub artifacts: usize,
+    pub command_runs: usize,
+    pub history: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EvidenceRecord {
+    pub id: String,
+    pub project_id: String,
+    pub node_id: String,
+    pub kind: EvidenceKind,
+    pub command: Option<Vec<String>>,
+    pub exit_status: Option<i32>,
+    pub data: BTreeMap<String, Value>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum EvidenceKind {
+    Automated,
+    Human,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ArtifactRecord {
+    pub id: String,
+    pub project_id: String,
+    pub node_id: Option<String>,
+    pub kind: String,
+    pub uri: String,
+    pub digest: Option<String>,
+    pub is_external: bool,
+    pub metadata: BTreeMap<String, Value>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CommandRunRecord {
+    pub id: String,
+    pub project_id: String,
+    pub case_id: Option<String>,
+    pub attempt_id: Option<String>,
+    pub command: Vec<String>,
+    pub working_directory: String,
+    pub exit_status: Option<i32>,
+    pub signal: Option<String>,
+    pub duration_ms: u64,
+    pub excerpt: String,
+    pub raw_log_path: Option<String>,
+    pub raw_log_digest: Option<String>,
+    pub started_at: String,
+    pub finished_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct KnowledgeEvent {
+    pub sequence: u64,
+    pub project_id: String,
+    #[serde(rename = "type")]
+    pub event_type: String,
+    pub aggregate_id: String,
+    pub payload: Value,
+    pub occurred_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct GetCaseResult {
+    pub id: String,
+    pub project_id: String,
+    pub title: String,
+    pub status: NodeStatus,
+    pub created_at: String,
+    pub nodes: Vec<NodeRecord>,
+    pub edges: Vec<EdgeRecord>,
+    pub detail: CaseDetailLevel,
+    pub counts: CaseCounts,
+    pub evidence: Vec<EvidenceRecord>,
+    pub artifacts: Vec<ArtifactRecord>,
+    pub command_runs: Vec<CommandRunRecord>,
+    pub history: Vec<KnowledgeEvent>,
+    pub history_next_before_sequence: Option<u64>,
+}
+
+impl Validate for GetCaseResult {
+    fn validate(&self) -> Result<(), ErrorCode> {
+        for len in [
+            self.nodes.len(),
+            self.edges.len(),
+            self.evidence.len(),
+            self.artifacts.len(),
+            self.command_runs.len(),
+            self.history.len(),
+        ] {
+            if len > MAX_RESULTS {
+                return Err(ErrorCode::PayloadTooLarge);
+            }
+        }
+        Ok(())
+    }
+}
+
+fn validate_string(value: &str, max: usize, code: ErrorCode) -> Result<(), ErrorCode> {
+    if value.trim().is_empty() || value.len() > max {
+        Err(code)
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_len<T>(value: Option<&[T]>, max: usize) -> Result<(), ErrorCode> {
+    if value.is_some_and(|items| items.len() > max) {
+        Err(ErrorCode::PayloadTooLarge)
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_string_vec(value: Option<&[String]>) -> Result<(), ErrorCode> {
+    validate_len(value, MAX_FILTERS)?;
+    for item in value.into_iter().flatten() {
+        validate_string(item, MAX_TEXT, ErrorCode::InvalidArgument)?;
+    }
+    Ok(())
+}
+
+fn validate_limit(value: Option<usize>) -> Result<(), ErrorCode> {
+    if value.is_some_and(|limit| limit == 0 || limit > MAX_RESULTS) {
+        Err(ErrorCode::InvalidArgument)
+    } else {
+        Ok(())
+    }
+}

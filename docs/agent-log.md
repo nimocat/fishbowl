@@ -1,5 +1,32 @@
 # Agent Log
 
+## 2026-07-16 - Rust Migration Stage 1 Contract Ownership
+
+- Goal: freeze complete cross-language read contracts before Rust serves any
+  production EKG operation.
+- RED: `cargo test -p ekg-contracts --test contract_fixtures` failed at compile
+  time because Stage 0 exposed no `RequestEnvelope`, stable `ErrorCode`, result
+  DTOs, or bounded `Validate` layer. The TypeScript adapter test separately
+  failed because `src/rust/contract-adapter.ts` did not exist.
+- GREEN: added `ekg-contracts` with strict serde DTOs for `queryKnowledge`,
+  `preflight`, and `getCase`; exact-one project references; bounded strings,
+  arrays, and limits; deterministic maps; stable sanitized error codes; and
+  complete Case evidence/artifact/command/event result types. Added shared
+  synthetic fixtures and a Zod-only TypeScript serialization adapter with no
+  storage, SQLite, policy, or application-service imports.
+- Protocol: added bounded same-request replay to the persistent Rust JSON-lines
+  session. Reusing an ID with changed input returns `OPERATION_CONFLICT` without
+  echoing input. Protocol mismatch returns restart/reinstall guidance. Writes
+  remain TypeScript-only and production routing did not change.
+- Efficiency: 1,000 cached release replays measured p95 3µs, versus the Stage 1
+  budget of 10ms. Cross-language fixture parity is 100% for the three scoped
+  read contracts.
+- Verification: Rust debug/release workspace tests, rustfmt, clippy with denied
+  warnings, TypeScript typecheck, 203/203 Vitest tests, production build, and
+  `git diff --check` passed.
+- Next: Stage 2 full Rust `queryKnowledge` result construction, shadow parity,
+  ranking/recall metrics, and guarded one-operation read cutover.
+
 ## 2026-07-16 - Rust Migration and TDD Plan
 
 - Goal: convert the accepted Rust/tree direction into an executable migration

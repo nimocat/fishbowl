@@ -222,6 +222,8 @@ One grouped `case_domains` CTE plus a scoped join reduced debug cold load by
 
 ## 8. Stage 1 — Contract ownership and parity harness
 
+**Status:** Complete on `codex/ekg-efficiency-rounds` (2026-07-16)
+
 **Goal:** Rust owns complete response and error contracts before it serves any
 production operation.
 
@@ -258,6 +260,16 @@ tests/contracts/
 
 - 100% fixture parity for read contracts.
 - Zero policy or SQLite imports in the TypeScript Rust adapter.
+- Achieved: `queryKnowledge`, `preflight`, and `getCase` request/result fixtures
+  replay canonically in both languages; strict nested fields and bounded values
+  are enforced before dispatch.
+- Achieved: stable sanitized errors, version mismatch recovery guidance,
+  deterministic serialization, and same-request replay with changed-input
+  conflict rejection.
+- Achieved: release replay p95 is 3µs across 1,000 iterations, excluding
+  process startup (budget: 10ms).
+- Production routing remains unchanged. Stage 2 must make Rust construct the
+  complete `queryKnowledge` result before any read cutover.
 - Contract replay p95 below 10ms excluding process startup.
 - Protocol mismatch returns recovery guidance.
 

@@ -1,0 +1,91 @@
+use std::fs;
+use std::path::PathBuf;
+
+use ekg_contracts::{
+    ErrorCode, FailureEnvelope, GetCaseResult, PreflightResult, QueryKnowledgeResult,
+    RequestEnvelope, SuccessEnvelope, Validate,
+};
+use serde::de::DeserializeOwned;
+use serde_json::Value;
+
+fn fixture(name: &str) -> Value {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures/contracts")
+        .join(name);
+    serde_json::from_str(&fs::read_to_string(path).expect("fixture file")).expect("fixture JSON")
+}
+
+fn decode<T: DeserializeOwned>(value: &Value) -> T {
+    serde_json::from_value(value.clone()).expect("fixture matches Rust contract")
+}
+
+#[test]
+fn read_contract_fixtures_round_trip_canonically() {
+    for (file, decode_result) in [
+        ("query_knowledge.json", decode_query as fn(&Value)),
+        ("preflight.json", decode_preflight as fn(&Value)),
+        ("get_case.json", decode_get_case as fn(&Value)),
+    ] {
+        let value = fixture(file);
+        let request: RequestEnvelope = decode(&value["request"]);
+        request.validate().expect("bounded request");
+        assert_eq!(serde_json::to_value(&request).unwrap(), value["request"]);
+        decode_result(&value["response"]);
+    }
+}
+
+fn decode_query(value: &Value) {
+    let response: SuccessEnvelope<QueryKnowledgeResult> = decode(value);
+    response.validate().unwrap();
+    assert_eq!(serde_json::to_value(response).unwrap(), *value);
+}
+
+fn decode_preflight(value: &Value) {
+    let response: SuccessEnvelope<PreflightResult> = decode(value);
+    response.validate().unwrap();
+    assert_eq!(serde_json::to_value(response).unwrap(), *value);
+}
+
+fn decode_get_case(value: &Value) {
+    let response: SuccessEnvelope<GetCaseResult> = decode(value);
+    response.validate().unwrap();
+    assert_eq!(serde_json::to_value(response).unwrap(), *value);
+}
+
+#[test]
+fn invalid_contracts_are_rejected_without_echoing_inputs() {
+    let cases = fixture("errors.json");
+    for item in cases.as_array().unwrap() {
+        let parsed = serde_json::from_value::<RequestEnvelope>(item["request"].clone());
+        let actual = match parsed {
+            Ok(request) => request.validate().unwrap_err(),
+            Err(_) => ErrorCode::InvalidRequest,
+        };
+        assert_eq!(serde_json::to_value(actual).unwrap(), item["expectedCode"]);
+    }
+
+    let failure: FailureEnvelope = decode(&serde_json::json!({
+        "ok": false,
+        "requestId": "request-safe",
+        "error": {"code": "INVALID_ARGUMENT", "message": "Project reference is invalid"}
+    }));
+    let encoded = serde_json::to_string(&failure).unwrap();
+    assert!(!encoded.contains("secret-input"));
+}
+
+#[test]
+fn unknown_nested_fields_are_rejected() {
+    let mut request = fixture("query_knowledge.json")["request"].clone();
+    request["input"]["project"]["unexpected"] = Value::Bool(true);
+    assert!(serde_json::from_value::<RequestEnvelope>(request).is_err());
+}
+
+#[test]
+fn output_serialization_is_deterministic() {
+    let value = fixture("query_knowledge.json");
+    let response: SuccessEnvelope<QueryKnowledgeResult> = decode(&value["response"]);
+    let expected = serde_json::to_string(&response).unwrap();
+    for _ in 0..100 {
+        assert_eq!(serde_json::to_string(&response).unwrap(), expected);
+    }
+}

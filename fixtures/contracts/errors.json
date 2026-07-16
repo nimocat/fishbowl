@@ -1,0 +1,52 @@
+[
+  {
+    "name": "both project selectors",
+    "request": {
+      "protocolVersion": 1,
+      "requestId": "invalid-project-both",
+      "operation": "queryKnowledge",
+      "input": { "project": { "projectId": "alpha", "projectRoot": "/alpha" } }
+    },
+    "expectedCode": "INVALID_ARGUMENT"
+  },
+  {
+    "name": "neither project selector",
+    "request": {
+      "protocolVersion": 1,
+      "requestId": "invalid-project-neither",
+      "operation": "queryKnowledge",
+      "input": { "project": {} }
+    },
+    "expectedCode": "INVALID_ARGUMENT"
+  },
+  {
+    "name": "unbounded request id",
+    "request": {
+      "protocolVersion": 1,
+      "requestId": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "operation": "queryKnowledge",
+      "input": { "project": { "projectId": "alpha" } }
+    },
+    "expectedCode": "INVALID_REQUEST"
+  },
+  {
+    "name": "unknown operation",
+    "request": {
+      "protocolVersion": 1,
+      "requestId": "unknown-operation",
+      "operation": "readArbitraryFile",
+      "input": { "secret": "secret-input" }
+    },
+    "expectedCode": "INVALID_REQUEST"
+  },
+  {
+    "name": "protocol mismatch",
+    "request": {
+      "protocolVersion": 999,
+      "requestId": "protocol-mismatch",
+      "operation": "queryKnowledge",
+      "input": { "project": { "projectId": "alpha" } }
+    },
+    "expectedCode": "PROTOCOL_MISMATCH"
+  }
+]

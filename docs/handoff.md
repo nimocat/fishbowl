@@ -8,7 +8,7 @@ retrieval. The active design is
 
 ## Rust Migration Status
 
-Round 1 is implemented on `codex/ekg-efficiency-rounds`. `ekg-core` provides a
+Stages 0-1 are implemented on `codex/ekg-efficiency-rounds`. `ekg-core` provides a
 project/domain Unicode prefix tree with Han bigram routing and explicit
 Guardrail all-of/any-of semantics. `ekg-daemon` reads the existing core SQLite
 tables in query-only mode, builds one cached tree per project, and invalidates
@@ -20,16 +20,24 @@ debug cold load to 1,147.123ms (88.54%). The release result is 177.349ms cold,
 6.292µs warm p50, and 7.625µs warm p95. Pure release tree lookup is 1.417µs
 p95. These numbers exclude MCP transport and full response construction.
 
-The Rust query path is not yet wired into the installed daemon. Next, add the
-versioned Rust response contract and persistent process client, replay the
-TypeScript query/preflight golden set against Rust, then switch reads. Do not
-duplicate new retrieval or Guardrail policy in TypeScript.
+`ekg-contracts` now owns strict protocol-v1 DTOs and complete public result
+shapes for `queryKnowledge`, `preflight`, and `getCase`. Shared synthetic JSON
+fixtures replay canonically in Rust and TypeScript. The Rust protocol keeps a
+bounded request-ID cache, rejects changed-input reuse, emits sanitized stable
+errors, and gives explicit restart/reinstall guidance for protocol mismatch.
+Release replay p95 is 3µs over 1,000 iterations, excluding startup.
+
+The Rust query path is still not wired into the installed daemon. Next, Stage 2
+must build the complete `queryKnowledge` response in Rust, compare ordered
+results against TypeScript in read-only shadow mode, and satisfy mismatch and
+recall gates before one-operation cutover. Do not duplicate retrieval or
+Guardrail policy in TypeScript.
 
 The implementation order, TDD fixtures, phase exit gates, rollout states, and
 rollback rules are specified in
-`docs/plans/2026-07-16-rust-core-migration-tdd.md`. Stage 1 contract ownership
-is the next executable slice; the plan alone does not authorize production
-routing changes.
+`docs/plans/2026-07-16-rust-core-migration-tdd.md`. Stage 2 query parity is the
+next executable slice; the plan alone does not authorize production routing
+changes.
 
 ## Status
 

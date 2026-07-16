@@ -1,0 +1,49 @@
+{
+  "request": {
+    "protocolVersion": 1,
+    "requestId": "get-case-fixture-1",
+    "operation": "getCase",
+    "input": {
+      "project": { "projectId": "project-alpha" },
+      "caseId": "case-camera",
+      "detail": "summary",
+      "historyLimit": 20
+    }
+  },
+  "response": {
+    "ok": true,
+    "requestId": "get-case-fixture-1",
+    "result": {
+      "id": "case-camera",
+      "projectId": "project-alpha",
+      "title": "Camera session binding",
+      "status": "verified",
+      "createdAt": "2026-07-16T00:00:00.000Z",
+      "nodes": [],
+      "edges": [],
+      "detail": "summary",
+      "counts": { "nodes": 0, "edges": 0, "evidence": 1, "artifacts": 1, "commandRuns": 1, "history": 1 },
+      "evidence": [{
+        "id": "evidence-1", "projectId": "project-alpha", "nodeId": "node-solution",
+        "kind": "automated", "command": ["npm", "test"], "exitStatus": 0,
+        "data": { "excerpt": "synthetic pass" }, "createdAt": "2026-07-16T00:01:00.000Z"
+      }],
+      "artifacts": [{
+        "id": "artifact-1", "projectId": "project-alpha", "nodeId": null,
+        "kind": "test-report", "uri": "docs/reports/synthetic.json", "digest": null,
+        "isExternal": false, "metadata": { "redacted": true }, "createdAt": "2026-07-16T00:01:00.000Z"
+      }],
+      "commandRuns": [{
+        "id": "command-1", "projectId": "project-alpha", "caseId": "case-camera", "attemptId": null,
+        "command": ["npm", "test"], "workingDirectory": "/synthetic/project", "exitStatus": 0,
+        "signal": null, "durationMs": 12, "excerpt": "synthetic pass", "rawLogPath": null,
+        "rawLogDigest": null, "startedAt": "2026-07-16T00:00:00.000Z", "finishedAt": "2026-07-16T00:00:00.012Z"
+      }],
+      "history": [{
+        "sequence": 1, "projectId": "project-alpha", "type": "case.created", "aggregateId": "case-camera",
+        "payload": { "redacted": true }, "occurredAt": "2026-07-16T00:00:00.000Z"
+      }],
+      "historyNextBeforeSequence": null
+    }
+  }
+}

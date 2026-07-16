@@ -1,0 +1,35 @@
+{
+  "request": {
+    "protocolVersion": 1,
+    "requestId": "query-fixture-1",
+    "operation": "queryKnowledge",
+    "input": {
+      "project": { "projectId": "project-alpha" },
+      "text": "camera session",
+      "nodeTypes": ["Solution"],
+      "statuses": ["verified"],
+      "limit": 5
+    }
+  },
+  "response": {
+    "ok": true,
+    "requestId": "query-fixture-1",
+    "result": {
+      "items": [{
+        "projectId": "project-alpha",
+        "caseId": "case-camera",
+        "caseTitle": "Camera session binding",
+        "node": {
+          "id": "node-solution",
+          "caseId": "case-camera",
+          "type": "Solution",
+          "status": "verified",
+          "data": { "summary": "Bind the session away from view construction" },
+          "createdAt": "2026-07-16T00:00:00.000Z"
+        }
+      }],
+      "limit": 5,
+      "truncated": false
+    }
+  }
+}

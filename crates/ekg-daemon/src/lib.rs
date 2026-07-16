@@ -5,6 +5,8 @@ use ekg_core::{HierarchicalIndex, KnowledgeRecord};
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 
+pub mod protocol;
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QueryRequest {
