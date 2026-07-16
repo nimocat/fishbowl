@@ -89,3 +89,26 @@ fn output_serialization_is_deterministic() {
         assert_eq!(serde_json::to_string(&response).unwrap(), expected);
     }
 }
+
+#[test]
+fn retrieval_explanations_and_diagnostics_enforce_p0_budgets() {
+    let mut oversized_diagnostics = fixture("query_knowledge.json")["response"].clone();
+    oversized_diagnostics["result"]["diagnostics"] = serde_json::json!({
+        "mode": "hybrid",
+        "seedCount": 16,
+        "candidateCaseCount": 65,
+        "visitedNodes": 256,
+        "visitedEdges": 1024,
+        "iterations": 20
+    });
+    let response: SuccessEnvelope<QueryKnowledgeResult> = decode(&oversized_diagnostics);
+    assert_eq!(response.validate(), Err(ErrorCode::PayloadTooLarge));
+
+    let mut oversized_reason = fixture("query_knowledge.json")["response"].clone();
+    oversized_reason["result"]["items"][0]["whyMatched"] = serde_json::json!([{
+        "kind": "prefix-route",
+        "value": "x".repeat(257)
+    }]);
+    let response: SuccessEnvelope<QueryKnowledgeResult> = decode(&oversized_reason);
+    assert_eq!(response.validate(), Err(ErrorCode::PayloadTooLarge));
+}

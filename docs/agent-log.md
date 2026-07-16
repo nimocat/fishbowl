@@ -1,5 +1,33 @@
 # Agent Log
 
+## 2026-07-17 - Retrieval P0 Candidate Routing, K-shell, and Bounded PPR
+
+- RED: production `queryKnowledge` could not recover a filtered Solution from
+  synonym-like RootCause text, hierarchy snapshots had no true k-shells, and
+  the installed engine returned no result for a real rendering/backpressure
+  synonym query.
+- GREEN: wired exact evidence, the deterministic Unicode CandidateRouter,
+  nested k-shell communities, and bounded PPR into the Rust production query
+  path. Added bounded `whyMatched`, supporting paths, deterministic diagnostics,
+  exact-evidence fast return, revision cache invalidation, and project/filter
+  isolation. Guardrails remain independently exhaustive.
+- Quality: a new 30-record/120-query redacted engineering set improved Recall@5
+  from a 39/120 strict-exact baseline to 116/120 (96.7%) in both the router and
+  full SQLite query pipeline.
+- Efficiency: removed quadratic per-community record scans and duplicate
+  SQLite/JSON cache loading, then adopted an interned Unicode radix tree after
+  route build improved 45.9%. Release 10k exact cold is 0.561ms, hybrid cold
+  110.254ms, hybrid warm p95 1.983ms, hierarchy build 42.113ms, and radix query
+  p95 3.625us.
+- Production-copy shadow: schema v7, `quick_check=ok`, and counts remained
+  1,313 events / 81 Cases / 461 nodes. The known migration Case remained
+  retrievable; the candidate recovered relevant bounded results for the real
+  synonym query that returned zero installed results.
+- Boundary: candidate/offline P0 is complete. This slice has not replaced the
+  installed daemon or live database; production cutover still requires explicit
+  user approval and installed-state acceptance.
+- Full evidence: `docs/reports/2026-07-17-retrieval-p0-acceptance.md`.
+
 ## 2026-07-16 - Rust Migration Stage 3 Policy and Preflight
 
 - RED: Rust lacked promotion/regression, ranking/compaction, and repository

@@ -429,79 +429,217 @@ pub struct KnowledgeRecord {
     pub text: String,
 }
 
-#[derive(Debug, Default)]
-struct TrieNode {
-    children: BTreeMap<char, TrieNode>,
-    case_ids: BTreeSet<String>,
+#[derive(Debug)]
+struct RadixEdge {
+    label: String,
+    node: RadixNode,
 }
 
-impl TrieNode {
-    fn insert(&mut self, token: &str, case_id: &str) {
+#[derive(Debug, Default)]
+struct RadixNode {
+    children: BTreeMap<char, RadixEdge>,
+    case_ids: BTreeSet<usize>,
+}
+
+impl RadixNode {
+    fn insert(&mut self, token: &str, case_id: usize) {
         let mut node = self;
-        for character in token.chars() {
-            node = node.children.entry(character).or_default();
-            node.case_ids.insert(case_id.to_owned());
+        let mut remainder = token;
+        while !remainder.is_empty() {
+            let first = remainder.chars().next().expect("non-empty remainder");
+            let Some(mut edge) = node.children.remove(&first) else {
+                node.children.insert(
+                    first,
+                    RadixEdge {
+                        label: remainder.to_owned(),
+                        node: RadixNode {
+                            case_ids: BTreeSet::from([case_id]),
+                            ..RadixNode::default()
+                        },
+                    },
+                );
+                return;
+            };
+            let common = common_prefix_bytes(&edge.label, remainder);
+            if common == edge.label.len() {
+                edge.node.case_ids.insert(case_id);
+                remainder = &remainder[common..];
+                node.children.insert(first, edge);
+                if remainder.is_empty() {
+                    return;
+                }
+                node = &mut node.children.get_mut(&first).expect("edge restored").node;
+                continue;
+            }
+
+            let prefix = edge.label[..common].to_owned();
+            let old_suffix = edge.label[common..].to_owned();
+            let old_first = old_suffix.chars().next().expect("non-empty old suffix");
+            edge.label = old_suffix;
+            let mut intermediate = RadixNode {
+                case_ids: edge.node.case_ids.clone(),
+                ..RadixNode::default()
+            };
+            intermediate.case_ids.insert(case_id);
+            intermediate.children.insert(old_first, edge);
+            let new_suffix = &remainder[common..];
+            if !new_suffix.is_empty() {
+                let new_first = new_suffix.chars().next().expect("non-empty new suffix");
+                intermediate.children.insert(
+                    new_first,
+                    RadixEdge {
+                        label: new_suffix.to_owned(),
+                        node: RadixNode {
+                            case_ids: BTreeSet::from([case_id]),
+                            ..RadixNode::default()
+                        },
+                    },
+                );
+            }
+            node.children.insert(
+                first,
+                RadixEdge {
+                    label: prefix,
+                    node: intermediate,
+                },
+            );
+            return;
         }
     }
 
-    fn prefix_cases(&self, prefix: &str) -> BTreeSet<String> {
+    fn prefix_cases(&self, prefix: &str) -> BTreeSet<usize> {
         let mut node = self;
-        for character in prefix.chars() {
-            let Some(next) = node.children.get(&character) else {
+        let mut remainder = prefix;
+        while !remainder.is_empty() {
+            let first = remainder.chars().next().expect("non-empty remainder");
+            let Some(edge) = node.children.get(&first) else {
                 return BTreeSet::new();
             };
-            node = next;
+            let common = common_prefix_bytes(&edge.label, remainder);
+            if common == remainder.len() {
+                return edge.node.case_ids.clone();
+            }
+            if common != edge.label.len() {
+                return BTreeSet::new();
+            }
+            remainder = &remainder[common..];
+            node = &edge.node;
         }
         node.case_ids.clone()
     }
+
+    fn node_count(&self) -> usize {
+        1 + self
+            .children
+            .values()
+            .map(|edge| edge.node.node_count())
+            .sum::<usize>()
+    }
+}
+
+fn common_prefix_bytes(left: &str, right: &str) -> usize {
+    left.chars()
+        .zip(right.chars())
+        .take_while(|(left, right)| left == right)
+        .map(|(character, _)| character.len_utf8())
+        .sum()
 }
 
 /// Project-scoped deterministic routing tree.
 ///
 /// The hierarchy is project (one index instance) -> domain -> Unicode prefix
-/// trie -> Case IDs. Graph expansion and community summaries are later stages;
+/// radix tree -> Case IDs. Graph expansion and community summaries are later stages;
 /// this tree is the bounded first-stage candidate router.
 #[derive(Debug, Default)]
 pub struct HierarchicalIndex {
-    domains: BTreeMap<String, TrieNode>,
-    all: TrieNode,
+    case_ids: Vec<String>,
+    case_id_lookup: BTreeMap<String, usize>,
+    domains: BTreeMap<String, RadixNode>,
+    all: RadixNode,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RouterStats {
+    pub unique_cases: usize,
+    pub all_radix_nodes: usize,
+    pub domain_radix_nodes: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RouteHit {
+    pub case_id: String,
+    pub score: usize,
+    pub matched_routes: Vec<String>,
+    pub domain_scoped: bool,
 }
 
 impl HierarchicalIndex {
     pub fn insert(&mut self, record: &KnowledgeRecord) {
+        let case_id = if let Some(case_id) = self.case_id_lookup.get(&record.case_id) {
+            *case_id
+        } else {
+            let case_id = self.case_ids.len();
+            self.case_ids.push(record.case_id.clone());
+            self.case_id_lookup.insert(record.case_id.clone(), case_id);
+            case_id
+        };
         for token in index_tokens(&record.text) {
-            self.all.insert(&token, &record.case_id);
+            self.all.insert(&token, case_id);
             self.domains
                 .entry(record.domain.to_lowercase())
                 .or_default()
-                .insert(&token, &record.case_id);
+                .insert(&token, case_id);
+        }
+    }
+
+    pub fn stats(&self) -> RouterStats {
+        RouterStats {
+            unique_cases: self.case_ids.len(),
+            all_radix_nodes: self.all.node_count(),
+            domain_radix_nodes: self.domains.values().map(RadixNode::node_count).sum(),
         }
     }
 
     pub fn search(&self, query: &str, domain: Option<&str>, limit: usize) -> Vec<String> {
+        self.search_scored(query, domain, limit)
+            .into_iter()
+            .map(|hit| hit.case_id)
+            .collect()
+    }
+
+    pub fn search_scored(&self, query: &str, domain: Option<&str>, limit: usize) -> Vec<RouteHit> {
         if limit == 0 {
             return Vec::new();
         }
+        let domain_scoped = domain
+            .and_then(|value| self.domains.get(&value.to_lowercase()))
+            .is_some();
         let trie = domain
             .and_then(|value| self.domains.get(&value.to_lowercase()))
             .unwrap_or(&self.all);
         let routes = query_routes(query);
-        let mut scores = BTreeMap::<String, usize>::new();
+        let mut scores = BTreeMap::<String, (usize, BTreeSet<String>)>::new();
         for route in routes {
-            for case_id in trie.prefix_cases(&route) {
-                *scores.entry(case_id).or_default() += 1;
+            for case_index in trie.prefix_cases(&route) {
+                let case_id = self.case_ids[case_index].clone();
+                let entry = scores.entry(case_id).or_default();
+                entry.0 += 1;
+                entry.1.insert(route.clone());
             }
         }
         let mut ranked = scores.into_iter().collect::<Vec<_>>();
-        ranked.sort_by(|(left_id, left_score), (right_id, right_score)| {
-            right_score
-                .cmp(left_score)
-                .then_with(|| left_id.cmp(right_id))
+        ranked.sort_by(|(left_id, left), (right_id, right)| {
+            right.0.cmp(&left.0).then_with(|| left_id.cmp(right_id))
         });
         ranked
             .into_iter()
             .take(limit)
-            .map(|(case_id, _)| case_id)
+            .map(|(case_id, (score, matched_routes))| RouteHit {
+                case_id,
+                score,
+                matched_routes: matched_routes.into_iter().take(8).collect(),
+                domain_scoped,
+            })
             .collect()
     }
 }

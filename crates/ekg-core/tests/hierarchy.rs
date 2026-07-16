@@ -105,6 +105,29 @@ fn deterministic_k_core_metadata_distinguishes_dense_communities() {
     );
     let branch = String::from_utf8(hierarchy.branch_json("project-a", "graph").unwrap()).unwrap();
     assert!(branch.contains("\"coreLevel\":2"));
+    let parsed: serde_json::Value = serde_json::from_str(&branch).unwrap();
+    let shells = parsed["shells"].as_array().unwrap();
+    assert_eq!(
+        shells
+            .iter()
+            .map(|shell| shell["level"].as_u64().unwrap())
+            .collect::<Vec<_>>(),
+        vec![0, 1, 2]
+    );
+    assert!(
+        shells[2]["components"][0]["supportingCaseIds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|case_id| case_id == "a")
+    );
+    assert!(
+        !shells[2]["components"][0]["supportingCaseIds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|case_id| case_id == "tail")
+    );
 }
 
 fn records() -> Vec<HierarchyRecord> {

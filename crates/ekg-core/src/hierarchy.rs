@@ -3,6 +3,8 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use ekg_contracts::NodeStatus;
 use serde::{Deserialize, Serialize};
 
+use crate::KnowledgeRecord;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct HierarchyRecord {
@@ -62,10 +64,25 @@ pub struct CommunitySummary {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub struct CoreShellComponent {
+    pub id: String,
+    pub supporting_case_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CoreShell {
+    pub level: usize,
+    pub components: Vec<CoreShellComponent>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct DomainHierarchy {
     pub source_revision: i64,
     pub cases: Vec<String>,
     pub communities: Vec<CommunitySummary>,
+    pub shells: Vec<CoreShell>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -228,6 +245,43 @@ impl KnowledgeHierarchy {
         &self.last_rebuilt_branches
     }
 
+    pub fn routing_records(&self, project: &str) -> Vec<KnowledgeRecord> {
+        self.records
+            .iter()
+            .filter(|((record_project, _, _), _)| record_project == project)
+            .map(|(_, record)| KnowledgeRecord {
+                case_id: record.case_id.clone(),
+                domain: record.domain.clone(),
+                text: record.text.clone(),
+            })
+            .collect()
+    }
+
+    pub fn deepest_shell_for_case(
+        &self,
+        project: &str,
+        case_id: &str,
+    ) -> Option<(String, usize, String)> {
+        self.branches
+            .iter()
+            .filter(|((branch_project, _), _)| branch_project == project)
+            .flat_map(|((_, domain), branch)| {
+                branch.shells.iter().flat_map(move |shell| {
+                    shell
+                        .components
+                        .iter()
+                        .filter(move |component| {
+                            component
+                                .supporting_case_ids
+                                .iter()
+                                .any(|candidate| candidate == case_id)
+                        })
+                        .map(move |component| (domain.clone(), shell.level, component.id.clone()))
+                })
+            })
+            .max_by(|left, right| left.1.cmp(&right.1).then_with(|| right.2.cmp(&left.2)))
+    }
+
     pub fn query_global(
         &self,
         project: &str,
@@ -353,9 +407,16 @@ impl KnowledgeHierarchy {
             .collect::<BTreeSet<_>>();
         let adjacency = adjacency(&cases, &self.edges);
         let components = connected_components(&cases, &adjacency);
+        let shells = build_core_shells(&branch.1, &components, &adjacency);
+        let records_by_case = records
+            .iter()
+            .map(|record| (record.case_id.as_str(), *record))
+            .collect::<BTreeMap<_, _>>();
         let mut communities = components
             .into_iter()
-            .map(|component| summarize_component(&branch.1, &component, &records, &adjacency))
+            .map(|component| {
+                summarize_component(&branch.1, &component, &records_by_case, &adjacency)
+            })
             .collect::<Vec<_>>();
         communities.sort_by(|left, right| left.id.cmp(&right.id));
         self.branches.insert(
@@ -364,11 +425,45 @@ impl KnowledgeHierarchy {
                 source_revision: self.revision,
                 cases: cases.into_iter().collect(),
                 communities,
+                shells,
             },
         );
         self.generated_summaries.remove(branch);
         self.last_rebuilt_branches.push(branch.clone());
     }
+}
+
+fn build_core_shells(
+    domain: &str,
+    components: &[Vec<String>],
+    adjacency: &BTreeMap<String, BTreeSet<String>>,
+) -> Vec<CoreShell> {
+    let mut core_numbers = BTreeMap::new();
+    for component in components {
+        core_numbers.extend(deterministic_core_numbers(component, adjacency));
+    }
+    let mut levels = core_numbers.values().copied().collect::<BTreeSet<_>>();
+    levels.insert(0);
+    levels
+        .into_iter()
+        .map(|level| {
+            let eligible = core_numbers
+                .iter()
+                .filter_map(|(case_id, core)| (*core >= level).then_some(case_id.clone()))
+                .collect::<BTreeSet<_>>();
+            let components = connected_components(&eligible, adjacency)
+                .into_iter()
+                .map(|supporting_case_ids| CoreShellComponent {
+                    id: format!(
+                        "{domain}:k{level}:{}",
+                        supporting_case_ids.first().cloned().unwrap_or_default()
+                    ),
+                    supporting_case_ids,
+                })
+                .collect();
+            CoreShell { level, components }
+        })
+        .collect()
 }
 
 fn adjacency(
@@ -423,7 +518,7 @@ fn connected_components(
 fn summarize_component(
     domain: &str,
     component: &[String],
-    records: &[&HierarchyRecord],
+    records_by_case: &BTreeMap<&str, &HierarchyRecord>,
     adjacency: &BTreeMap<String, BTreeSet<String>>,
 ) -> CommunitySummary {
     let core_numbers = deterministic_core_numbers(component, adjacency);
@@ -433,9 +528,9 @@ fn summarize_component(
     let mut files = BTreeSet::new();
     let mut commands = BTreeSet::new();
     let mut conclusions = Vec::new();
-    for record in records
+    for record in component
         .iter()
-        .filter(|record| component.contains(&record.case_id))
+        .filter_map(|case_id| records_by_case.get(case_id.as_str()).copied())
     {
         *statuses
             .entry(status_name(record.status).to_owned())

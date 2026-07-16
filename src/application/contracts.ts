@@ -93,12 +93,40 @@ export interface KnowledgeQueryItem {
   caseId: string
   caseTitle: string
   node: NodeRecord
+  whyMatched?: RetrievalReason[]
+  supportingPath?: string[]
+}
+
+export type RetrievalMatchKind =
+  | 'exact-text'
+  | 'exact-fingerprint'
+  | 'exact-file'
+  | 'exact-command'
+  | 'domain-route'
+  | 'prefix-route'
+  | 'k-shell-community'
+  | 'ppr-path'
+  | 'verified-trust'
+
+export interface RetrievalReason {
+  kind: RetrievalMatchKind
+  value: string
+}
+
+export interface RetrievalDiagnostics {
+  mode: 'exact' | 'hybrid' | 'exact-fallback'
+  seedCount: number
+  candidateCaseCount: number
+  visitedNodes: number
+  visitedEdges: number
+  iterations: number
 }
 
 export interface KnowledgeQueryResult {
   items: KnowledgeQueryItem[]
   limit: number
   truncated: boolean
+  diagnostics?: RetrievalDiagnostics
 }
 
 export interface GetCaseInput {

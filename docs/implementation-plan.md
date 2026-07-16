@@ -45,6 +45,16 @@ cache metrics now live in `ekg-core`/`ekg-storage`. A 1,000-request Preflight
 shadow run has zero mismatches and p95 0.113ms; blocking recall is 100% with no
 false positives in the Guardrail golden set.
 
+Retrieval P0 is implemented and offline/production-copy accepted on 2026-07-17.
+The production Rust query now composes exact evidence, deterministic Unicode
+candidate routing, true k-shell hierarchy, and bounded candidate-subgraph PPR.
+The 120-query real engineering golden set reaches Recall@5 96.7% versus 32.5%
+for strict exact retrieval. Release 10k exact/hybrid cold queries measure
+0.561ms/110.254ms and hybrid warm p95 is 1.983ms. The active schema-v7 database
+copy passed read-only integrity and query shadow without count changes. Details
+are in `docs/reports/2026-07-17-retrieval-p0-acceptance.md`. Installed cutover
+remains an explicit human gate.
+
 The executable phase-by-phase migration and TDD plan is
 `docs/plans/2026-07-16-rust-core-migration-tdd.md`. It defines shared
 cross-language fixtures, RED/GREEN/shadow/cutover rules, read-only shadowing,

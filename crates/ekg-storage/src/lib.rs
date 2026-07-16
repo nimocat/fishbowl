@@ -18,13 +18,14 @@ use ekg_contracts::{
     NodeRecord, NodeStatus, NodeType, PreflightGuardrail, PreflightInput, PreflightResult,
     ProjectAliasRecord, ProjectRecord, ProjectReference, ProjectWithAliasesRecord,
     QueryKnowledgeInput, QueryKnowledgeResult, RecentActivityInput, RecentActivityResult,
-    RelationType, Validate,
+    RelationType, RetrievalDiagnostics, RetrievalMatchKind, RetrievalMode, RetrievalReason,
+    Validate,
 };
 use ekg_core::{
     ExpansionConfig, ExpansionEdge, ExpansionNode, ExpansionResult, GuardrailContext,
-    GuardrailCriteria, GuardrailEnforcement, HierarchyEdge, HierarchyRecord, KnowledgeHierarchy,
-    RelevanceCandidate, RelevanceContext, compact_preflight, evaluate_guardrail, expand_bounded,
-    rank_cases,
+    GuardrailCriteria, GuardrailEnforcement, HierarchicalIndex, HierarchyEdge, HierarchyRecord,
+    KnowledgeHierarchy, RelevanceCandidate, RelevanceContext, RouteHit, compact_preflight,
+    evaluate_guardrail, expand_bounded, rank_cases,
 };
 use rusqlite::types::Value as SqlValue;
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
@@ -58,6 +59,17 @@ struct CachedPreflight {
     candidate_count: usize,
 }
 
+struct CachedRetrieval {
+    revision: i64,
+    router: HierarchicalIndex,
+    hierarchy: KnowledgeHierarchy,
+}
+
+struct RankedQueryItem {
+    item: KnowledgeQueryItem,
+    score: u64,
+}
+
 impl From<rusqlite::Error> for StorageError {
     fn from(value: rusqlite::Error) -> Self {
         Self::Sqlite(value)
@@ -68,6 +80,7 @@ pub struct ReadRepository {
     connection: Connection,
     preflight_cache: RefCell<BTreeMap<String, CachedPreflight>>,
     preflight_order: RefCell<VecDeque<String>>,
+    retrieval_cache: RefCell<BTreeMap<String, CachedRetrieval>>,
 }
 
 impl ReadRepository {
@@ -78,6 +91,7 @@ impl ReadRepository {
             connection,
             preflight_cache: RefCell::new(BTreeMap::new()),
             preflight_order: RefCell::new(VecDeque::new()),
+            retrieval_cache: RefCell::new(BTreeMap::new()),
         })
     }
 
@@ -88,8 +102,49 @@ impl ReadRepository {
         input.validate().map_err(StorageError::Contract)?;
         let project_id = self.resolve_project(&input.project)?;
         let limit = input.limit.unwrap_or(20);
+        let text = input
+            .text
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let mut exact = self.query_exact_items(input, &project_id, limit.max(64))?;
+        for item in &mut exact {
+            if item.node.status == NodeStatus::Verified {
+                push_reason(
+                    &mut item.why_matched,
+                    RetrievalMatchKind::VerifiedTrust,
+                    "verified",
+                );
+            }
+        }
+        if text.is_none() || !exact.is_empty() {
+            let truncated = exact.len() > limit;
+            exact.truncate(limit);
+            return Ok(QueryKnowledgeResult {
+                items: exact,
+                limit,
+                truncated,
+                diagnostics: Some(RetrievalDiagnostics {
+                    mode: RetrievalMode::Exact,
+                    seed_count: 0,
+                    candidate_case_count: 0,
+                    visited_nodes: 0,
+                    visited_edges: 0,
+                    iterations: 0,
+                }),
+            });
+        }
+        self.query_hybrid(input, &project_id, text.unwrap(), limit, exact)
+    }
+
+    fn query_exact_items(
+        &self,
+        input: &QueryKnowledgeInput,
+        project_id: &str,
+        limit: usize,
+    ) -> Result<Vec<KnowledgeQueryItem>, StorageError> {
         let mut conditions = vec!["cases.project_id = ?".to_owned()];
-        let mut parameters = vec![SqlValue::Text(project_id.clone())];
+        let mut parameters = vec![SqlValue::Text(project_id.to_owned())];
         let mut search_join = "";
 
         if let Some(text) = input
@@ -147,6 +202,7 @@ impl ReadRepository {
             parameters.push(SqlValue::Text(fingerprint.to_owned()));
         }
         parameters.push(SqlValue::Integer((limit + 1) as i64));
+        let exact_reasons = exact_reasons(input);
         let sql = format!(
             "SELECT nodes.id, nodes.case_id, nodes.type, nodes.status, nodes.data, nodes.created_at, cases.project_id, cases.title FROM nodes JOIN cases ON cases.id = nodes.case_id {search_join} WHERE {} ORDER BY nodes.created_at DESC, nodes.id DESC LIMIT ?",
             conditions.join(" AND ")
@@ -182,16 +238,347 @@ impl ReadRepository {
                     data,
                     created_at: row.get(5)?,
                 },
+                why_matched: exact_reasons.clone(),
+                supporting_path: Vec::new(),
             })
         })?;
-        let mut items = rows.collect::<Result<Vec<_>, _>>()?;
-        let truncated = items.len() > limit;
-        items.truncate(limit);
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    fn query_hybrid(
+        &self,
+        input: &QueryKnowledgeInput,
+        project_id: &str,
+        text: &str,
+        limit: usize,
+        exact: Vec<KnowledgeQueryItem>,
+    ) -> Result<QueryKnowledgeResult, StorageError> {
+        const MAX_CANDIDATE_CASES: usize = 64;
+        const MAX_SEEDS: usize = 16;
+        self.ensure_retrieval_cache(project_id)?;
+        let (route_hits, hierarchy_case_ids, shells) = {
+            let cache = self.retrieval_cache.borrow();
+            let cached = cache
+                .get(project_id)
+                .ok_or(StorageError::InvalidStoredData("retrieval cache"))?;
+            let route_hits =
+                cached
+                    .router
+                    .search_scored(text, input.domain.as_deref(), MAX_CANDIDATE_CASES);
+            let hierarchy_hits = cached.hierarchy.query_global(project_id, text, 16);
+            let hierarchy_case_ids = hierarchy_hits
+                .iter()
+                .flat_map(|hit| hit.supporting_case_ids.iter().cloned())
+                .collect::<BTreeSet<_>>();
+            let shells = route_hits
+                .iter()
+                .filter_map(|hit| {
+                    cached
+                        .hierarchy
+                        .deepest_shell_for_case(project_id, &hit.case_id)
+                        .map(|shell| (hit.case_id.clone(), shell))
+                })
+                .collect::<BTreeMap<_, _>>();
+            (route_hits, hierarchy_case_ids, shells)
+        };
+
+        let mut candidate_case_ids = Vec::new();
+        for case_id in exact
+            .iter()
+            .map(|item| item.case_id.clone())
+            .chain(route_hits.iter().map(|hit| hit.case_id.clone()))
+            .chain(hierarchy_case_ids.iter().cloned())
+        {
+            if !candidate_case_ids.contains(&case_id)
+                && candidate_case_ids.len() < MAX_CANDIDATE_CASES
+            {
+                candidate_case_ids.push(case_id);
+            }
+        }
+        let eligible = self.eligible_case_ids(input, project_id, &candidate_case_ids)?;
+        candidate_case_ids.retain(|case_id| eligible.contains(case_id));
+        let nodes = self.nodes_for_cases(project_id, &candidate_case_ids)?;
+        let case_rows = self.case_rows(project_id, &candidate_case_ids)?;
+        let case_titles = case_rows
+            .into_iter()
+            .map(|(id, title, _)| (id, title))
+            .collect::<BTreeMap<_, _>>();
+        let terms = retrieval_terms(text);
+        let mut seed_scores = nodes
+            .iter()
+            .filter_map(|node| {
+                let score = node_overlap(node, &terms);
+                (score > 0).then(|| (node.id.clone(), score))
+            })
+            .collect::<Vec<_>>();
+        for item in &exact {
+            if let Some(found) = seed_scores
+                .iter_mut()
+                .find(|(node_id, _)| node_id == &item.node.id)
+            {
+                found.1 += 100;
+            } else {
+                seed_scores.push((item.node.id.clone(), 100));
+            }
+        }
+        seed_scores.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(&right.0)));
+        seed_scores.truncate(MAX_SEEDS);
+        let seed_ids = seed_scores
+            .iter()
+            .map(|(node_id, _)| node_id.clone())
+            .collect::<Vec<_>>();
+        let graph = if candidate_case_ids.is_empty() || seed_ids.is_empty() {
+            None
+        } else {
+            Some(self.expand_case_graph(
+                &input.project,
+                &candidate_case_ids,
+                &seed_ids,
+                &[],
+                ExpansionConfig::default(),
+            )?)
+        };
+        let route_by_case = route_hits
+            .into_iter()
+            .map(|hit| (hit.case_id.clone(), hit))
+            .collect::<BTreeMap<_, _>>();
+        let nodes_by_id = nodes
+            .iter()
+            .map(|node| (node.id.clone(), node.clone()))
+            .collect::<BTreeMap<_, _>>();
+        let mut ranked = BTreeMap::<String, RankedQueryItem>::new();
+
+        for mut item in exact {
+            if !eligible.contains(&item.case_id) {
+                continue;
+            }
+            let case_id = item.case_id.clone();
+            append_route_reasons(
+                &mut item,
+                route_by_case.get(&case_id),
+                shells.get(&case_id),
+                hierarchy_case_ids.contains(&case_id),
+                input.domain.as_deref(),
+            );
+            if item.node.status == NodeStatus::Verified {
+                push_reason(
+                    &mut item.why_matched,
+                    RetrievalMatchKind::VerifiedTrust,
+                    "verified",
+                );
+            }
+            insert_ranked(
+                &mut ranked,
+                RankedQueryItem {
+                    item,
+                    score: 4_000_000,
+                },
+            );
+        }
+
+        if let Some(graph) = &graph {
+            for hit in &graph.hits {
+                let Some(node) = nodes_by_id.get(&hit.node_id) else {
+                    continue;
+                };
+                if !node_matches_output_filters(node, input) {
+                    continue;
+                }
+                let Some(case_title) = case_titles.get(&node.case_id) else {
+                    continue;
+                };
+                let mut item = KnowledgeQueryItem {
+                    project_id: project_id.to_owned(),
+                    case_id: node.case_id.clone(),
+                    case_title: case_title.clone(),
+                    node: node.clone(),
+                    why_matched: Vec::new(),
+                    supporting_path: hit.supporting_path.iter().take(8).cloned().collect(),
+                };
+                let case_id = item.case_id.clone();
+                append_route_reasons(
+                    &mut item,
+                    route_by_case.get(&case_id),
+                    shells.get(&case_id),
+                    hierarchy_case_ids.contains(&case_id),
+                    input.domain.as_deref(),
+                );
+                if item.supporting_path.len() > 1 {
+                    push_reason(
+                        &mut item.why_matched,
+                        RetrievalMatchKind::PprPath,
+                        &item.supporting_path.join(" -> "),
+                    );
+                }
+                if node.status == NodeStatus::Verified {
+                    push_reason(
+                        &mut item.why_matched,
+                        RetrievalMatchKind::VerifiedTrust,
+                        "verified",
+                    );
+                }
+                insert_ranked(
+                    &mut ranked,
+                    RankedQueryItem {
+                        item,
+                        score: 1_000_000 + hit.score_micros,
+                    },
+                );
+            }
+        }
+
+        for node in &nodes {
+            if !node_matches_output_filters(node, input) || ranked.contains_key(&node.id) {
+                continue;
+            }
+            let overlap = node_overlap(node, &terms);
+            let Some(route) = route_by_case.get(&node.case_id) else {
+                continue;
+            };
+            if overlap == 0 && graph.is_some() {
+                continue;
+            }
+            let Some(case_title) = case_titles.get(&node.case_id) else {
+                continue;
+            };
+            let mut item = KnowledgeQueryItem {
+                project_id: project_id.to_owned(),
+                case_id: node.case_id.clone(),
+                case_title: case_title.clone(),
+                node: node.clone(),
+                why_matched: Vec::new(),
+                supporting_path: Vec::new(),
+            };
+            let case_id = item.case_id.clone();
+            append_route_reasons(
+                &mut item,
+                Some(route),
+                shells.get(&case_id),
+                hierarchy_case_ids.contains(&case_id),
+                input.domain.as_deref(),
+            );
+            insert_ranked(
+                &mut ranked,
+                RankedQueryItem {
+                    item,
+                    score: 500_000 + overlap as u64 * 10_000 + route.score as u64,
+                },
+            );
+        }
+
+        let mut ranked = ranked.into_values().collect::<Vec<_>>();
+        ranked.sort_by(|left, right| {
+            right
+                .score
+                .cmp(&left.score)
+                .then_with(|| left.item.node.id.cmp(&right.item.node.id))
+        });
+        let truncated = ranked.len() > limit;
+        let items = ranked
+            .into_iter()
+            .take(limit)
+            .map(|ranked| ranked.item)
+            .collect();
+        let (visited_nodes, visited_edges, iterations) = graph
+            .as_ref()
+            .map(|result| {
+                (
+                    result.metrics.visited_nodes,
+                    result.metrics.visited_edges,
+                    result.metrics.iterations,
+                )
+            })
+            .unwrap_or_default();
         Ok(QueryKnowledgeResult {
             items,
             limit,
             truncated,
+            diagnostics: Some(RetrievalDiagnostics {
+                mode: if graph.is_some() {
+                    RetrievalMode::Hybrid
+                } else {
+                    RetrievalMode::ExactFallback
+                },
+                seed_count: seed_ids.len(),
+                candidate_case_count: candidate_case_ids.len(),
+                visited_nodes,
+                visited_edges,
+                iterations,
+            }),
         })
+    }
+
+    fn ensure_retrieval_cache(&self, project_id: &str) -> Result<(), StorageError> {
+        let revision: i64 = self.connection.query_row(
+            "SELECT coalesce(max(sequence), 0) FROM events WHERE project_id = ?",
+            params![project_id],
+            |row| row.get(0),
+        )?;
+        if self
+            .retrieval_cache
+            .borrow()
+            .get(project_id)
+            .is_some_and(|cached| cached.revision == revision)
+        {
+            return Ok(());
+        }
+        let hierarchy = self.load_hierarchy(&ProjectReference {
+            project_id: Some(project_id.to_owned()),
+            project_root: None,
+        })?;
+        let mut router = HierarchicalIndex::default();
+        for record in hierarchy.routing_records(project_id) {
+            router.insert(&record);
+        }
+        self.retrieval_cache.borrow_mut().insert(
+            project_id.to_owned(),
+            CachedRetrieval {
+                revision,
+                router,
+                hierarchy,
+            },
+        );
+        Ok(())
+    }
+
+    fn eligible_case_ids(
+        &self,
+        input: &QueryKnowledgeInput,
+        project_id: &str,
+        case_ids: &[String],
+    ) -> Result<BTreeSet<String>, StorageError> {
+        if case_ids.is_empty() {
+            return Ok(BTreeSet::new());
+        }
+        let mut values = vec![SqlValue::Text(project_id.to_owned())];
+        values.extend(case_ids.iter().cloned().map(SqlValue::Text));
+        let mut conditions = vec![format!("cases.id IN ({})", placeholders(case_ids.len()))];
+        if let Some(domain) = trimmed(&input.domain) {
+            conditions.push("EXISTS (SELECT 1 FROM nodes domain_node WHERE domain_node.case_id = cases.id AND domain_node.type = 'Problem' AND json_extract(domain_node.data, '$.domain') = ?)".into());
+            values.push(SqlValue::Text(domain.to_owned()));
+        }
+        if let Some(file) = trimmed(&input.file) {
+            conditions.push("EXISTS (SELECT 1 FROM nodes file_node WHERE file_node.case_id = cases.id AND file_node.data LIKE ?)".into());
+            values.push(SqlValue::Text(format!("%{file}%")));
+        }
+        if let Some(command) = trimmed(&input.command) {
+            conditions.push("(EXISTS (SELECT 1 FROM nodes command_node WHERE command_node.case_id = cases.id AND command_node.data LIKE ?) OR EXISTS (SELECT 1 FROM command_runs WHERE command_runs.case_id = cases.id AND command_runs.project_id = cases.project_id AND command_runs.command LIKE ?))".into());
+            let pattern = format!("%{command}%");
+            values.push(SqlValue::Text(pattern.clone()));
+            values.push(SqlValue::Text(pattern));
+        }
+        if let Some(fingerprint) = trimmed(&input.fingerprint) {
+            conditions.push("EXISTS (SELECT 1 FROM fingerprints JOIN nodes problem_node ON problem_node.id = fingerprints.problem_node_id WHERE fingerprints.project_id = cases.project_id AND problem_node.case_id = cases.id AND fingerprints.value = ?)".into());
+            values.push(SqlValue::Text(fingerprint.to_owned()));
+        }
+        let sql = format!(
+            "SELECT cases.id FROM cases WHERE cases.project_id = ? AND {} ORDER BY cases.id",
+            conditions.join(" AND ")
+        );
+        let mut statement = self.connection.prepare(&sql)?;
+        Ok(statement
+            .query_map(params_from_iter(values), |row| row.get(0))?
+            .collect::<Result<BTreeSet<String>, _>>()?)
     }
 
     pub fn list_projects(&self) -> Result<Vec<ProjectWithAliasesRecord>, StorageError> {
@@ -666,19 +1053,7 @@ impl ReadRepository {
             .into_values()
             .map(|builder| builder.record(&project_id))
             .collect::<Vec<_>>();
-        let mut edges = Vec::new();
-        for left in 0..records.len() {
-            for right in (left + 1)..records.len() {
-                if records[left].domain == records[right].domain
-                    && share_structural_key(&records[left], &records[right])
-                {
-                    edges.push(HierarchyEdge::new(
-                        &records[left].case_id,
-                        &records[right].case_id,
-                    ));
-                }
-            }
-        }
+        let edges = structural_edges(&records);
         Ok(KnowledgeHierarchy::build(revision, records, edges))
     }
 
@@ -1061,6 +1436,141 @@ impl ReadRepository {
     }
 }
 
+fn append_route_reasons(
+    item: &mut KnowledgeQueryItem,
+    route: Option<&RouteHit>,
+    shell: Option<&(String, usize, String)>,
+    hierarchy_match: bool,
+    requested_domain: Option<&str>,
+) {
+    if let Some(route) = route {
+        if route.domain_scoped {
+            push_reason(
+                &mut item.why_matched,
+                RetrievalMatchKind::DomainRoute,
+                requested_domain.unwrap_or("project-domain"),
+            );
+        }
+        push_reason(
+            &mut item.why_matched,
+            RetrievalMatchKind::PrefixRoute,
+            &route.matched_routes.join(","),
+        );
+    }
+    if let Some((_, _, component)) = shell.filter(|(_, level, _)| *level > 0) {
+        push_reason(
+            &mut item.why_matched,
+            RetrievalMatchKind::KShellCommunity,
+            component,
+        );
+    } else if hierarchy_match {
+        push_reason(
+            &mut item.why_matched,
+            RetrievalMatchKind::KShellCommunity,
+            "structural-community",
+        );
+    }
+}
+
+fn push_reason(reasons: &mut Vec<RetrievalReason>, kind: RetrievalMatchKind, value: &str) {
+    if reasons.len() >= 8 || reasons.iter().any(|reason| reason.kind == kind) {
+        return;
+    }
+    reasons.push(RetrievalReason {
+        kind,
+        value: bounded_reason(value),
+    });
+}
+
+fn insert_ranked(items: &mut BTreeMap<String, RankedQueryItem>, mut candidate: RankedQueryItem) {
+    let node_id = candidate.item.node.id.clone();
+    if let Some(existing) = items.get_mut(&node_id) {
+        for reason in candidate.item.why_matched.drain(..) {
+            push_reason(&mut existing.item.why_matched, reason.kind, &reason.value);
+        }
+        if existing.item.supporting_path.is_empty() {
+            existing.item.supporting_path = candidate.item.supporting_path;
+        }
+        existing.score = existing.score.max(candidate.score);
+    } else {
+        items.insert(node_id, candidate);
+    }
+}
+
+fn node_matches_output_filters(node: &NodeRecord, input: &QueryKnowledgeInput) -> bool {
+    input
+        .node_types
+        .as_deref()
+        .is_none_or(|types| types.is_empty() || types.contains(&node.node_type))
+        && input
+            .statuses
+            .as_deref()
+            .is_none_or(|statuses| statuses.is_empty() || statuses.contains(&node.status))
+}
+
+fn node_overlap(node: &NodeRecord, terms: &[String]) -> usize {
+    if terms.is_empty() {
+        return 0;
+    }
+    let searchable = serde_json::to_string(&node.data)
+        .unwrap_or_default()
+        .to_lowercase();
+    terms
+        .iter()
+        .filter(|term| searchable.contains(term.as_str()))
+        .count()
+}
+
+fn retrieval_terms(text: &str) -> Vec<String> {
+    let mut terms = Vec::new();
+    for token in text
+        .split(|character: char| {
+            !(character.is_alphanumeric() || matches!(character, '_' | '.' | '-'))
+        })
+        .filter(|value| !value.is_empty())
+        .map(str::to_lowercase)
+    {
+        if token.chars().count() >= 3 && token.chars().all(is_han) {
+            let characters = token.chars().collect::<Vec<_>>();
+            terms.extend(
+                characters
+                    .windows(2)
+                    .map(|pair| pair.iter().collect::<String>()),
+            );
+        }
+        if !terms.contains(&token) {
+            terms.push(token);
+        }
+    }
+    terms
+}
+
+fn is_han(character: char) -> bool {
+    matches!(character as u32, 0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0xF900..=0xFAFF)
+}
+
+fn bounded_reason(value: &str) -> String {
+    value.chars().take(256).collect()
+}
+
+fn exact_reasons(input: &QueryKnowledgeInput) -> Vec<RetrievalReason> {
+    let mut reasons = Vec::new();
+    for (kind, value) in [
+        (RetrievalMatchKind::ExactText, trimmed(&input.text)),
+        (
+            RetrievalMatchKind::ExactFingerprint,
+            trimmed(&input.fingerprint),
+        ),
+        (RetrievalMatchKind::ExactFile, trimmed(&input.file)),
+        (RetrievalMatchKind::ExactCommand, trimmed(&input.command)),
+    ] {
+        if let Some(value) = value {
+            push_reason(&mut reasons, kind, value);
+        }
+    }
+    reasons
+}
+
 fn build_fts_query(text: &str) -> Option<String> {
     build_fts_query_with_join(text, " AND ")
 }
@@ -1209,14 +1719,43 @@ fn collect_structural_values(
     }
 }
 
-fn share_structural_key(left: &HierarchyRecord, right: &HierarchyRecord) -> bool {
-    intersects(&left.fingerprints, &right.fingerprints)
-        || intersects(&left.files, &right.files)
-        || intersects(&left.commands, &right.commands)
-}
-
-fn intersects(left: &[String], right: &[String]) -> bool {
-    left.iter().any(|value| right.contains(value))
+fn structural_edges(records: &[HierarchyRecord]) -> Vec<HierarchyEdge> {
+    const MAX_CASES_PER_KEY: usize = 64;
+    let mut buckets = BTreeMap::<(String, u8, String), Vec<String>>::new();
+    for record in records {
+        for (kind, values) in [
+            (0, &record.fingerprints),
+            (1, &record.files),
+            (2, &record.commands),
+        ] {
+            for value in values {
+                buckets
+                    .entry((record.domain.clone(), kind, value.clone()))
+                    .or_default()
+                    .push(record.case_id.clone());
+            }
+        }
+    }
+    let mut pairs = BTreeSet::<(String, String)>::new();
+    for mut case_ids in buckets.into_values() {
+        case_ids.sort();
+        case_ids.dedup();
+        // Very broad keys are weak evidence and can create quadratic cliques.
+        // Excluding them keeps hierarchy rebuilds bounded while retaining
+        // discriminative structural communities for k-shell routing.
+        if case_ids.len() > MAX_CASES_PER_KEY {
+            continue;
+        }
+        for left in 0..case_ids.len() {
+            for right in (left + 1)..case_ids.len() {
+                pairs.insert((case_ids[left].clone(), case_ids[right].clone()));
+            }
+        }
+    }
+    pairs
+        .into_iter()
+        .map(|(left, right)| HierarchyEdge::new(&left, &right))
+        .collect()
 }
 
 fn push_term(terms: &mut Vec<String>, term: String) {

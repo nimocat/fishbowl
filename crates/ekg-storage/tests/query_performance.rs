@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use ekg_contracts::{ProjectReference, QueryKnowledgeInput};
+use ekg_contracts::{ProjectReference, QueryKnowledgeInput, RetrievalMode};
 use ekg_storage::ReadRepository;
 use rusqlite::{Connection, params};
 
@@ -14,8 +14,10 @@ fn complete_query_response_meets_cold_and_warm_budgets_at_ten_thousand_cases() {
          CREATE TABLE project_aliases (id TEXT PRIMARY KEY, project_id TEXT, root TEXT, created_at TEXT);
          CREATE TABLE cases (id TEXT PRIMARY KEY, project_id TEXT, title TEXT, status TEXT, created_at TEXT);
          CREATE TABLE nodes (id TEXT PRIMARY KEY, case_id TEXT, type TEXT, status TEXT, data TEXT, created_at TEXT);
+         CREATE TABLE edges (id TEXT PRIMARY KEY, case_id TEXT, source_id TEXT, relation TEXT, target_id TEXT, created_at TEXT);
          CREATE TABLE fingerprints (id TEXT PRIMARY KEY, project_id TEXT, problem_node_id TEXT, algorithm TEXT, value TEXT, created_at TEXT);
          CREATE TABLE command_runs (id TEXT PRIMARY KEY, project_id TEXT, case_id TEXT, attempt_node_id TEXT, command TEXT, working_directory TEXT, exit_status INTEGER, signal TEXT, duration_ms INTEGER, excerpt TEXT, raw_log_path TEXT, raw_log_digest TEXT, started_at TEXT, finished_at TEXT);
+         CREATE TABLE events (sequence INTEGER PRIMARY KEY, project_id TEXT, case_id TEXT);
          CREATE VIRTUAL TABLE node_search USING fts5(project_id UNINDEXED, node_id UNINDEXED, title, body, tokenize='unicode61');
          INSERT INTO projects VALUES ('project-a','A',NULL,'/synthetic/a','2026-07-16T00:00:00Z');",
     ).unwrap();
@@ -73,8 +75,24 @@ fn complete_query_response_meets_cold_and_warm_budgets_at_ten_thousand_cases() {
     let p50 = warm[499];
     let p95 = warm[949];
     let p99 = warm[989];
+    let hybrid_started = Instant::now();
+    let hybrid = repository.query_knowledge(&hybrid_request()).unwrap();
+    let hybrid_cold_ms = hybrid_started.elapsed().as_secs_f64() * 1000.0;
+    assert_eq!(hybrid.items[0].case_id, "case-04242");
+    assert_eq!(
+        hybrid.diagnostics.as_ref().unwrap().mode,
+        RetrievalMode::Hybrid
+    );
+    let mut hybrid_warm = Vec::with_capacity(100);
+    for _ in 0..100 {
+        let started = Instant::now();
+        repository.query_knowledge(&hybrid_request()).unwrap();
+        hybrid_warm.push(started.elapsed().as_secs_f64() * 1000.0);
+    }
+    hybrid_warm.sort_by(f64::total_cmp);
+    let hybrid_p95 = hybrid_warm[94];
     eprintln!(
-        "EKG_RUST_FULL_QUERY cold_ms={cold_ms:.3} warm_p50_ms={p50:.3} warm_p95_ms={p95:.3} warm_p99_ms={p99:.3}"
+        "EKG_RUST_FULL_QUERY exact_cold_ms={cold_ms:.3} exact_warm_p50_ms={p50:.3} exact_warm_p95_ms={p95:.3} exact_warm_p99_ms={p99:.3} hybrid_cold_ms={hybrid_cold_ms:.3} hybrid_warm_p95_ms={hybrid_p95:.3}"
     );
     let cold_budget = if cfg!(debug_assertions) {
         2000.0
@@ -83,7 +101,21 @@ fn complete_query_response_meets_cold_and_warm_budgets_at_ten_thousand_cases() {
     };
     assert!(cold_ms < cold_budget);
     assert!(p95 < 50.0);
+    let hybrid_cold_budget = if cfg!(debug_assertions) {
+        2_000.0
+    } else {
+        350.0
+    };
+    assert!(hybrid_cold_ms < hybrid_cold_budget);
+    assert!(hybrid_p95 < 50.0);
     std::fs::remove_file(path).unwrap();
+}
+
+fn hybrid_request() -> QueryKnowledgeInput {
+    QueryKnowledgeInput {
+        text: Some("camera synchronous target".into()),
+        ..request()
+    }
 }
 
 fn request() -> QueryKnowledgeInput {

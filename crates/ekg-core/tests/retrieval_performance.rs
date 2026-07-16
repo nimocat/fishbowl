@@ -18,6 +18,7 @@ fn ten_thousand_case_tree_has_bounded_warm_lookup() {
         });
     }
     let build_ms = build_started.elapsed().as_secs_f64() * 1_000.0;
+    let stats = index.stats();
 
     let mut durations_us = Vec::with_capacity(1_000);
     for _ in 0..1_000 {
@@ -30,7 +31,8 @@ fn ten_thousand_case_tree_has_bounded_warm_lookup() {
     let p50_us = durations_us[499];
     let p95_us = durations_us[949];
     eprintln!(
-        "EKG_RUST_TREE_BENCH build_ms={build_ms:.3} query_p50_us={p50_us:.3} query_p95_us={p95_us:.3}",
+        "EKG_RUST_RADIX_BENCH build_ms={build_ms:.3} query_p50_us={p50_us:.3} query_p95_us={p95_us:.3} unique_cases={} all_nodes={} domain_nodes={}",
+        stats.unique_cases, stats.all_radix_nodes, stats.domain_radix_nodes,
     );
 
     // Debug runs may share a host with TypeScript gates. Release is the strict

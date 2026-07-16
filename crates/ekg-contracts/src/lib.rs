@@ -1335,6 +1335,50 @@ pub struct KnowledgeQueryItem {
     pub case_id: String,
     pub case_title: String,
     pub node: NodeRecord,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub why_matched: Vec<RetrievalReason>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub supporting_path: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum RetrievalMatchKind {
+    ExactText,
+    ExactFingerprint,
+    ExactFile,
+    ExactCommand,
+    DomainRoute,
+    PrefixRoute,
+    KShellCommunity,
+    PprPath,
+    VerifiedTrust,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RetrievalReason {
+    pub kind: RetrievalMatchKind,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RetrievalDiagnostics {
+    pub mode: RetrievalMode,
+    pub seed_count: usize,
+    pub candidate_case_count: usize,
+    pub visited_nodes: usize,
+    pub visited_edges: usize,
+    pub iterations: usize,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum RetrievalMode {
+    Exact,
+    Hybrid,
+    ExactFallback,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1343,6 +1387,8 @@ pub struct QueryKnowledgeResult {
     pub items: Vec<KnowledgeQueryItem>,
     pub limit: usize,
     pub truncated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diagnostics: Option<RetrievalDiagnostics>,
 }
 
 impl Validate for QueryKnowledgeResult {
@@ -1352,6 +1398,25 @@ impl Validate for QueryKnowledgeResult {
         }
         for item in &self.items {
             item.node.validate()?;
+            if item.why_matched.len() > 8 || item.supporting_path.len() > 8 {
+                return Err(ErrorCode::PayloadTooLarge);
+            }
+            for reason in &item.why_matched {
+                validate_string(&reason.value, 256, ErrorCode::PayloadTooLarge)?;
+            }
+            for node_id in &item.supporting_path {
+                validate_string(node_id, MAX_REFERENCE, ErrorCode::PayloadTooLarge)?;
+            }
+        }
+        if let Some(diagnostics) = &self.diagnostics {
+            if diagnostics.seed_count > 16
+                || diagnostics.candidate_case_count > 64
+                || diagnostics.visited_nodes > 256
+                || diagnostics.visited_edges > 1024
+                || diagnostics.iterations > 20
+            {
+                return Err(ErrorCode::PayloadTooLarge);
+            }
         }
         Ok(())
     }
