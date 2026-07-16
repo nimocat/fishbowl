@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode, header};
-use ekg_contracts::ReadOperation;
+use ekg_contracts::DaemonOperation;
 use ekg_daemon::http::{DaemonHttpConfig, RpcDispatcher, router, serve_loopback};
 use ekg_daemon::protocol::ProtocolError;
 use serde_json::{Value, json};
@@ -11,7 +11,7 @@ use tower::ServiceExt;
 struct FixtureDispatcher;
 
 impl RpcDispatcher for FixtureDispatcher {
-    fn dispatch(&self, _: &ReadOperation) -> Result<Value, ProtocolError> {
+    fn dispatch(&self, _: &DaemonOperation) -> Result<Value, ProtocolError> {
         Ok(json!({"items": []}))
     }
 }

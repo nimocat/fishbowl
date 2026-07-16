@@ -6,6 +6,7 @@ use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 
 pub mod http;
+pub mod native;
 pub mod protocol;
 
 #[derive(Debug, Deserialize)]

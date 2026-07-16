@@ -13,8 +13,11 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::time::Instant;
 
 use ekg_contracts::{
-    ErrorCode, KnowledgeQueryItem, NodeRecord, NodeStatus, NodeType, PreflightGuardrail,
-    PreflightInput, PreflightResult, ProjectReference, QueryKnowledgeInput, QueryKnowledgeResult,
+    ArtifactRecord, CaseCounts, CaseDetailLevel, CommandRunRecord, EdgeRecord, ErrorCode,
+    EvidenceKind, EvidenceRecord, GetCaseInput, GetCaseResult, KnowledgeEvent, KnowledgeQueryItem,
+    NodeRecord, NodeStatus, NodeType, PreflightGuardrail, PreflightInput, PreflightResult,
+    ProjectAliasRecord, ProjectRecord, ProjectReference, ProjectWithAliasesRecord,
+    QueryKnowledgeInput, QueryKnowledgeResult, RecentActivityInput, RecentActivityResult,
     RelationType, Validate,
 };
 use ekg_core::{
@@ -188,6 +191,351 @@ impl ReadRepository {
             items,
             limit,
             truncated,
+        })
+    }
+
+    pub fn list_projects(&self) -> Result<Vec<ProjectWithAliasesRecord>, StorageError> {
+        let mut statement = self.connection.prepare(
+            "SELECT id, name, description, canonical_root, created_at FROM projects ORDER BY created_at, id",
+        )?;
+        let projects = statement
+            .query_map([], |row| {
+                Ok(ProjectRecord {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    description: row.get(2)?,
+                    root: row.get(3)?,
+                    created_at: row.get(4)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        projects
+            .into_iter()
+            .map(|project| {
+                let mut aliases = self.connection.prepare(
+                    "SELECT id, project_id, root, created_at FROM project_aliases WHERE project_id = ? ORDER BY created_at, id",
+                )?;
+                let aliases = aliases
+                    .query_map(params![project.id], |row| {
+                        Ok(ProjectAliasRecord {
+                            id: row.get(0)?,
+                            project_id: row.get(1)?,
+                            root: row.get(2)?,
+                            created_at: row.get(3)?,
+                        })
+                    })?
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(ProjectWithAliasesRecord { project, aliases })
+            })
+            .collect()
+    }
+
+    pub fn resolve_project_record(
+        &self,
+        reference: &ProjectReference,
+    ) -> Result<ProjectRecord, StorageError> {
+        reference.validate().map_err(StorageError::Contract)?;
+        let project_id = self.resolve_project(reference)?;
+        self.connection
+            .query_row(
+                "SELECT id, name, description, canonical_root, created_at FROM projects WHERE id = ?",
+                params![project_id],
+                |row| {
+                    Ok(ProjectRecord {
+                        id: row.get(0)?,
+                        name: row.get(1)?,
+                        description: row.get(2)?,
+                        root: row.get(3)?,
+                        created_at: row.get(4)?,
+                    })
+                },
+            )
+            .map_err(StorageError::from)
+    }
+
+    pub fn list_recent_activity(
+        &self,
+        input: &RecentActivityInput,
+    ) -> Result<RecentActivityResult, StorageError> {
+        input.validate().map_err(StorageError::Contract)?;
+        let project_id = self.resolve_project(&input.project)?;
+        let after_sequence = input.after_sequence.unwrap_or(0);
+        let limit = input.limit.unwrap_or(25);
+        let mut statement = self.connection.prepare(
+            "SELECT sequence, project_id, type, aggregate_id, payload, occurred_at FROM (SELECT sequence, project_id, type, aggregate_id, payload, occurred_at FROM events WHERE project_id = ? AND sequence > ? ORDER BY sequence DESC LIMIT ?) ORDER BY sequence ASC",
+        )?;
+        let mut events = statement
+            .query_map(params![project_id, after_sequence, limit + 1], |row| {
+                let payload: String = row.get(4)?;
+                Ok(KnowledgeEvent {
+                    sequence: row.get(0)?,
+                    project_id: row.get(1)?,
+                    event_type: row.get(2)?,
+                    aggregate_id: row.get(3)?,
+                    payload: serde_json::from_str(&payload).map_err(|error| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            4,
+                            rusqlite::types::Type::Text,
+                            Box::new(error),
+                        )
+                    })?,
+                    occurred_at: row.get(5)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        let truncated = events.len() > limit;
+        if truncated {
+            events.remove(0);
+        }
+        let next_sequence = events.last().map_or(after_sequence, |event| event.sequence);
+        Ok(RecentActivityResult {
+            events,
+            limit,
+            truncated,
+            next_sequence,
+        })
+    }
+
+    pub fn get_case(&self, input: &GetCaseInput) -> Result<GetCaseResult, StorageError> {
+        input.validate().map_err(StorageError::Contract)?;
+        let project_id = self.resolve_project(&input.project)?;
+        let (id, title, status, created_at): (String, String, String, String) = self
+            .connection
+            .query_row(
+                "SELECT id, title, status, created_at FROM cases WHERE id = ? AND project_id = ?",
+                params![input.case_id, project_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .optional()?
+            .ok_or(StorageError::ProjectNotFound)?;
+        let status = parse_status(&status).ok_or(StorageError::InvalidStoredData("case status"))?;
+        let count = |sql: &str| -> Result<usize, StorageError> {
+            Ok(self
+                .connection
+                .query_row(sql, params![project_id, input.case_id], |row| {
+                    row.get::<_, usize>(0)
+                })?)
+        };
+        let counts = CaseCounts {
+            nodes: count(
+                "SELECT count(*) FROM nodes JOIN cases ON cases.id = nodes.case_id WHERE cases.project_id = ? AND nodes.case_id = ?",
+            )?,
+            edges: count(
+                "SELECT count(*) FROM edges JOIN cases ON cases.id = edges.case_id WHERE cases.project_id = ? AND edges.case_id = ?",
+            )?,
+            evidence: count(
+                "SELECT count(*) FROM evidence JOIN nodes ON nodes.id = evidence.node_id WHERE evidence.project_id = ? AND nodes.case_id = ?",
+            )?,
+            artifacts: count(
+                "SELECT count(*) FROM artifacts LEFT JOIN nodes ON nodes.id = artifacts.node_id WHERE artifacts.project_id = ? AND (nodes.case_id = ? OR artifacts.node_id IS NULL)",
+            )?,
+            command_runs: count(
+                "SELECT count(*) FROM command_runs WHERE project_id = ? AND case_id = ?",
+            )?,
+            history: count("SELECT count(*) FROM events WHERE project_id = ? AND case_id = ?")?,
+        };
+        let detail = input.detail.unwrap_or(CaseDetailLevel::Graph);
+        let mut nodes = Vec::new();
+        let mut edges = Vec::new();
+        let mut evidence = Vec::new();
+        let mut artifacts = Vec::new();
+        let mut command_runs = Vec::new();
+        if detail != CaseDetailLevel::Summary {
+            let mut statement = self.connection.prepare("SELECT id, case_id, type, status, data, created_at FROM nodes WHERE case_id = ? ORDER BY created_at, id LIMIT 1000")?;
+            nodes = statement
+                .query_map(params![input.case_id], |row| {
+                    let node_type: String = row.get(2)?;
+                    let status: String = row.get(3)?;
+                    let data: String = row.get(4)?;
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        node_type,
+                        status,
+                        data,
+                        row.get::<_, String>(5)?,
+                    ))
+                })?
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .map(|row| {
+                    Ok(NodeRecord {
+                        id: row.0,
+                        case_id: row.1,
+                        node_type: parse_node_type(&row.2)
+                            .ok_or(StorageError::InvalidStoredData("node type"))?,
+                        status: parse_status(&row.3)
+                            .ok_or(StorageError::InvalidStoredData("node status"))?,
+                        data: serde_json::from_str(&row.4)
+                            .map_err(|_| StorageError::InvalidStoredData("node data"))?,
+                        created_at: row.5,
+                    })
+                })
+                .collect::<Result<Vec<_>, StorageError>>()?;
+            let mut statement = self.connection.prepare("SELECT id, case_id, source_id, relation, target_id, created_at FROM edges WHERE case_id = ? ORDER BY created_at, id LIMIT 1000")?;
+            edges = statement
+                .query_map(params![input.case_id], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, String>(5)?,
+                    ))
+                })?
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .map(|row| {
+                    Ok(EdgeRecord {
+                        id: row.0,
+                        case_id: row.1,
+                        source_id: row.2,
+                        relation: parse_relation(&row.3)
+                            .ok_or(StorageError::InvalidStoredData("edge relation"))?,
+                        target_id: row.4,
+                        created_at: row.5,
+                    })
+                })
+                .collect::<Result<Vec<_>, StorageError>>()?;
+            let mut statement = self.connection.prepare("SELECT evidence.id, evidence.project_id, evidence.node_id, evidence.kind, evidence.command, evidence.exit_status, evidence.data, evidence.created_at FROM evidence JOIN nodes ON nodes.id = evidence.node_id WHERE evidence.project_id = ? AND nodes.case_id = ? ORDER BY evidence.created_at, evidence.id LIMIT 1000")?;
+            evidence = statement
+                .query_map(params![project_id, input.case_id], |row| {
+                    let kind: String = row.get(3)?;
+                    let command: Option<String> = row.get(4)?;
+                    let data: String = row.get(6)?;
+                    Ok(EvidenceRecord {
+                        id: row.get(0)?,
+                        project_id: row.get(1)?,
+                        node_id: row.get(2)?,
+                        kind: if kind == "human" {
+                            EvidenceKind::Human
+                        } else {
+                            EvidenceKind::Automated
+                        },
+                        command: command
+                            .map(|value| serde_json::from_str(&value))
+                            .transpose()
+                            .map_err(|error| {
+                                rusqlite::Error::FromSqlConversionFailure(
+                                    4,
+                                    rusqlite::types::Type::Text,
+                                    Box::new(error),
+                                )
+                            })?,
+                        exit_status: row.get(5)?,
+                        data: serde_json::from_str(&data).map_err(|error| {
+                            rusqlite::Error::FromSqlConversionFailure(
+                                6,
+                                rusqlite::types::Type::Text,
+                                Box::new(error),
+                            )
+                        })?,
+                        created_at: row.get(7)?,
+                    })
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            let mut statement = self.connection.prepare("SELECT artifacts.id, artifacts.project_id, artifacts.node_id, artifacts.kind, artifacts.uri, artifacts.digest, artifacts.is_external, artifacts.metadata, artifacts.created_at FROM artifacts LEFT JOIN nodes ON nodes.id = artifacts.node_id WHERE artifacts.project_id = ? AND (nodes.case_id = ? OR artifacts.node_id IS NULL) ORDER BY artifacts.created_at, artifacts.id LIMIT 1000")?;
+            artifacts = statement
+                .query_map(params![project_id, input.case_id], |row| {
+                    let metadata: String = row.get(7)?;
+                    Ok(ArtifactRecord {
+                        id: row.get(0)?,
+                        project_id: row.get(1)?,
+                        node_id: row.get(2)?,
+                        kind: row.get(3)?,
+                        uri: row.get(4)?,
+                        digest: row.get(5)?,
+                        is_external: row.get::<_, i64>(6)? == 1,
+                        metadata: serde_json::from_str(&metadata).map_err(|error| {
+                            rusqlite::Error::FromSqlConversionFailure(
+                                7,
+                                rusqlite::types::Type::Text,
+                                Box::new(error),
+                            )
+                        })?,
+                        created_at: row.get(8)?,
+                    })
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            let mut statement = self.connection.prepare("SELECT id, project_id, case_id, attempt_node_id, command, working_directory, exit_status, signal, duration_ms, excerpt, raw_log_path, raw_log_digest, started_at, finished_at FROM command_runs WHERE project_id = ? AND case_id = ? ORDER BY started_at, id LIMIT 1000")?;
+            command_runs = statement
+                .query_map(params![project_id, input.case_id], |row| {
+                    let command: String = row.get(4)?;
+                    Ok(CommandRunRecord {
+                        id: row.get(0)?,
+                        project_id: row.get(1)?,
+                        case_id: row.get(2)?,
+                        attempt_id: row.get(3)?,
+                        command: serde_json::from_str(&command).map_err(|error| {
+                            rusqlite::Error::FromSqlConversionFailure(
+                                4,
+                                rusqlite::types::Type::Text,
+                                Box::new(error),
+                            )
+                        })?,
+                        working_directory: row.get(5)?,
+                        exit_status: row.get(6)?,
+                        signal: row.get(7)?,
+                        duration_ms: row.get(8)?,
+                        excerpt: row.get(9)?,
+                        raw_log_path: row.get(10)?,
+                        raw_log_digest: row.get(11)?,
+                        started_at: row.get(12)?,
+                        finished_at: row.get(13)?,
+                    })
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+        }
+        let mut history = Vec::new();
+        let mut history_next_before_sequence = None;
+        if detail == CaseDetailLevel::Full {
+            let history_limit = input.history_limit.unwrap_or(50);
+            let before = input.history_before_sequence.unwrap_or(u64::MAX);
+            let mut statement = self.connection.prepare("SELECT sequence, project_id, type, aggregate_id, payload, occurred_at FROM events WHERE project_id = ? AND case_id = ? AND sequence < ? ORDER BY sequence DESC LIMIT ?")?;
+            history = statement
+                .query_map(
+                    params![project_id, input.case_id, before, history_limit + 1],
+                    |row| {
+                        let payload: String = row.get(4)?;
+                        Ok(KnowledgeEvent {
+                            sequence: row.get(0)?,
+                            project_id: row.get(1)?,
+                            event_type: row.get(2)?,
+                            aggregate_id: row.get(3)?,
+                            payload: serde_json::from_str(&payload).map_err(|error| {
+                                rusqlite::Error::FromSqlConversionFailure(
+                                    4,
+                                    rusqlite::types::Type::Text,
+                                    Box::new(error),
+                                )
+                            })?,
+                            occurred_at: row.get(5)?,
+                        })
+                    },
+                )?
+                .collect::<Result<Vec<_>, _>>()?;
+            if history.len() > history_limit {
+                history.pop();
+                history_next_before_sequence = history.last().map(|event| event.sequence);
+            }
+            history.reverse();
+        }
+        Ok(GetCaseResult {
+            id,
+            project_id,
+            title,
+            status,
+            created_at,
+            nodes,
+            edges,
+            detail,
+            counts,
+            evidence,
+            artifacts,
+            command_runs,
+            history,
+            history_next_before_sequence,
         })
     }
 

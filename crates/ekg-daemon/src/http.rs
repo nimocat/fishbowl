@@ -14,7 +14,7 @@ use axum::extract::{DefaultBodyLimit, State};
 use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
-use ekg_contracts::{PROTOCOL_VERSION, ReadOperation};
+use ekg_contracts::{DaemonOperation, PROTOCOL_VERSION};
 use serde_json::{Value, json};
 
 use crate::protocol::{ProtocolError, ProtocolSession};
@@ -29,7 +29,7 @@ pub struct DaemonHttpConfig {
 }
 
 pub trait RpcDispatcher: Send + Sync + 'static {
-    fn dispatch(&self, operation: &ReadOperation) -> Result<Value, ProtocolError>;
+    fn dispatch(&self, operation: &DaemonOperation) -> Result<Value, ProtocolError>;
 }
 
 pub struct RunningHttpServer {

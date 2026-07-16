@@ -610,6 +610,17 @@ Current progress:
 - Four native transport tests pass, including a real ephemeral socket bind.
   The installed daemon is unchanged; full RPC ownership, SSE, lifecycle, and
   installed-state performance acceptance remain in this stage.
+- Expanded the strict Rust protocol from the three-operation read seam to the
+  complete daemon operation surface. `NativeDispatcher` exhaustively maps the
+  typed enum to Rust repositories, so adding an operation without a Rust match
+  is a compile error.
+- Added Rust reads for project listing/resolution, recent activity, and bounded
+  Case detail. A native HTTP integration test now performs schema creation,
+  project registration, Problem write, Case read, project list, and knowledge
+  query without any TypeScript callback.
+- Full Rust workspace verification remains green after the ownership change.
+  Controlled file/Git acquisition is the remaining import-boundary work before
+  the native process/lifecycle cutover.
 
 ## 15. Stage 8 — Remove the TypeScript core
 

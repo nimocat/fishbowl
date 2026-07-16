@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, VecDeque};
 
-use ekg_contracts::{ErrorCode, ReadOperation, RequestEnvelope, Validate};
+use ekg_contracts::{DaemonOperation, ErrorCode, RequestEnvelope, Validate};
 use serde_json::{Value, json};
 
 const UNKNOWN_REQUEST_ID: &str = "unknown";
@@ -45,7 +45,7 @@ impl ProtocolSession {
 
     pub fn handle_line<F>(&mut self, line: &str, mut dispatch: F) -> String
     where
-        F: FnMut(&ReadOperation) -> Result<Value, ProtocolError>,
+        F: FnMut(&DaemonOperation) -> Result<Value, ProtocolError>,
     {
         let request_id = safe_request_id(line).unwrap_or_else(|| UNKNOWN_REQUEST_ID.to_owned());
         let request = match serde_json::from_str::<RequestEnvelope>(line) {

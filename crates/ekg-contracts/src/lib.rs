@@ -1029,7 +1029,7 @@ pub struct RequestEnvelope {
     pub protocol_version: u32,
     pub request_id: String,
     #[serde(flatten)]
-    pub operation: ReadOperation,
+    pub operation: DaemonOperation,
 }
 
 impl Validate for RequestEnvelope {
@@ -1044,23 +1044,109 @@ impl Validate for RequestEnvelope {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "operation", content = "input")]
-pub enum ReadOperation {
+pub enum DaemonOperation {
+    #[serde(rename = "registerProject")]
+    RegisterProject(RegisterProjectInput),
+    #[serde(rename = "listProjects")]
+    ListProjects(EmptyInput),
+    #[serde(rename = "resolveProject")]
+    ResolveProject(ProjectReference),
+    #[serde(rename = "updateProject")]
+    UpdateProject(UpdateProjectInput),
     #[serde(rename = "queryKnowledge")]
     QueryKnowledge(QueryKnowledgeInput),
     #[serde(rename = "preflight")]
     Preflight(PreflightInput),
     #[serde(rename = "getCase")]
     GetCase(GetCaseInput),
+    #[serde(rename = "listRecentActivity")]
+    ListRecentActivity(RecentActivityInput),
+    #[serde(rename = "recordProblem")]
+    RecordProblem(RecordProblemInput),
+    #[serde(rename = "recordAttempt")]
+    RecordAttempt(RecordAttemptInput),
+    #[serde(rename = "recordRootCause")]
+    RecordRootCause(RecordRootCauseInput),
+    #[serde(rename = "recordSolution")]
+    RecordSolution(RecordSolutionInput),
+    #[serde(rename = "recordVerification")]
+    RecordVerification(RecordVerificationInput),
+    #[serde(rename = "recordArtifactReference")]
+    RecordArtifactReference(RecordArtifactInput),
+    #[serde(rename = "recordGuardrail")]
+    RecordGuardrail(RecordGuardrailInput),
+    #[serde(rename = "recordCheckpoint")]
+    RecordCheckpoint(RecordCheckpointInput),
+    #[serde(rename = "checkpointWork")]
+    CheckpointWork(CheckpointWorkInput),
+    #[serde(rename = "finalizeWork")]
+    FinalizeWork(FinalizeWorkInput),
+    #[serde(rename = "reportRelevance")]
+    ReportRelevance(ReportRelevanceInput),
+    #[serde(rename = "suggestCaseMerges")]
+    SuggestCaseMerges(SuggestCaseMergesInput),
+    #[serde(rename = "applyCaseMerge")]
+    ApplyCaseMerge(ApplyCaseMergeInput),
+    #[serde(rename = "recordCommandStarted")]
+    RecordCommandStarted(RecordCommandStartedInput),
+    #[serde(rename = "recordCommandResult")]
+    RecordCommandResult(RecordCommandResultInput),
+    #[serde(rename = "closeCase")]
+    CloseCase(CloseCaseInput),
+    #[serde(rename = "markRegression")]
+    MarkRegression(MarkRegressionInput),
+    #[serde(rename = "previewImport")]
+    PreviewImport(PreviewImportContentInput),
+    #[serde(rename = "applyImport")]
+    ApplyImport(ApplyImportContentInput),
+    #[serde(rename = "exportProjectGraph")]
+    ExportProjectGraph(ExportProjectGraphInput),
+    #[serde(rename = "importProjectGraph")]
+    ImportProjectGraph(ImportProjectGraphInput),
 }
 
-impl Validate for ReadOperation {
+impl Validate for DaemonOperation {
     fn validate(&self) -> Result<(), ErrorCode> {
         match self {
             Self::QueryKnowledge(value) => value.validate(),
             Self::Preflight(value) => value.validate(),
             Self::GetCase(value) => value.validate(),
+            Self::ResolveProject(value) => value.validate(),
+            Self::ListRecentActivity(value) => value.validate(),
+            Self::ListProjects(_) => Ok(()),
+            _ => Ok(()),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(deny_unknown_fields)]
+pub struct EmptyInput {}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RecentActivityInput {
+    pub project: ProjectReference,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub after_sequence: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<usize>,
+}
+
+impl Validate for RecentActivityInput {
+    fn validate(&self) -> Result<(), ErrorCode> {
+        self.project.validate()?;
+        validate_limit(self.limit)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RecentActivityResult {
+    pub events: Vec<KnowledgeEvent>,
+    pub limit: usize,
+    pub truncated: bool,
+    pub next_sequence: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

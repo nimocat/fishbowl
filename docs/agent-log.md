@@ -437,3 +437,12 @@
 - Boundary: the installed TypeScript daemon has not changed. Full Rust RPC
   dispatch, source acquisition, SSE, lifecycle, crash/restart, and installed
   performance acceptance remain before cutover.
+- RPC ownership GREEN: the protocol now exposes one exhaustive typed
+  `DaemonOperation` enum for the complete service surface. `NativeDispatcher`
+  maps every operation to Rust read/write repositories and the legacy stdio
+  seam uses the same dispatcher.
+- Case-read RED/GREEN: native integration initially returned the planned
+  migration-stage rejection for `getCase`; bounded Rust Case graph/evidence/
+  artifact/command/history loading replaced it. The native HTTP workflow now
+  passes register → Problem write → Case read → list → query with no Node
+  callback. The complete Rust workspace remains green.
