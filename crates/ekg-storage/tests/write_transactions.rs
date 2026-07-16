@@ -1,20 +1,21 @@
 use std::collections::BTreeMap;
 
 use ekg_contracts::{
-    ApplyCaseMergeInput, ApplyImportContentInput, CheckpointProblemInput,
+    ApplyCaseMergeInput, ApplyImportContentInput, CaseDetailLevel, CheckpointProblemInput,
     CheckpointRootCauseAssertion, CheckpointSolutionAssertion, CheckpointWorkInput,
     CheckpointWrite, CloseCaseInput, ExportProjectGraphInput, FinalizeCommitInput,
     FinalizeMergeInput, FinalizeRootCauseInput, FinalizeSolutionInput, FinalizeVerificationInput,
-    FinalizeWorkInput, ImportContentSource, ImportProjectGraphInput, MarkRegressionInput,
-    NodeStatus, PreviewImportContentInput, ProjectReference, RecordArtifactInput,
-    RecordAttemptInput, RecordCheckpointInput, RecordCommandResultInput, RecordCommandStartedInput,
-    RecordGuardrailInput, RecordProblemInput, RecordRootCauseInput, RecordSolutionInput,
-    RecordVerificationInput, RegisterProjectInput, RegressionOutcomeContract, RelationType,
-    ReportRelevanceInput, SnapshotEdge, SourceKey, SuggestCaseMergesInput, UpdateProjectInput,
-    WriteArtifactData, WriteAttemptData, WriteGuardrailCriteria, WriteGuardrailData,
-    WriteProblemData, WriteRootCauseData, WriteSolutionData, WriteVerificationData,
+    FinalizeWorkInput, GetCaseInput, ImportContentSource, ImportProjectGraphInput,
+    MarkRegressionInput, NodeStatus, PreviewImportContentInput, ProjectReference,
+    RecordArtifactInput, RecordAttemptInput, RecordCheckpointInput, RecordCommandResultInput,
+    RecordCommandStartedInput, RecordGuardrailInput, RecordProblemInput, RecordRootCauseInput,
+    RecordSolutionInput, RecordVerificationInput, RegisterProjectInput, RegressionOutcomeContract,
+    RelationType, ReportRelevanceInput, SnapshotEdge, SourceKey, SuggestCaseMergesInput,
+    UpdateProjectInput, WriteArtifactData, WriteAttemptData, WriteGuardrailCriteria,
+    WriteGuardrailData, WriteProblemData, WriteRootCauseData, WriteSolutionData,
+    WriteVerificationData,
 };
-use ekg_storage::{WriteFaultPoint, WriteRepository};
+use ekg_storage::{ReadRepository, WriteFaultPoint, WriteRepository};
 use rusqlite::Connection;
 
 #[test]
@@ -80,6 +81,30 @@ fn problem_and_attempt_writes_are_atomic_idempotent_and_ordered() {
         vec!["case.created", "node.added", "node.added", "edge.added"]
     );
     assert!(!database_text(&connection).contains("secret-value"));
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn full_case_history_without_cursor_uses_a_sqlite_representable_upper_bound() {
+    let path = database("full-case-history");
+    let mut writer = WriteRepository::open(path.to_str().unwrap()).unwrap();
+    let problem = writer
+        .record_problem(problem_input("op-full-case"))
+        .unwrap();
+    drop(writer);
+
+    let reader = ReadRepository::open(path.to_str().unwrap()).unwrap();
+    let detail = reader
+        .get_case(&GetCaseInput {
+            project: project("project-a"),
+            case_id: problem.case_id,
+            detail: Some(CaseDetailLevel::Full),
+            history_limit: Some(5),
+            history_before_sequence: None,
+        })
+        .unwrap();
+
+    assert!(!detail.history.is_empty());
     std::fs::remove_file(path).unwrap();
 }
 

@@ -491,7 +491,13 @@ impl ReadRepository {
         let mut history_next_before_sequence = None;
         if detail == CaseDetailLevel::Full {
             let history_limit = input.history_limit.unwrap_or(50);
-            let before = input.history_before_sequence.unwrap_or(u64::MAX);
+            // SQLite INTEGER values are signed 64-bit. An absent or larger unsigned
+            // cursor means "before every persisted event", so cap it to the largest
+            // representable database sequence before binding.
+            let before = input
+                .history_before_sequence
+                .unwrap_or(i64::MAX as u64)
+                .min(i64::MAX as u64);
             let mut statement = self.connection.prepare("SELECT sequence, project_id, type, aggregate_id, payload, occurred_at FROM events WHERE project_id = ? AND case_id = ? AND sequence < ? ORDER BY sequence DESC LIMIT ?")?;
             history = statement
                 .query_map(
