@@ -312,3 +312,23 @@
   the installed MCP daemon. TypeScript remains the active engine until Rust
   returns the complete bounded query/preflight contract.
 - EKG Case: `087bb44e-24ac-4a75-a49b-3a7f74935f89`.
+
+## 2026-07-16 - Rust Migration Stage 4
+
+- Goal: add a deterministic knowledge hierarchy without letting generated
+  summaries replace source evidence.
+- RED: hierarchy fixtures failed before the API existed. Early implementations
+  also exposed two representation errors (borrowed snapshots cannot derive
+  deserialization, and tuple-key maps are not JSON object keys) plus an
+  active-set scan that approached quadratic k-core work.
+- GREEN: added project/domain/community/Case/node hierarchy, deterministic
+  connected components with k-core metadata, structural summaries, candidate
+  generated summaries, supporting Case IDs, project-scoped schema-v7 loading,
+  revision invalidation, and affected-branch-only upserts.
+- Efficiency: release 10,000-Case build improved from 392.692ms to 51.882ms;
+  incremental one-domain rebuild improved from 38.245ms to 3.288ms after using
+  an ordered degree queue.
+- Verification: focused hierarchy and storage suites pass. Full workspace and
+  TypeScript release gates are run before the Stage 4 commit.
+- Boundary: no installed daemon routing or database writer changed. Stage 5 is
+  bounded project-local graph expansion.

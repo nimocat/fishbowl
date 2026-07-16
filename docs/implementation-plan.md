@@ -158,6 +158,17 @@ The seven compatibility-focused TDD tasks are complete: schema-v6 indexed Case h
 - Redaction must occur before events, search data, exports, and browser responses.
 - The first-release CLI has no built-in `--help`; keep README examples synchronized with parser tests until help is added.
 
+## Rust Core Migration
+
+**Status:** Stage 4 complete; Stage 5 in progress (2026-07-16)
+
+The executable Stage 0-8 plan is in
+`docs/plans/2026-07-16-rust-core-migration-tdd.md`. Rust now owns the read
+contract, query-only schema-v7 retrieval, Preflight policy, and deterministic
+project/domain/k-core hierarchy. TypeScript remains the installed writer and
+daemon until transactional write parity, native daemon packaging, and the
+installed-state acceptance gates pass. Writes are never dual-routed.
+
 ## Final Review Fix Wave
 
 **Status:** Complete (2026-07-13)

@@ -382,6 +382,8 @@ Measured results:
 
 ## 11. Stage 4 — Deterministic hierarchical knowledge tree
 
+**Status:** Complete in Rust; Stage 5 graph expansion is next (2026-07-16)
+
 **Goal:** Support local and global engineering questions without scanning every
 Case or relying on nondeterministic communities.
 
@@ -410,6 +412,19 @@ Case or relying on nondeterministic communities.
 - Global-query nDCG@5 materially exceeds flat lexical baseline.
 - Every summary result carries supporting Case IDs.
 - Release rebuild stays within the agreed memory and latency budget.
+
+Measured results:
+
+- Repeated snapshots are byte-identical and use JSON-safe ordered branch
+  vectors rather than tuple-keyed maps.
+- Project/domain upserts invalidate and rebuild only the affected branch.
+- Global and local results always retain supporting Case IDs; generated
+  summaries remain candidate-only and cannot become evidence.
+- The read-only schema-v7 loader preserves project isolation and derives its
+  revision from the project event sequence.
+- Release 10,000-Case build is 51.882ms and one-domain incremental rebuild is
+  3.288ms. Replacing an active-set scan with an ordered degree queue reduced
+  these from 392.692ms and 38.245ms respectively.
 
 ## 12. Stage 5 — Bounded graph expansion and optional semantic recall
 

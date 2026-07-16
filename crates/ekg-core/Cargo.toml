@@ -10,6 +10,7 @@ path = "src/lib.rs"
 
 [dependencies]
 ekg-contracts = { path = "../ekg-contracts" }
+serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]

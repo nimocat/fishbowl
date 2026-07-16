@@ -10,10 +10,12 @@ Engineering Knowledge Graph (EKG) is a local-first service for preserving the pa
   MCP/HTTP adaptation and browser presentation. The current Node.js 22 core
   remains operational only until each Rust vertical slice passes parity.
 - The Rust workspace contains `ekg-contracts` (strict versioned public read
-  contracts), `ekg-core` (Unicode hierarchical routing and Guardrail policy),
-  and `ekg-daemon` (read-only SQLite loading, revision-cached retrieval, and a
-  bounded persistent JSON-lines protocol). TypeScript's Rust adapter validates
-  transport shape only and imports neither storage nor policy.
+  contracts), `ekg-core` (Unicode routing, trusted policy, deterministic
+  project/domain/k-core hierarchy, and structural summaries), `ekg-storage`
+  (project-scoped query-only schema-v7 reads), and `ekg-daemon` (revision-cached
+  retrieval and a bounded persistent JSON-lines protocol). TypeScript's Rust
+  adapter validates transport shape only and imports neither storage nor
+  policy.
 - SQLite in WAL mode is the authoritative materialized store.
 - The append-only `events` table is an audit log and live-update cursor, not a complete event-sourcing replay log.
 - `KnowledgeService` is the transport-neutral application boundary.

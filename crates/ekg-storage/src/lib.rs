@@ -1,7 +1,7 @@
 //! Project-scoped, query-only repository for the existing EKG SQLite schema.
 
 use std::cell::RefCell;
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::time::Instant;
 
 use ekg_contracts::{
@@ -10,8 +10,9 @@ use ekg_contracts::{
     Validate,
 };
 use ekg_core::{
-    GuardrailContext, GuardrailCriteria, GuardrailEnforcement, RelevanceCandidate,
-    RelevanceContext, compact_preflight, evaluate_guardrail, rank_cases,
+    GuardrailContext, GuardrailCriteria, GuardrailEnforcement, HierarchyEdge, HierarchyRecord,
+    KnowledgeHierarchy, RelevanceCandidate, RelevanceContext, compact_preflight,
+    evaluate_guardrail, rank_cases,
 };
 use rusqlite::types::Value as SqlValue;
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
@@ -179,6 +180,113 @@ impl ReadRepository {
             limit,
             truncated,
         })
+    }
+
+    pub fn load_hierarchy(
+        &self,
+        project: &ProjectReference,
+    ) -> Result<KnowledgeHierarchy, StorageError> {
+        project.validate().map_err(StorageError::Contract)?;
+        let project_id = self.resolve_project(project)?;
+        let revision: i64 = self.connection.query_row(
+            "SELECT coalesce(max(sequence), 0) FROM events WHERE project_id = ?",
+            params![project_id],
+            |row| row.get(0),
+        )?;
+        let mut builders = BTreeMap::<String, HierarchyBuilder>::new();
+        let mut statement = self.connection.prepare(
+            "SELECT cases.id, cases.title, cases.status, nodes.type, nodes.status, nodes.data FROM cases LEFT JOIN nodes ON nodes.case_id = cases.id WHERE cases.project_id = ? ORDER BY cases.id, nodes.created_at, nodes.id",
+        )?;
+        let rows = statement.query_map(params![project_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, Option<String>>(4)?,
+                row.get::<_, Option<String>>(5)?,
+            ))
+        })?;
+        for row in rows {
+            let (case_id, title, case_status, node_type, node_status, data_text) = row?;
+            let builder = builders
+                .entry(case_id.clone())
+                .or_insert_with(|| HierarchyBuilder {
+                    case_id,
+                    status: parse_status(&case_status).unwrap_or(NodeStatus::Candidate),
+                    domain: "general".into(),
+                    text_parts: vec![title],
+                    ..HierarchyBuilder::default()
+                });
+            if let (Some(node_type), Some(node_status), Some(data_text)) =
+                (node_type, node_status, data_text)
+            {
+                let data: Value = serde_json::from_str(&data_text)
+                    .map_err(|_| StorageError::InvalidStoredData("node data"))?;
+                builder.text_parts.push(data_text);
+                if node_type == "Problem" {
+                    if let Some(domain) = data.get("domain").and_then(Value::as_str) {
+                        builder.domain = domain.to_owned();
+                    }
+                }
+                collect_structural_values(&data, &mut builder.files, &mut builder.commands);
+                if node_status == "verified"
+                    && matches!(node_type.as_str(), "RootCause" | "Solution")
+                {
+                    builder.verified_conclusion = data
+                        .get("summary")
+                        .or_else(|| data.get("explanation"))
+                        .and_then(Value::as_str)
+                        .map(str::to_owned)
+                        .or(builder.verified_conclusion.take());
+                }
+            }
+        }
+        let mut statement = self.connection.prepare(
+            "SELECT nodes.case_id, fingerprints.value FROM fingerprints JOIN nodes ON nodes.id = fingerprints.problem_node_id JOIN cases ON cases.id = nodes.case_id WHERE fingerprints.project_id = ? AND cases.project_id = ?",
+        )?;
+        for row in statement.query_map(params![project_id, project_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })? {
+            let (case_id, fingerprint) = row?;
+            if let Some(builder) = builders.get_mut(&case_id) {
+                builder.fingerprints.insert(fingerprint);
+            }
+        }
+        let mut statement = self.connection.prepare(
+            "SELECT case_id, command FROM command_runs WHERE project_id = ? AND case_id IS NOT NULL",
+        )?;
+        for row in statement.query_map(params![project_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })? {
+            let (case_id, command_text) = row?;
+            if let Some(builder) = builders.get_mut(&case_id) {
+                let command = serde_json::from_str::<Vec<String>>(&command_text)
+                    .unwrap_or_default()
+                    .join(" ");
+                if !command.is_empty() {
+                    builder.commands.insert(command);
+                }
+            }
+        }
+        let records = builders
+            .into_values()
+            .map(|builder| builder.record(&project_id))
+            .collect::<Vec<_>>();
+        let mut edges = Vec::new();
+        for left in 0..records.len() {
+            for right in (left + 1)..records.len() {
+                if records[left].domain == records[right].domain
+                    && share_structural_key(&records[left], &records[right])
+                {
+                    edges.push(HierarchyEdge::new(
+                        &records[left].case_id,
+                        &records[right].case_id,
+                    ));
+                }
+            }
+        }
+        Ok(KnowledgeHierarchy::build(revision, records, edges))
     }
 
     pub fn preflight(&self, input: &PreflightInput) -> Result<PreflightResult, StorageError> {
@@ -560,6 +668,85 @@ fn value_strings(value: &Value, key: &str) -> Vec<String> {
         .filter_map(Value::as_str)
         .map(str::to_owned)
         .collect()
+}
+
+struct HierarchyBuilder {
+    case_id: String,
+    status: NodeStatus,
+    domain: String,
+    text_parts: Vec<String>,
+    fingerprints: BTreeSet<String>,
+    files: BTreeSet<String>,
+    commands: BTreeSet<String>,
+    verified_conclusion: Option<String>,
+}
+
+impl Default for HierarchyBuilder {
+    fn default() -> Self {
+        Self {
+            case_id: String::new(),
+            status: NodeStatus::Candidate,
+            domain: "general".into(),
+            text_parts: Vec::new(),
+            fingerprints: BTreeSet::new(),
+            files: BTreeSet::new(),
+            commands: BTreeSet::new(),
+            verified_conclusion: None,
+        }
+    }
+}
+
+impl HierarchyBuilder {
+    fn record(self, project_id: &str) -> HierarchyRecord {
+        HierarchyRecord {
+            project_id: project_id.to_owned(),
+            domain: self.domain,
+            case_id: self.case_id,
+            status: self.status,
+            text: self.text_parts.join(" "),
+            fingerprints: self.fingerprints.into_iter().collect(),
+            files: self.files.into_iter().collect(),
+            commands: self.commands.into_iter().collect(),
+            verified_conclusion: self.verified_conclusion,
+        }
+    }
+}
+
+fn collect_structural_values(
+    value: &Value,
+    files: &mut BTreeSet<String>,
+    commands: &mut BTreeSet<String>,
+) {
+    let Some(object) = value.as_object() else {
+        return;
+    };
+    for (key, item) in object {
+        let target = if key.to_ascii_lowercase().contains("file") {
+            Some(&mut *files)
+        } else if key.to_ascii_lowercase().contains("command") {
+            Some(&mut *commands)
+        } else {
+            None
+        };
+        if let Some(target) = target {
+            if let Some(text) = item.as_str() {
+                target.insert(text.to_owned());
+            }
+            if let Some(items) = item.as_array() {
+                target.extend(items.iter().filter_map(Value::as_str).map(str::to_owned));
+            }
+        }
+    }
+}
+
+fn share_structural_key(left: &HierarchyRecord, right: &HierarchyRecord) -> bool {
+    intersects(&left.fingerprints, &right.fingerprints)
+        || intersects(&left.files, &right.files)
+        || intersects(&left.commands, &right.commands)
+}
+
+fn intersects(left: &[String], right: &[String]) -> bool {
+    left.iter().any(|value| right.contains(value))
 }
 
 fn push_term(terms: &mut Vec<String>, term: String) {

@@ -90,6 +90,26 @@ fn limit_has_stable_truncation_without_mutating_schema_v7() {
     std::fs::remove_file(path).unwrap();
 }
 
+#[test]
+fn hierarchy_load_is_project_scoped_and_uses_event_revision() {
+    let path = database("hierarchy");
+    let repository = ReadRepository::open(path.to_str().unwrap()).unwrap();
+    let hierarchy = repository
+        .load_hierarchy(&ProjectReference {
+            project_id: Some("project-a".into()),
+            project_root: None,
+        })
+        .unwrap();
+    let snapshot = String::from_utf8(hierarchy.snapshot_json().unwrap()).unwrap();
+    assert!(snapshot.contains("case-a"));
+    assert!(!snapshot.contains("case-b"));
+    assert_eq!(
+        hierarchy.branch_source_revision("project-a", "ios"),
+        Some(1)
+    );
+    std::fs::remove_file(path).unwrap();
+}
+
 fn database(label: &str) -> std::path::PathBuf {
     let path = std::env::temp_dir().join(format!("ekg-storage-{label}-{}.db", std::process::id()));
     let connection = Connection::open(&path).unwrap();

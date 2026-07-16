@@ -54,11 +54,21 @@ event revision with content-free metrics. The 10-case Guardrail golden set has
 TypeScript for 1,000 Preflights with zero mismatches; p95 was 0.113ms and every
 default response stayed below 12KiB.
 
+Stage 4 deterministic hierarchy is complete. Rust now builds
+project → domain → deterministic k-core community → Case → node branches from
+project-scoped schema-v7 reads. Structural summaries expose only counts,
+statuses, fingerprints, files, commands, and verified conclusions with their
+supporting Case IDs. Generated summaries are candidate-only and never confer
+trust. Snapshot bytes are deterministic, and an upsert rebuilds only the
+affected project/domain branch. On 10,000 synthetic Cases, replacing the
+active-set scan with an ordered degree queue reduced release build from
+392.692ms to 51.882ms and incremental rebuild from 38.245ms to 3.288ms.
+
 The implementation order, TDD fixtures, phase exit gates, rollout states, and
 rollback rules are specified in
-`docs/plans/2026-07-16-rust-core-migration-tdd.md`. Stage 2 query parity is the
-next executable slice; the plan alone does not authorize production routing
-changes.
+`docs/plans/2026-07-16-rust-core-migration-tdd.md`. Stage 5 bounded graph
+expansion is the next executable slice; the plan alone does not authorize
+production routing changes.
 
 ## Status
 

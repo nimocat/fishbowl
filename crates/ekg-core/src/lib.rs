@@ -12,6 +12,9 @@ use ekg_contracts::{
 };
 use serde_json::Value;
 
+mod hierarchy;
+pub use hierarchy::*;
+
 pub type ApplicabilityBoundary = BTreeMap<String, Vec<String>>;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
