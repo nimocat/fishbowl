@@ -85,8 +85,36 @@ retrieval.
 
 ## Release boundary
 
-The candidate implementation and offline/production-copy acceptance are P0
-complete. The installed daemon and live database have not been replaced by this
-slice. Production cutover requires a separate explicit user approval, preserves
-the existing rollback branch and backups, and must repeat installed health,
-query, integrity, process-owner, and no-temporary-daemon acceptance.
+The user explicitly authorized the production installation switch. Production
+`main` was fast-forwarded from `3fc060d` to `48692d8`; the pre-existing untracked
+design document was preserved. Rollback branch
+`rollback/ekg-pre-retrieval-p0-20260717-024546` and quiesced SQLite backups under
+`backups/retrieval-p0-cutover-20260717-024546` preserve the pre-cutover code and
+both databases. Each backup passed `quick_check` and has a recorded SHA-256.
+
+Immediately before installation, the platform-default database contained
+1,320 events, 81 Cases, and 464 nodes. The legacy database contained 1,277
+events, 81 Cases, and 447 nodes. Full-row `EXCEPT` checks across all 18
+non-rebuildable business tables found zero legacy rows absent from the default
+database, proving the default database was the authoritative strict superset.
+No database replacement or schema migration was necessary.
+
+Installed acceptance passed on the live schema-v7 database:
+
+- exact lookup retained the migration Case on the zero-graph fast path;
+- `rendering executor coalesced backpressure`, previously empty, returned five
+  bounded hybrid results from seven candidate Cases after 20 PPR iterations;
+- the production checkpoint was replayed with the same operation ID and the
+  second call changed neither event nor node counts;
+- final counts are 1,327 events, 81 Cases, and 467 nodes with
+  `quick_check=ok`;
+- one packaged Rust LaunchAgent owns the descriptor, listener, and database;
+  no temporary benchmark daemon survived;
+- health, static assets, projects, authenticated boundary, invalid Host
+  rejection, and SSE passed;
+- installed benchmark p95 is 0.327 ms warm RPC, 4.062 ms checkpoint, and
+  0.034 ms daemon Preflight execution.
+
+The deterministic retrieval P0 and its production installation are complete.
+HNSW, embeddings, and RAPTOR-style summaries remain deliberately deferred and
+non-authoritative.

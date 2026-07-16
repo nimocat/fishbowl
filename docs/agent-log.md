@@ -573,3 +573,19 @@
   checkpoint p95, and 0.027 ms daemon Preflight execution p95. Rust workspace
   tests and Vitest 48/48 pass. The migration Case remains candidate until the
   user confirms the installed experience, as required by the trust policy.
+- Retrieval P0 production cutover completed after explicit user authorization.
+  Production `main` fast-forwarded from `3fc060d` to `48692d8`; rollback branch
+  `rollback/ekg-pre-retrieval-p0-20260717-024546` and quiesced dual-database
+  backups preserve recovery. The populated platform-default database was a
+  strict superset of the legacy database across all 18 non-rebuildable tables,
+  so no database replacement or schema migration occurred.
+- Installed retrieval acceptance preserved exact lookup and changed the prior
+  zero-result architectural-synonym query into five bounded hybrid results.
+  Replaying operation `ekg-retrieval-p0-production-cutover-20260717-v1` did not
+  increase the first write's 1,327 event / 467 node counts. Schema v7 and
+  `quick_check=ok` remain intact.
+- Final production process and performance acceptance found one packaged Rust
+  LaunchAgent, no leaked temporary daemons, correct HTTP/SSE and security
+  boundaries, 0.327 ms warm RPC p95, 4.062 ms checkpoint p95, and 0.034 ms
+  Preflight execution p95. Retrieval P0 is complete; HNSW, embeddings, and
+  RAPTOR summaries remain deferred and non-authoritative.
