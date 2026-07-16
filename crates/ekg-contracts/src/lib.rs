@@ -360,6 +360,29 @@ pub struct ApplyImportContentResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
+pub enum ImportSourceRequest {
+    File { path: String },
+    Git { range: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PreviewImportInput {
+    pub project: ProjectReference,
+    pub sources: Vec<ImportSourceRequest>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ApplyImportInput {
+    pub project: ProjectReference,
+    pub preview_id: String,
+    pub proposal_ids: Vec<String>,
+    pub operation_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SourceKey {
     pub kind: String,
@@ -1096,9 +1119,9 @@ pub enum DaemonOperation {
     #[serde(rename = "markRegression")]
     MarkRegression(MarkRegressionInput),
     #[serde(rename = "previewImport")]
-    PreviewImport(PreviewImportContentInput),
+    PreviewImport(PreviewImportInput),
     #[serde(rename = "applyImport")]
-    ApplyImport(ApplyImportContentInput),
+    ApplyImport(ApplyImportInput),
     #[serde(rename = "exportProjectGraph")]
     ExportProjectGraph(ExportProjectGraphInput),
     #[serde(rename = "importProjectGraph")]

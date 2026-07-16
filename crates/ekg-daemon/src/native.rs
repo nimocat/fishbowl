@@ -8,6 +8,7 @@ use serde_json::{Value, json};
 
 use crate::http::RpcDispatcher;
 use crate::protocol::ProtocolError;
+use crate::source::{acquire_apply, acquire_preview};
 
 /// Native single-process dispatch boundary. Reads and writes use separate
 /// SQLite connections, while each connection is serialized independently.
@@ -147,16 +148,28 @@ impl RpcDispatcher for NativeDispatcher {
                     .mark_regression(input.clone())
                     .map_err(map_write)?,
             ),
-            DaemonOperation::PreviewImport(input) => encode(
-                self.write()?
-                    .preview_import_content(input.clone())
-                    .map_err(map_write)?,
-            ),
-            DaemonOperation::ApplyImport(input) => encode(
-                self.write()?
-                    .apply_import_content(input.clone())
-                    .map_err(map_write)?,
-            ),
+            DaemonOperation::PreviewImport(input) => {
+                let acquired = {
+                    let repository = self.read()?;
+                    acquire_preview(&repository, input)?
+                };
+                encode(
+                    self.write()?
+                        .preview_import_content(acquired)
+                        .map_err(map_write)?,
+                )
+            }
+            DaemonOperation::ApplyImport(input) => {
+                let acquired = {
+                    let repository = self.read()?;
+                    acquire_apply(&repository, input)?
+                };
+                encode(
+                    self.write()?
+                        .apply_import_content(acquired)
+                        .map_err(map_write)?,
+                )
+            }
             DaemonOperation::ExportProjectGraph(input) => encode(
                 self.write()?
                     .export_project_graph(input.clone())

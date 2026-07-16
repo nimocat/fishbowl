@@ -103,7 +103,149 @@ async fn native_http_dispatches_a_transactional_write_then_reads_it_without_type
     )
     .await;
     assert_eq!(query["result"]["items"][0]["caseTitle"], "Native ownership");
+
+    let report = project_root.join("failed-test.md");
+    std::fs::write(
+        &report,
+        "# Failed test\nHypothesis: cached state\nChange: clear cache\nFailure: still fails\n",
+    )
+    .unwrap();
+    let preview = call(
+        &app,
+        json!({
+            "protocolVersion": 1,
+            "requestId": "preview-1",
+            "operation": "previewImport",
+            "input": {
+                "project": {"projectId": project_id},
+                "sources": [{"kind": "file", "path": report}]
+            }
+        }),
+    )
+    .await;
+    assert_eq!(preview["ok"], true);
+    let preview_id = preview["result"]["previewId"].as_str().unwrap();
+    let proposal_id = preview["result"]["proposals"][0]["id"].as_str().unwrap();
+    let restarted = router(
+        DaemonHttpConfig {
+            token: "native-token".into(),
+            daemon_version: "stage7-test-restarted".into(),
+            replay_capacity: 32,
+        },
+        Arc::new(NativeDispatcher::open(&database).unwrap()),
+    );
+    let applied = call(
+        &restarted,
+        json!({
+            "protocolVersion": 1,
+            "requestId": "apply-1",
+            "operation": "applyImport",
+            "input": {
+                "project": {"projectId": project_id},
+                "previewId": preview_id,
+                "proposalIds": [proposal_id],
+                "operationId": "apply-operation-1"
+            }
+        }),
+    )
+    .await;
+    assert_eq!(applied["ok"], true);
+
+    let outside = root.join("outside.md");
+    std::fs::write(&outside, "secret content").unwrap();
+    let rejected = call(
+        &app,
+        json!({
+            "protocolVersion": 1,
+            "requestId": "preview-outside",
+            "operation": "previewImport",
+            "input": {
+                "project": {"projectId": project_id},
+                "sources": [{"kind": "file", "path": outside}]
+            }
+        }),
+    )
+    .await;
+    assert_eq!(rejected["ok"], false);
+    assert_eq!(rejected["error"]["code"], "PATH_OUTSIDE_PROJECT");
+    assert!(!rejected.to_string().contains("secret content"));
+
+    git(&project_root, &["init", "-q"]);
+    let history = project_root.join("history.md");
+    std::fs::write(&history, "# Baseline\n").unwrap();
+    git(&project_root, &["add", "history.md"]);
+    git(
+        &project_root,
+        &[
+            "-c",
+            "user.name=EKG Test",
+            "-c",
+            "user.email=ekg@example.invalid",
+            "commit",
+            "-q",
+            "-m",
+            "baseline",
+        ],
+    );
+    std::fs::write(
+        &history,
+        "# Failed test\nHypothesis: git source\nChange: native acquisition\nFailure: bounded fixture\n",
+    )
+    .unwrap();
+    git(&project_root, &["add", "history.md"]);
+    git(
+        &project_root,
+        &[
+            "-c",
+            "user.name=EKG Test",
+            "-c",
+            "user.email=ekg@example.invalid",
+            "commit",
+            "-q",
+            "-m",
+            "failed test evidence",
+        ],
+    );
+    let git_preview = call(
+        &app,
+        json!({
+            "protocolVersion": 1,
+            "requestId": "preview-git",
+            "operation": "previewImport",
+            "input": {
+                "project": {"projectId": project_id},
+                "sources": [{"kind": "git", "range": "HEAD~1..HEAD"}]
+            }
+        }),
+    )
+    .await;
+    assert_eq!(git_preview["ok"], true, "{git_preview}");
+
+    let hostile_range = call(
+        &app,
+        json!({
+            "protocolVersion": 1,
+            "requestId": "preview-hostile-git",
+            "operation": "previewImport",
+            "input": {
+                "project": {"projectId": project_id},
+                "sources": [{"kind": "git", "range": "--help..HEAD"}]
+            }
+        }),
+    )
+    .await;
+    assert_eq!(hostile_range["ok"], false);
+    assert_eq!(hostile_range["error"]["code"], "INVALID_ARGUMENT");
     std::fs::remove_dir_all(root).unwrap();
+}
+
+fn git(root: &std::path::Path, arguments: &[&str]) {
+    let status = std::process::Command::new("git")
+        .args(arguments)
+        .current_dir(root)
+        .status()
+        .unwrap();
+    assert!(status.success(), "git {arguments:?} failed");
 }
 
 async fn call(app: &axum::Router, value: Value) -> Value {

@@ -621,6 +621,16 @@ Current progress:
 - Full Rust workspace verification remains green after the ownership change.
   Controlled file/Git acquisition is the remaining import-boundary work before
   the native process/lifecycle cutover.
+- Controlled import acquisition is now Rust-owned. File sources are
+  canonicalized, limited to project root/aliases, checked as regular files,
+  streamed under the aggregate 1 MiB bound, and decoded as UTF-8. Git accepts
+  only an explicit safe `base..head`, resolves immutable commits, invokes Git
+  without a shell, and bounds every captured stream.
+- Preview persists canonical file or immutable Git hints. Apply reacquires from
+  that database manifest after a fresh `NativeDispatcher`, so restart does not
+  depend on process memory and changed source bytes still hit the core stale
+  digest check. Path escape and option-injection fixtures are rejected without
+  echoing source content.
 
 ## 15. Stage 8 — Remove the TypeScript core
 

@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 pub mod http;
 pub mod native;
 pub mod protocol;
+pub mod source;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]

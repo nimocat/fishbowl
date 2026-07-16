@@ -446,3 +446,10 @@
   artifact/command/history loading replaced it. The native HTTP workflow now
   passes register → Problem write → Case read → list → query with no Node
   callback. The complete Rust workspace remains green.
+- Import RED/GREEN: the existing `{kind:file|git}` request initially failed the
+  explicit-content core contract. Rust transport acquisition now canonicalizes
+  project-owned files, resolves immutable Git ranges without a shell, and
+  enforces per-stream/aggregate bounds. Apply succeeds through a newly opened
+  dispatcher using the persisted manifest; outside files and `--help..HEAD`
+  are rejected. The first Git fixture exposed that safe revisions must permit
+  `~`/`^`; the allowlist was corrected without allowing leading options.

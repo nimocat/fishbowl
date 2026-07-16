@@ -539,6 +539,36 @@ impl ReadRepository {
         })
     }
 
+    pub fn import_preview_path_hints(
+        &self,
+        project: &ProjectReference,
+        preview_id: &str,
+    ) -> Result<Vec<String>, StorageError> {
+        project.validate().map_err(StorageError::Contract)?;
+        let project_id = self.resolve_project(project)?;
+        let manifest: String = self
+            .connection
+            .query_row(
+                "SELECT source_manifest FROM import_previews WHERE id = ? AND project_id = ?",
+                params![preview_id, project_id],
+                |row| row.get(0),
+            )
+            .optional()?
+            .ok_or(StorageError::ProjectNotFound)?;
+        let manifests: Vec<Value> = serde_json::from_str(&manifest)
+            .map_err(|_| StorageError::InvalidStoredData("import source manifest"))?;
+        manifests
+            .into_iter()
+            .map(|value| {
+                value
+                    .get("pathHint")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+                    .ok_or(StorageError::InvalidStoredData("import source path hint"))
+            })
+            .collect()
+    }
+
     pub fn load_hierarchy(
         &self,
         project: &ProjectReference,
