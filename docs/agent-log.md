@@ -387,3 +387,10 @@
   commit/merge details remain external facts only.
 - Remaining Stage 6: project registration/update, import/export snapshot parity,
   schema migration on a production copy, backup, interruption, and recovery.
+- Project GREEN: Rust now registers canonical existing roots and atomically
+  updates project metadata plus one alias with ordered events and operation
+  replay. Focused transaction tests pass 9/9. The RED/GREEN cycle also removed
+  a duplicate redaction placeholder for whitespace-separated `token: value`
+  while preserving secret removal.
+- Remaining Stage 6 is narrowed to import/export snapshot parity and schema
+  migration, production-copy integrity, backup, interruption, and recovery.

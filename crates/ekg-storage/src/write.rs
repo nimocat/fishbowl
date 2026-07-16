@@ -3,13 +3,14 @@ use ekg_contracts::{
     ApplyCaseMergeInput, ArtifactWriteResult, CheckpointSkipReason, CheckpointWorkInput,
     CheckpointWorkResult, CheckpointWrite, CheckpointWriteResult, CloseCaseInput, CloseCaseResult,
     CommandResultWriteResult, CommandStartedResult, FinalizeWorkInput, FinalizeWorkResult,
-    MarkRegressionInput, MergeProposalContract, NodeStatus, NodeWriteResult, ProjectReference,
-    PromotionStatus, RecordArtifactInput, RecordAttemptInput, RecordCheckpointInput,
-    RecordCheckpointResult, RecordCommandResultInput, RecordCommandStartedInput,
-    RecordGuardrailInput, RecordProblemInput, RecordRootCauseInput, RecordSolutionInput,
-    RecordVerificationInput, RegressionOutcomeContract, RegressionResultContract,
-    ReportRelevanceInput, SourceKey, SuggestCaseMergesInput, Validate, WriteAttemptData,
-    WriteProblemData, WriteRootCauseData, WriteSolutionData, WriteVerificationData,
+    MarkRegressionInput, MergeProposalContract, NodeStatus, NodeWriteResult, ProjectAliasRecord,
+    ProjectRecord, ProjectReference, ProjectWithAliasesRecord, PromotionStatus,
+    RecordArtifactInput, RecordAttemptInput, RecordCheckpointInput, RecordCheckpointResult,
+    RecordCommandResultInput, RecordCommandStartedInput, RecordGuardrailInput, RecordProblemInput,
+    RecordRootCauseInput, RecordSolutionInput, RecordVerificationInput, RegisterProjectInput,
+    RegressionOutcomeContract, RegressionResultContract, ReportRelevanceInput, SourceKey,
+    SuggestCaseMergesInput, UpdateProjectInput, Validate, WriteAttemptData, WriteProblemData,
+    WriteRootCauseData, WriteSolutionData, WriteVerificationData,
 };
 use ekg_core::{
     ApplicabilityBoundary, PromotionEvidence, PromotionRequirement, RegressionOutcome,
@@ -32,6 +33,7 @@ pub enum WriteError {
     InjectedFailure(WriteFaultPoint),
     Sqlite(rusqlite::Error),
     Json(serde_json::Error),
+    Io(std::io::Error),
 }
 
 impl From<rusqlite::Error> for WriteError {
@@ -43,6 +45,12 @@ impl From<rusqlite::Error> for WriteError {
 impl From<serde_json::Error> for WriteError {
     fn from(value: serde_json::Error) -> Self {
         Self::Json(value)
+    }
+}
+
+impl From<std::io::Error> for WriteError {
+    fn from(value: std::io::Error) -> Self {
+        Self::Io(value)
     }
 }
 
@@ -64,6 +72,148 @@ impl WriteRepository {
         connection.pragma_update(None, "foreign_keys", true)?;
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
         Ok(Self { connection })
+    }
+
+    pub fn register_project(
+        &mut self,
+        input: RegisterProjectInput,
+    ) -> Result<ProjectRecord, WriteError> {
+        validate_project_fields(&input.name, input.description.as_deref())?;
+        validate_operation_id(input.operation_id.as_deref())?;
+        let root = canonical_path(&input.root)?;
+        let transaction = self.connection.savepoint()?;
+        if let Some(result) = replay_unscoped_project_operation(
+            &transaction,
+            input.operation_id.as_deref(),
+            "register_project",
+        )? {
+            transaction.commit()?;
+            return Ok(result);
+        }
+        require_available_root(&transaction, &root)?;
+        let now = timestamp();
+        let project = ProjectRecord {
+            id: id(),
+            name: redact_string(input.name.trim()),
+            description: input
+                .description
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(redact_string),
+            root,
+            created_at: now.clone(),
+        };
+        transaction.execute(
+            "INSERT INTO projects (id, name, description, canonical_root, created_at) VALUES (?, ?, ?, ?, ?)",
+            params![project.id, project.name, project.description, project.root, project.created_at],
+        )?;
+        append_event(
+            &transaction,
+            &project.id,
+            None,
+            "project.registered",
+            &project.id,
+            &serde_json::to_value(&project)?,
+            &now,
+        )?;
+        store_operation(
+            &transaction,
+            &project.id,
+            input.operation_id.as_deref(),
+            "register_project",
+            &project,
+        )?;
+        transaction.commit()?;
+        Ok(project)
+    }
+
+    pub fn update_project(
+        &mut self,
+        input: UpdateProjectInput,
+    ) -> Result<ProjectWithAliasesRecord, WriteError> {
+        input.project.validate().map_err(|_| WriteError::Contract)?;
+        if input.name.is_none() && input.description.is_none() && input.add_alias.is_none() {
+            return Err(WriteError::Validation("project update"));
+        }
+        if let Some(name) = input.name.as_deref() {
+            validate_project_fields(name, None)?;
+        }
+        let updates_metadata = input.name.is_some() || input.description.is_some();
+        validate_operation_id(input.operation_id.as_deref())?;
+        let alias = input.add_alias.as_deref().map(canonical_path).transpose()?;
+        let transaction = self.connection.savepoint()?;
+        let project_id = resolve_project(&transaction, &input.project)?;
+        if let Some(result) = replay_operation::<ProjectWithAliasesRecord>(
+            &transaction,
+            &project_id,
+            input.operation_id.as_deref(),
+            "update_project",
+        )? {
+            transaction.commit()?;
+            return Ok(result);
+        }
+        let current = load_project(&transaction, &project_id)?;
+        let name = input
+            .name
+            .as_deref()
+            .map(str::trim)
+            .map(redact_string)
+            .unwrap_or(current.name);
+        let description = match input.description {
+            None => current.description,
+            Some(None) => None,
+            Some(Some(ref value)) => {
+                if value.trim().is_empty() {
+                    None
+                } else {
+                    Some(redact_string(value.trim()))
+                }
+            }
+        };
+        let now = timestamp();
+        if updates_metadata {
+            transaction.execute(
+                "UPDATE projects SET name = ?, description = ? WHERE id = ?",
+                params![name, description, project_id],
+            )?;
+            append_event(
+                &transaction,
+                &project_id,
+                None,
+                "project.updated",
+                &project_id,
+                &json!({"id": project_id, "name": name, "description": description}),
+                &now,
+            )?;
+        }
+        if let Some(root) = alias {
+            require_available_root(&transaction, &root)?;
+            let alias_id = id();
+            transaction.execute(
+                "INSERT INTO project_aliases (id, project_id, root, created_at) VALUES (?, ?, ?, ?)",
+                params![alias_id, project_id, root, now],
+            )?;
+            append_event(
+                &transaction,
+                &project_id,
+                None,
+                "project.alias_added",
+                &alias_id,
+                &json!({"id": alias_id, "projectId": project_id, "root": root, "createdAt": now}),
+                &now,
+            )?;
+        }
+        let result = load_project_with_aliases(&transaction, &project_id)?;
+        store_operation(
+            &transaction,
+            &project_id,
+            input.operation_id.as_deref(),
+            "update_project",
+            &result,
+        )?;
+        transaction.commit()?;
+        Ok(result)
     }
 
     pub fn record_problem(
@@ -1940,6 +2090,107 @@ fn record_delivery_artifact(
     Ok(artifact_id)
 }
 
+fn validate_project_fields(name: &str, description: Option<&str>) -> Result<(), WriteError> {
+    if name.trim().is_empty() || name.len() > 16_384 {
+        return Err(WriteError::Validation("project name"));
+    }
+    if description.is_some_and(|value| value.len() > 16_384) {
+        return Err(WriteError::Validation("project description"));
+    }
+    Ok(())
+}
+
+fn validate_operation_id(operation_id: Option<&str>) -> Result<(), WriteError> {
+    if operation_id.is_some_and(|value| value.trim().is_empty() || value.len() > 4096) {
+        return Err(WriteError::Validation("operation id"));
+    }
+    Ok(())
+}
+
+fn canonical_path(path: &str) -> Result<String, WriteError> {
+    if path.trim().is_empty() {
+        return Err(WriteError::Validation("project root"));
+    }
+    Ok(std::fs::canonicalize(path)?.to_string_lossy().into_owned())
+}
+
+fn require_available_root(connection: &Connection, root: &str) -> Result<(), WriteError> {
+    let exists = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM projects WHERE canonical_root = ? UNION ALL SELECT 1 FROM project_aliases WHERE root = ?)",
+        params![root, root],
+        |row| row.get::<_, i64>(0),
+    )? != 0;
+    if exists {
+        Err(WriteError::SourceConflict)
+    } else {
+        Ok(())
+    }
+}
+
+fn replay_unscoped_project_operation(
+    connection: &Connection,
+    operation_id: Option<&str>,
+    kind: &str,
+) -> Result<Option<ProjectRecord>, WriteError> {
+    let Some(operation_id) = operation_id else {
+        return Ok(None);
+    };
+    let mut statement = connection.prepare(
+        "SELECT kind, result FROM operation_results WHERE operation_id = ? ORDER BY created_at LIMIT 2",
+    )?;
+    let rows = statement
+        .query_map([operation_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    if rows.len() > 1 || rows.first().is_some_and(|(stored, _)| stored != kind) {
+        return Err(WriteError::OperationConflict);
+    }
+    rows.first()
+        .map(|(_, result)| serde_json::from_str(result).map_err(WriteError::from))
+        .transpose()
+}
+
+fn load_project(connection: &Connection, project_id: &str) -> Result<ProjectRecord, WriteError> {
+    connection
+        .query_row(
+            "SELECT id, name, description, canonical_root, created_at FROM projects WHERE id = ?",
+            [project_id],
+            |row| {
+                Ok(ProjectRecord {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    description: row.get(2)?,
+                    root: row.get(3)?,
+                    created_at: row.get(4)?,
+                })
+            },
+        )
+        .optional()?
+        .ok_or(WriteError::ProjectNotFound)
+}
+
+fn load_project_with_aliases(
+    connection: &Connection,
+    project_id: &str,
+) -> Result<ProjectWithAliasesRecord, WriteError> {
+    let project = load_project(connection, project_id)?;
+    let mut statement = connection.prepare(
+        "SELECT id, project_id, root, created_at FROM project_aliases WHERE project_id = ? ORDER BY created_at, rowid",
+    )?;
+    let aliases = statement
+        .query_map([project_id], |row| {
+            Ok(ProjectAliasRecord {
+                id: row.get(0)?,
+                project_id: row.get(1)?,
+                root: row.get(2)?,
+                created_at: row.get(3)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(ProjectWithAliasesRecord { project, aliases })
+}
+
 struct NodeInsert<'a> {
     project_id: &'a str,
     case_id: &'a str,
@@ -2503,7 +2754,7 @@ fn redact_string(value: &str) -> String {
         let lower = part.to_ascii_lowercase();
         let credential = lower.trim_start_matches('-');
         if ["password:", "token:", "authorization:", "secret:"].contains(&credential) {
-            parts.push(format!("{part}[REDACTED]"));
+            parts.push(part.into());
             redact_next = true;
         } else if [
             "password=",

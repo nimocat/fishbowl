@@ -116,6 +116,52 @@ pub struct ProjectReference {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProjectRecord {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub root: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProjectAliasRecord {
+    pub id: String,
+    pub project_id: String,
+    pub root: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProjectWithAliasesRecord {
+    #[serde(flatten)]
+    pub project: ProjectRecord,
+    pub aliases: Vec<ProjectAliasRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RegisterProjectInput {
+    pub name: String,
+    pub root: String,
+    pub description: Option<String>,
+    pub operation_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UpdateProjectInput {
+    pub project: ProjectReference,
+    pub name: Option<String>,
+    pub description: Option<Option<String>>,
+    pub add_alias: Option<String>,
+    pub operation_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SourceKey {
     pub kind: String,
     pub key: String,

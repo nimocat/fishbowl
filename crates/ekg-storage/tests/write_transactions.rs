@@ -7,10 +7,11 @@ use ekg_contracts::{
     FinalizeVerificationInput, FinalizeWorkInput, MarkRegressionInput, NodeStatus,
     ProjectReference, RecordArtifactInput, RecordAttemptInput, RecordCheckpointInput,
     RecordCommandResultInput, RecordCommandStartedInput, RecordGuardrailInput, RecordProblemInput,
-    RecordRootCauseInput, RecordSolutionInput, RecordVerificationInput, RegressionOutcomeContract,
-    ReportRelevanceInput, SourceKey, SuggestCaseMergesInput, WriteArtifactData, WriteAttemptData,
-    WriteGuardrailCriteria, WriteGuardrailData, WriteProblemData, WriteRootCauseData,
-    WriteSolutionData, WriteVerificationData,
+    RecordRootCauseInput, RecordSolutionInput, RecordVerificationInput, RegisterProjectInput,
+    RegressionOutcomeContract, ReportRelevanceInput, SourceKey, SuggestCaseMergesInput,
+    UpdateProjectInput, WriteArtifactData, WriteAttemptData, WriteGuardrailCriteria,
+    WriteGuardrailData, WriteProblemData, WriteRootCauseData, WriteSolutionData,
+    WriteVerificationData,
 };
 use ekg_storage::{WriteFaultPoint, WriteRepository};
 use rusqlite::Connection;
@@ -658,6 +659,96 @@ fn checkpoint_work_and_finalize_are_atomic_compact_and_idempotent() {
         2
     );
     std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn project_registration_and_update_are_atomic_canonical_and_idempotent() {
+    let path = database("projects");
+    let root = std::env::temp_dir().join(format!("ekg-project-root-{}", std::process::id()));
+    let alias = std::env::temp_dir().join(format!("ekg-project-alias-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::create_dir_all(&alias).unwrap();
+    let mut repository = WriteRepository::open(path.to_str().unwrap()).unwrap();
+    let input = RegisterProjectInput {
+        name: "  Portable token: hidden  ".into(),
+        root: root.to_string_lossy().into_owned(),
+        description: Some("password=hidden migration".into()),
+        operation_id: Some("register-portable".into()),
+    };
+    let first = repository.register_project(input.clone()).unwrap();
+    let replay = repository.register_project(input).unwrap();
+    assert_eq!(first, replay);
+    assert_eq!(first.name, "Portable token: [REDACTED]");
+    assert_eq!(
+        first.description.as_deref(),
+        Some("password=[REDACTED] migration")
+    );
+    assert_eq!(
+        first.root,
+        std::fs::canonicalize(&root).unwrap().to_string_lossy()
+    );
+
+    let updated = repository
+        .update_project(UpdateProjectInput {
+            project: project(&first.id),
+            name: Some("Renamed".into()),
+            description: Some(None),
+            add_alias: Some(alias.to_string_lossy().into_owned()),
+            operation_id: Some("update-portable".into()),
+        })
+        .unwrap();
+    assert_eq!(updated.project.name, "Renamed");
+    assert_eq!(updated.project.description, None);
+    assert_eq!(updated.aliases.len(), 1);
+    assert_eq!(
+        repository
+            .update_project(UpdateProjectInput {
+                project: project(&first.id),
+                name: Some("Renamed".into()),
+                description: Some(None),
+                add_alias: Some(alias.to_string_lossy().into_owned()),
+                operation_id: Some("update-portable".into()),
+            })
+            .unwrap(),
+        updated
+    );
+
+    let connection = Connection::open(&path).unwrap();
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT count(*) FROM projects WHERE id = ?",
+                [&first.id],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT count(*) FROM project_aliases WHERE project_id = ?",
+                [&first.id],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT count(*) FROM events WHERE project_id = ?",
+                [&first.id],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+        3
+    );
+
+    drop(connection);
+    std::fs::remove_file(path).unwrap();
+    std::fs::remove_dir(root).unwrap();
+    std::fs::remove_dir(alias).unwrap();
 }
 
 fn problem_input(operation_id: &str) -> RecordProblemInput {

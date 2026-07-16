@@ -80,9 +80,10 @@ node/command/lifecycle writes plus aggregate checkpoint and finalization under
 project ownership, operation/source idempotency, event/edge/FTS ordering,
 recursive redaction, and injected rollback tests. A focused sentinel test
 caught and fixed a `token: value` cross-word redaction leak. Project
-registration/update, import/export, snapshot parity, and migration/backup/
-recovery are still required. The installed TypeScript daemon remains the sole
-writer.
+registration/update is now also Rust-owned with canonical path conflicts and
+atomic metadata/alias updates. Import/export, snapshot parity, and migration/
+backup/recovery are still required. The installed TypeScript daemon remains
+the sole writer.
 
 The individual causal-node write set is now complete in Rust: RootCause,
 Solution, Verification, Artifact, and Guardrail enforce project/Case ownership,
