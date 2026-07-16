@@ -1,11 +1,13 @@
 use std::collections::BTreeMap;
 
 use ekg_contracts::{
-    NodeStatus, ProjectReference, RecordArtifactInput, RecordAttemptInput,
-    RecordCommandResultInput, RecordCommandStartedInput, RecordGuardrailInput, RecordProblemInput,
-    RecordRootCauseInput, RecordSolutionInput, RecordVerificationInput, SourceKey,
-    WriteArtifactData, WriteAttemptData, WriteGuardrailCriteria, WriteGuardrailData,
-    WriteProblemData, WriteRootCauseData, WriteSolutionData, WriteVerificationData,
+    ApplyCaseMergeInput, CloseCaseInput, MarkRegressionInput, NodeStatus, ProjectReference,
+    RecordArtifactInput, RecordAttemptInput, RecordCommandResultInput, RecordCommandStartedInput,
+    RecordGuardrailInput, RecordProblemInput, RecordRootCauseInput, RecordSolutionInput,
+    RecordVerificationInput, RegressionOutcomeContract, ReportRelevanceInput, SourceKey,
+    SuggestCaseMergesInput, WriteArtifactData, WriteAttemptData, WriteGuardrailCriteria,
+    WriteGuardrailData, WriteProblemData, WriteRootCauseData, WriteSolutionData,
+    WriteVerificationData,
 };
 use ekg_storage::{WriteFaultPoint, WriteRepository};
 use rusqlite::Connection;
@@ -255,7 +257,7 @@ fn causal_node_chain_preserves_trust_edges_evidence_artifacts_and_guardrails() {
                 limitations: vec!["session must remain serial".into()],
                 side_effects: Vec::new(),
                 decisive_difference: "moves graph construction off render path".into(),
-                applicability_boundary: BTreeMap::new(),
+                applicability_boundary: BTreeMap::from([("device".into(), vec!["iphone".into()])]),
                 human_verification_required: true,
                 non_automatable_reason: None,
             },
@@ -337,6 +339,47 @@ fn causal_node_chain_preserves_trust_edges_evidence_artifacts_and_guardrails() {
         })
         .unwrap();
     assert!(guardrail.created);
+    let closed = repository
+        .close_case(CloseCaseInput {
+            project: project("project-a"),
+            case_id: guardrail.case_id.clone(),
+            operation_id: Some("close".into()),
+        })
+        .unwrap();
+    assert_eq!(closed.promotion.status, NodeStatus::Verified);
+    let different = repository
+        .mark_regression(MarkRegressionInput {
+            project: project("project-a"),
+            case_id: guardrail.case_id.clone(),
+            solution_id: solution.node_id.clone(),
+            fingerprint: "different".into(),
+            observed_context: BTreeMap::from([("device".into(), "iphone".into())]),
+            operation_id: Some("regression-different".into()),
+        })
+        .unwrap();
+    assert_eq!(
+        different.outcome,
+        RegressionOutcomeContract::DifferentFingerprint
+    );
+    let regression = repository
+        .mark_regression(MarkRegressionInput {
+            project: project("project-a"),
+            case_id: guardrail.case_id.clone(),
+            solution_id: solution.node_id,
+            fingerprint: "camera-hang".into(),
+            observed_context: BTreeMap::from([("device".into(), "iphone".into())]),
+            operation_id: Some("regression".into()),
+        })
+        .unwrap();
+    assert_eq!(regression.outcome, RegressionOutcomeContract::Regressed);
+    repository
+        .report_relevance(ReportRelevanceInput {
+            project: project("project-a"),
+            case_id: guardrail.case_id,
+            context_digest: "a".repeat(64),
+            useful: true,
+        })
+        .unwrap();
     drop(repository);
     let connection = Connection::open(&path).unwrap();
     assert_eq!(
@@ -356,6 +399,51 @@ fn causal_node_chain_preserves_trust_edges_evidence_artifacts_and_guardrails() {
     assert_eq!(
         connection
             .query_row("SELECT count(*) FROM guardrails", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn merge_proposals_are_reviewed_project_local_and_idempotent() {
+    let path = database("merge");
+    let mut repository = WriteRepository::open(path.to_str().unwrap()).unwrap();
+    let first = repository
+        .record_problem(problem_input("merge-one"))
+        .unwrap();
+    let mut second_input = problem_input("merge-two");
+    second_input.source_key = Some(SourceKey {
+        kind: "test".into(),
+        key: "problem-2".into(),
+    });
+    second_input.data.fingerprint = Some("camera-hang-two".into());
+    let second = repository.record_problem(second_input).unwrap();
+    let proposals = repository
+        .suggest_case_merges(SuggestCaseMergesInput {
+            project: project("project-a"),
+            limit: Some(5),
+        })
+        .unwrap();
+    assert_eq!(proposals.len(), 1);
+    assert!(
+        [first.case_id.as_str(), second.case_id.as_str()]
+            .contains(&proposals[0].source_case_id.as_str())
+    );
+    let input = ApplyCaseMergeInput {
+        project: project("project-a"),
+        proposal_id: proposals[0].id.clone(),
+        operation_id: "apply-merge".into(),
+    };
+    let applied = repository.apply_case_merge(input.clone()).unwrap();
+    assert_eq!(applied.status, "applied");
+    assert_eq!(repository.apply_case_merge(input).unwrap(), applied);
+    drop(repository);
+    let connection = Connection::open(&path).unwrap();
+    assert_eq!(
+        connection
+            .query_row("SELECT count(*) FROM case_supersessions", [], |row| row
                 .get::<_, i64>(0))
             .unwrap(),
         1
@@ -409,6 +497,9 @@ fn database(label: &str) -> std::path::PathBuf {
              CREATE TABLE artifacts (id TEXT PRIMARY KEY, project_id TEXT, node_id TEXT, kind TEXT, uri TEXT, digest TEXT, is_external INTEGER, metadata TEXT, created_at TEXT);
              CREATE TABLE evidence (id TEXT PRIMARY KEY, project_id TEXT, node_id TEXT, kind TEXT, command TEXT, exit_status INTEGER, data TEXT, created_at TEXT);
              CREATE TABLE guardrails (id TEXT PRIMARY KEY, project_id TEXT, node_id TEXT UNIQUE, enforcement TEXT, criteria TEXT, created_at TEXT);
+             CREATE TABLE relevance_feedback (id TEXT PRIMARY KEY, project_id TEXT, case_id TEXT, context_digest TEXT, useful INTEGER, created_at TEXT);
+             CREATE TABLE case_merge_proposals (id TEXT PRIMARY KEY, project_id TEXT, source_case_id TEXT, target_case_id TEXT, score REAL, reasons TEXT, status TEXT, created_at TEXT, updated_at TEXT, UNIQUE(project_id,source_case_id,target_case_id));
+             CREATE TABLE case_supersessions (project_id TEXT, source_case_id TEXT PRIMARY KEY, target_case_id TEXT, proposal_id TEXT, created_at TEXT);
              CREATE TABLE events (sequence INTEGER PRIMARY KEY AUTOINCREMENT, project_id TEXT, type TEXT, aggregate_id TEXT, payload TEXT, occurred_at TEXT, case_id TEXT);
              CREATE VIRTUAL TABLE node_search USING fts5(project_id UNINDEXED,node_id UNINDEXED,title,body,tokenize='unicode61');
              INSERT INTO projects VALUES ('project-a','A',NULL,'/project/a','2026-07-16T00:00:00Z');

@@ -415,6 +415,88 @@ pub struct RecordGuardrailInput {
     pub data: WriteGuardrailData,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CloseCaseInput {
+    pub project: ProjectReference,
+    pub case_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub operation_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CloseCaseResult {
+    pub case_id: String,
+    pub promotion: PromotionStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum RegressionOutcomeContract {
+    Regressed,
+    OutsideApplicability,
+    DifferentFingerprint,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MarkRegressionInput {
+    pub project: ProjectReference,
+    pub case_id: String,
+    pub solution_id: String,
+    pub fingerprint: String,
+    pub observed_context: BTreeMap<String, String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub operation_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RegressionResultContract {
+    pub outcome: RegressionOutcomeContract,
+    pub case_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ReportRelevanceInput {
+    pub project: ProjectReference,
+    pub case_id: String,
+    pub context_digest: String,
+    pub useful: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MergeProposalContract {
+    pub id: String,
+    pub project_id: String,
+    pub source_case_id: String,
+    pub target_case_id: String,
+    pub score: f64,
+    pub reasons: Vec<String>,
+    pub status: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SuggestCaseMergesInput {
+    pub project: ProjectReference,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ApplyCaseMergeInput {
+    pub project: ProjectReference,
+    pub proposal_id: String,
+    pub operation_id: String,
+}
+
 impl Validate for ProjectReference {
     fn validate(&self) -> Result<(), ErrorCode> {
         match (&self.project_id, &self.project_root) {

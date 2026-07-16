@@ -93,6 +93,13 @@ evidence. Mixed automated plus confirmed human verification reuses the Rust
 promotion policy and atomically verifies the Case and Solution. Aggregate and
 lifecycle operations are still pending, so no cutover is allowed.
 
+Case close/regression, relevance feedback, and reviewed merge operations are
+also in Rust. Regression reuses fingerprint/applicability policy and only
+mutates a verified Solution inside its declared boundary. Similarity creates
+deterministic project-local proposals only; an explicit idempotent apply is
+required before retiring the source Case and adding supersession state.
+Checkpoint/finalize and portability/migration work remain pending.
+
 The implementation order, TDD fixtures, phase exit gates, rollout states, and
 rollback rules are specified in
 `docs/plans/2026-07-16-rust-core-migration-tdd.md`. Stage 6 transactional Rust

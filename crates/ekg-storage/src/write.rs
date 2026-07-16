@@ -1,11 +1,17 @@
 use chrono::Utc;
 use ekg_contracts::{
-    ArtifactWriteResult, CommandResultWriteResult, CommandStartedResult, NodeStatus,
-    NodeWriteResult, ProjectReference, PromotionStatus, RecordArtifactInput, RecordAttemptInput,
-    RecordCommandResultInput, RecordCommandStartedInput, RecordGuardrailInput, RecordProblemInput,
-    RecordRootCauseInput, RecordSolutionInput, RecordVerificationInput, SourceKey, Validate,
+    ApplyCaseMergeInput, ArtifactWriteResult, CloseCaseInput, CloseCaseResult,
+    CommandResultWriteResult, CommandStartedResult, MarkRegressionInput, MergeProposalContract,
+    NodeStatus, NodeWriteResult, ProjectReference, PromotionStatus, RecordArtifactInput,
+    RecordAttemptInput, RecordCommandResultInput, RecordCommandStartedInput, RecordGuardrailInput,
+    RecordProblemInput, RecordRootCauseInput, RecordSolutionInput, RecordVerificationInput,
+    RegressionOutcomeContract, RegressionResultContract, ReportRelevanceInput, SourceKey,
+    SuggestCaseMergesInput, Validate,
 };
-use ekg_core::{PromotionEvidence, PromotionRequirement, evaluate_promotion};
+use ekg_core::{
+    ApplicabilityBoundary, PromotionEvidence, PromotionRequirement, RegressionOutcome,
+    evaluate_promotion, evaluate_regression,
+};
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -998,6 +1004,278 @@ impl WriteRepository {
         transaction.commit()?;
         Ok(result)
     }
+
+    pub fn close_case(&mut self, input: CloseCaseInput) -> Result<CloseCaseResult, WriteError> {
+        input.project.validate().map_err(|_| WriteError::Contract)?;
+        let transaction = self.connection.transaction()?;
+        let project_id = resolve_project(&transaction, &input.project)?;
+        if let Some(result) = replay_operation::<CloseCaseResult>(
+            &transaction,
+            &project_id,
+            input.operation_id.as_deref(),
+            "close_case",
+        )? {
+            transaction.commit()?;
+            return Ok(result);
+        }
+        require_case(&transaction, &project_id, &input.case_id)?;
+        let promotion = evaluate_case_promotion(&transaction, &project_id, &input.case_id, true)?;
+        let result = CloseCaseResult {
+            case_id: input.case_id.clone(),
+            promotion,
+        };
+        let now = timestamp();
+        append_event(
+            &transaction,
+            &project_id,
+            Some(&input.case_id),
+            "case.closed",
+            &input.case_id,
+            &serde_json::to_value(&result)?,
+            &now,
+        )?;
+        store_operation(
+            &transaction,
+            &project_id,
+            input.operation_id.as_deref(),
+            "close_case",
+            &result,
+        )?;
+        transaction.commit()?;
+        Ok(result)
+    }
+
+    pub fn mark_regression(
+        &mut self,
+        input: MarkRegressionInput,
+    ) -> Result<RegressionResultContract, WriteError> {
+        input.project.validate().map_err(|_| WriteError::Contract)?;
+        if input.fingerprint.trim().is_empty() {
+            return Err(WriteError::Validation("regression fingerprint"));
+        }
+        let transaction = self.connection.transaction()?;
+        let project_id = resolve_project(&transaction, &input.project)?;
+        if let Some(result) = replay_operation::<RegressionResultContract>(
+            &transaction,
+            &project_id,
+            input.operation_id.as_deref(),
+            "mark_regression",
+        )? {
+            transaction.commit()?;
+            return Ok(result);
+        }
+        require_case(&transaction, &project_id, &input.case_id)?;
+        require_node(
+            &transaction,
+            &project_id,
+            &input.case_id,
+            &input.solution_id,
+            "Solution",
+        )?;
+        let (solution_status, solution_data): (String, String) = transaction.query_row(
+            "SELECT status, data FROM nodes WHERE id = ?",
+            params![input.solution_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        if solution_status != "verified" {
+            return Err(WriteError::Validation("verified solution required"));
+        }
+        let stored_fingerprint = transaction
+            .query_row(
+                "SELECT fingerprints.value FROM fingerprints JOIN nodes ON nodes.id = fingerprints.problem_node_id WHERE fingerprints.project_id = ? AND nodes.case_id = ? ORDER BY fingerprints.created_at LIMIT 1",
+                params![project_id, input.case_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        let data = serde_json::from_str::<Value>(&solution_data)?;
+        let boundary = data
+            .get("applicabilityBoundary")
+            .cloned()
+            .map(serde_json::from_value::<ApplicabilityBoundary>)
+            .transpose()?
+            .unwrap_or_default();
+        let observed = input
+            .observed_context
+            .iter()
+            .map(|(key, value)| (key.as_str(), value.as_str()))
+            .collect::<Vec<_>>();
+        let outcome = match evaluate_regression(
+            stored_fingerprint.as_deref() == Some(input.fingerprint.trim()),
+            &boundary,
+            &observed,
+        ) {
+            RegressionOutcome::Regressed => RegressionOutcomeContract::Regressed,
+            RegressionOutcome::OutsideApplicability => {
+                RegressionOutcomeContract::OutsideApplicability
+            }
+            RegressionOutcome::DifferentFingerprint => {
+                RegressionOutcomeContract::DifferentFingerprint
+            }
+        };
+        let result = RegressionResultContract {
+            outcome: outcome.clone(),
+            case_id: input.case_id.clone(),
+        };
+        if outcome == RegressionOutcomeContract::Regressed {
+            transaction.execute(
+                "UPDATE nodes SET status = 'regressed' WHERE id = ?",
+                params![input.solution_id],
+            )?;
+            transaction.execute(
+                "UPDATE cases SET status = 'regressed' WHERE id = ? AND project_id = ?",
+                params![input.case_id, project_id],
+            )?;
+            append_event(
+                &transaction,
+                &project_id,
+                Some(&input.case_id),
+                "case.regressed",
+                &input.case_id,
+                &json!({"outcome": outcome, "caseId": input.case_id, "solutionId": input.solution_id, "observedContext": redact_value(serde_json::to_value(&input.observed_context)?)}),
+                &timestamp(),
+            )?;
+        }
+        store_operation(
+            &transaction,
+            &project_id,
+            input.operation_id.as_deref(),
+            "mark_regression",
+            &result,
+        )?;
+        transaction.commit()?;
+        Ok(result)
+    }
+
+    pub fn report_relevance(&mut self, input: ReportRelevanceInput) -> Result<(), WriteError> {
+        input.project.validate().map_err(|_| WriteError::Contract)?;
+        if input.context_digest.len() != 64
+            || !input
+                .context_digest
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit())
+        {
+            return Err(WriteError::Validation("context digest"));
+        }
+        let transaction = self.connection.transaction()?;
+        let project_id = resolve_project(&transaction, &input.project)?;
+        require_case(&transaction, &project_id, &input.case_id)?;
+        transaction.execute(
+            "INSERT INTO relevance_feedback (id, project_id, case_id, context_digest, useful, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            params![id(), project_id, input.case_id, input.context_digest.to_ascii_lowercase(), i64::from(input.useful), timestamp()],
+        )?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub fn suggest_case_merges(
+        &mut self,
+        input: SuggestCaseMergesInput,
+    ) -> Result<Vec<MergeProposalContract>, WriteError> {
+        input.project.validate().map_err(|_| WriteError::Contract)?;
+        let transaction = self.connection.transaction()?;
+        let project_id = resolve_project(&transaction, &input.project)?;
+        let cases = transaction
+            .prepare("SELECT id, title FROM cases WHERE project_id = ? AND status <> 'retired' ORDER BY created_at DESC, id DESC LIMIT 200")?
+            .query_map(params![project_id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        let limit = input.limit.unwrap_or(20).clamp(1, 25);
+        let now = timestamp();
+        let mut proposals = Vec::new();
+        for left in 0..cases.len() {
+            for right in (left + 1)..cases.len() {
+                if proposals.len() >= limit {
+                    break;
+                }
+                let score = title_similarity(&cases[left].1, &cases[right].1);
+                if score < 0.6 {
+                    continue;
+                }
+                if let Some(existing) = load_merge_proposal_pair(
+                    &transaction,
+                    &project_id,
+                    &cases[left].0,
+                    &cases[right].0,
+                )? {
+                    proposals.push(existing);
+                    continue;
+                }
+                let proposal = MergeProposalContract {
+                    id: id(),
+                    project_id: project_id.clone(),
+                    source_case_id: cases[left].0.clone(),
+                    target_case_id: cases[right].0.clone(),
+                    score,
+                    reasons: vec!["similar-case-title".into()],
+                    status: "proposed".into(),
+                    created_at: now.clone(),
+                    updated_at: now.clone(),
+                };
+                transaction.execute(
+                    "INSERT INTO case_merge_proposals (id, project_id, source_case_id, target_case_id, score, reasons, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    params![proposal.id, proposal.project_id, proposal.source_case_id, proposal.target_case_id, proposal.score, serde_json::to_string(&proposal.reasons)?, proposal.status, proposal.created_at, proposal.updated_at],
+                )?;
+                proposals.push(proposal);
+            }
+        }
+        transaction.commit()?;
+        Ok(proposals)
+    }
+
+    pub fn apply_case_merge(
+        &mut self,
+        input: ApplyCaseMergeInput,
+    ) -> Result<MergeProposalContract, WriteError> {
+        input.project.validate().map_err(|_| WriteError::Contract)?;
+        let transaction = self.connection.transaction()?;
+        let project_id = resolve_project(&transaction, &input.project)?;
+        if let Some(result) = replay_operation::<MergeProposalContract>(
+            &transaction,
+            &project_id,
+            Some(&input.operation_id),
+            "apply_case_merge",
+        )? {
+            transaction.commit()?;
+            return Ok(result);
+        }
+        let mut proposal = load_merge_proposal(&transaction, &project_id, &input.proposal_id)?
+            .ok_or(WriteError::OwnershipMismatch)?;
+        if proposal.status == "rejected" {
+            return Err(WriteError::Validation("rejected merge"));
+        }
+        let now = timestamp();
+        transaction.execute(
+            "UPDATE cases SET status = 'retired' WHERE id = ? AND project_id = ?",
+            params![proposal.source_case_id, project_id],
+        )?;
+        transaction.execute(
+            "INSERT OR IGNORE INTO case_supersessions (project_id, source_case_id, target_case_id, proposal_id, created_at) VALUES (?, ?, ?, ?, ?)",
+            params![project_id, proposal.source_case_id, proposal.target_case_id, proposal.id, now],
+        )?;
+        transaction.execute(
+            "UPDATE case_merge_proposals SET status = 'applied', updated_at = ? WHERE id = ?",
+            params![now, proposal.id],
+        )?;
+        proposal.status = "applied".into();
+        proposal.updated_at = now.clone();
+        append_event(
+            &transaction,
+            &project_id,
+            Some(&proposal.target_case_id),
+            "case.merge.applied",
+            &proposal.id,
+            &serde_json::to_value(&proposal)?,
+            &now,
+        )?;
+        store_operation(
+            &transaction,
+            &project_id,
+            Some(&input.operation_id),
+            "apply_case_merge",
+            &proposal,
+        )?;
+        transaction.commit()?;
+        Ok(proposal)
+    }
 }
 
 fn insert_node(
@@ -1033,6 +1311,84 @@ fn insert_node(
         now,
     )?;
     Ok(node_id)
+}
+
+fn title_similarity(left: &str, right: &str) -> f64 {
+    let tokenize = |value: &str| {
+        value
+            .to_lowercase()
+            .split(|character: char| !character.is_alphanumeric())
+            .filter(|term| !term.is_empty())
+            .map(str::to_owned)
+            .collect::<std::collections::BTreeSet<_>>()
+    };
+    let left = tokenize(left);
+    let right = tokenize(right);
+    if left.is_empty() || right.is_empty() {
+        return 0.0;
+    }
+    let intersection = left.intersection(&right).count();
+    let union = left.union(&right).count();
+    intersection as f64 / union as f64
+}
+
+fn load_merge_proposal_pair(
+    connection: &Connection,
+    project_id: &str,
+    source_case_id: &str,
+    target_case_id: &str,
+) -> Result<Option<MergeProposalContract>, WriteError> {
+    let id = connection
+        .query_row(
+            "SELECT id FROM case_merge_proposals WHERE project_id = ? AND source_case_id = ? AND target_case_id = ?",
+            params![project_id, source_case_id, target_case_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    id.map(|id| load_merge_proposal(connection, project_id, &id))
+        .transpose()
+        .map(Option::flatten)
+}
+
+fn load_merge_proposal(
+    connection: &Connection,
+    project_id: &str,
+    proposal_id: &str,
+) -> Result<Option<MergeProposalContract>, WriteError> {
+    connection
+        .query_row(
+            "SELECT id, project_id, source_case_id, target_case_id, score, reasons, status, created_at, updated_at FROM case_merge_proposals WHERE id = ? AND project_id = ?",
+            params![proposal_id, project_id],
+            |row| {
+                let reasons = row.get::<_, String>(5)?;
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, f64>(4)?,
+                    reasons,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, String>(7)?,
+                    row.get::<_, String>(8)?,
+                ))
+            },
+        )
+        .optional()?
+        .map(|row| {
+            Ok(MergeProposalContract {
+                id: row.0,
+                project_id: row.1,
+                source_case_id: row.2,
+                target_case_id: row.3,
+                score: row.4,
+                reasons: serde_json::from_str(&row.5)?,
+                status: row.6,
+                created_at: row.7,
+                updated_at: row.8,
+            })
+        })
+        .transpose()
 }
 
 fn evaluate_case_promotion(

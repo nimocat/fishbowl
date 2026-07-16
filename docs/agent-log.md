@@ -376,3 +376,7 @@
   search records, events, and idempotency state atomically. Verified RootCause
   rejects missing human confirmation and non-failed Attempt evidence. Mixed
   verification promotes through the existing Rust policy.
+- Lifecycle GREEN: close, regression, digest-only relevance feedback, merge
+  proposal, and explicit merge apply now preserve project ownership and
+  operation replay. Similarity never merges automatically; regression only
+  mutates a verified Solution when fingerprint and applicability both match.
