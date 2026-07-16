@@ -20,6 +20,32 @@ export interface DaemonClientOptions {
   startInstalledService?: () => void | Promise<void>
   observeRequestId?: (requestId: string) => void
   afterResponse?: () => void | Promise<void>
+  observeTiming?: (sample: DaemonTimingSample) => void
+}
+
+export interface DaemonTimingSample {
+  requestId: string
+  totalMs: number
+  queueMs: number
+  executionMs: number
+  serializationMs: number
+  transportMs: number
+}
+
+export class DaemonTimingLedger {
+  private sequence = 0
+  private readonly samples: Array<{ sequence: number; sample: DaemonTimingSample }> = []
+
+  mark(): number { return this.sequence }
+
+  record(sample: DaemonTimingSample): void {
+    this.samples.push({ sequence: ++this.sequence, sample })
+    if (this.samples.length > 1_000) this.samples.splice(0, this.samples.length - 1_000)
+  }
+
+  since(marker: number): DaemonTimingSample[] {
+    return this.samples.filter((entry) => entry.sequence > marker).map((entry) => entry.sample)
+  }
 }
 
 export class DaemonClient {
@@ -57,6 +83,7 @@ export class DaemonClient {
   }
 
   private request<T>(operation: DaemonOperation, input: unknown, requestId: string): Promise<T> {
+    const startedAt = performance.now()
     const body = Buffer.from(JSON.stringify({
       protocolVersion: DAEMON_PROTOCOL_VERSION,
       requestId,
@@ -80,6 +107,15 @@ export class DaemonClient {
         const chunks: Buffer[] = []
         response.on('data', (chunk: Buffer) => chunks.push(chunk))
         response.once('end', () => {
+          const totalMs = performance.now() - startedAt
+          const timing = parseServerTiming(response.headers['server-timing'])
+          const daemonMs = timing.queueMs + timing.executionMs + timing.serializationMs
+          this.options.observeTiming?.({
+            requestId,
+            totalMs,
+            ...timing,
+            transportMs: Math.max(0, totalMs - daemonMs),
+          })
           try {
             const payload = JSON.parse(Buffer.concat(chunks).toString('utf8')) as DaemonSuccess | DaemonFailure
             if (!payload.ok) {
@@ -97,6 +133,17 @@ export class DaemonClient {
       outgoing.end(body)
     })
   }
+}
+
+function parseServerTiming(value: string | string[] | undefined): Pick<DaemonTimingSample, 'queueMs' | 'executionMs' | 'serializationMs'> {
+  const phases = { queueMs: 0, executionMs: 0, serializationMs: 0 }
+  for (const item of (Array.isArray(value) ? value.join(',') : value ?? '').split(',')) {
+    const match = /^\s*(queue|execution|serialization);dur=([0-9.]+)\s*$/.exec(item)
+    if (!match) continue
+    const key = `${match[1]}Ms` as keyof typeof phases
+    phases[key] = Number(match[2])
+  }
+  return phases
 }
 
 type UnaryMethod = (input: never) => Promise<unknown>

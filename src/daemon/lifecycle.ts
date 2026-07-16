@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { homedir } from 'node:os'
 
-import { DaemonClient, createDaemonBackend } from './client.js'
+import { DaemonClient, createDaemonBackend, type DaemonTimingSample } from './client.js'
 import { ensureDaemonCredentials, readDaemonDescriptor, resolveDaemonPaths } from './config.js'
 import { defaultNativeBinary, nativeDaemonArguments } from './platform.js'
 
@@ -11,6 +11,7 @@ export function connectInstalledDaemon(options: {
   home?: string
   platform?: NodeJS.Platform
   startInstalledService?: () => void | Promise<void>
+  observeTiming?: (sample: DaemonTimingSample) => void
 } = {}) {
   const paths = resolveDaemonPaths({
     platform: options.platform ?? process.platform,
@@ -19,7 +20,7 @@ export function connectInstalledDaemon(options: {
   })
   const descriptor = readDaemonDescriptor({ paths })
   const token = readFileSync(paths.tokenFile, 'utf8').trim()
-  const client = new DaemonClient({ descriptor, token, startInstalledService: options.startInstalledService })
+  const client = new DaemonClient({ descriptor, token, startInstalledService: options.startInstalledService, observeTiming: options.observeTiming })
   return { paths, descriptor, client, backend: createDaemonBackend(client) }
 }
 
@@ -42,11 +43,12 @@ export async function ensureInstalledDaemon(options: {
   platform?: NodeJS.Platform
   nativeBinary?: string
   startupTimeoutMs?: number
+  observeTiming?: (sample: DaemonTimingSample) => void
 } = {}) {
   const initialized = initializeDaemonCredentials(options)
   const connect = async () => {
     const descriptor = readDaemonDescriptor({ paths: initialized.paths })
-    const client = new DaemonClient({ descriptor, token: initialized.token, timeoutMs: 250 })
+    const client = new DaemonClient({ descriptor, token: initialized.token, timeoutMs: 250, observeTiming: options.observeTiming })
     await client.call('listProjects', {})
     return { paths: initialized.paths, descriptor, client, backend: createDaemonBackend(client) }
   }

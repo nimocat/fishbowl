@@ -25,6 +25,11 @@ describe('OperationMetrics', () => {
       p95DurationMs: 955,
       maxDurationMs: 1_005,
       maxResponseBytes: 2_010,
+      p95DaemonQueueMs: 0,
+      p95DaemonExecutionMs: 0,
+      p95DaemonSerializationMs: 0,
+      p95TransportMs: 0,
+      p95McpHostMs: 0,
     }])
     expect(JSON.stringify(metrics.aggregates())).not.toMatch(
       /request|responseBody|token=metrics-secret/,

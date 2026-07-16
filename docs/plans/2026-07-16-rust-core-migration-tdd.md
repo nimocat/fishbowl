@@ -571,6 +571,9 @@ Current progress:
 
 ## 14. Stage 7 — Rust daemon ownership and end-to-end metrics
 
+**Status:** Implementation and offline/native-process acceptance complete;
+installed production cutover remains a Stage 8 human gate
+
 **Goal:** Replace the Node daemon while retaining MCP/browser compatibility.
 
 ### RED tests
@@ -652,6 +655,17 @@ Current progress:
   process-level test loads a real static page and graph after a native write;
   the Router test verifies the SSE content type. The TypeScript web files are
   now assets only, not a database-serving process.
+- MCP operation metrics now report daemon queue, execution, serialization,
+  client transport, and MCP-host time as separate bounded scalar aggregates.
+  No raw request, response, or timing context is retained.
+- Fixed release benchmark `native-daemon-release-v1` passed with 100 warm RPC,
+  30 checkpoint, and 100 preflight samples: warm RPC p95 1.065 ms, checkpoint
+  p95 4.924 ms, and daemon preflight execution p95 0.115 ms. These are below
+  the 250/300/100 ms exit budgets by wide margins.
+- All 203 TypeScript compatibility tests across 38 files pass after the native
+  ownership change. macOS process restart/replay is exercised for real;
+  Windows HKCU lifecycle is contract-tested and remains for Windows CI/device
+  execution because this host is macOS.
 
 ## 15. Stage 8 — Remove the TypeScript core
 

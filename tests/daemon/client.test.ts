@@ -4,7 +4,7 @@ import { join } from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { DaemonClient, DaemonClientError } from '../../src/daemon/client.js'
+import { DaemonClient, DaemonClientError, type DaemonTimingSample } from '../../src/daemon/client.js'
 import { startDaemonServer } from '../../src/daemon/server.js'
 
 describe('DaemonClient', () => {
@@ -25,6 +25,7 @@ describe('DaemonClient', () => {
     })
     cleanup.push(running.close, () => rmSync(root, { recursive: true, force: true }))
     const requestIds: string[] = []
+    const timings: DaemonTimingSample[] = []
     let dropFirstResponse = true
     const client = new DaemonClient({
       descriptor: {
@@ -38,6 +39,7 @@ describe('DaemonClient', () => {
       },
       token: 'secret-token',
       observeRequestId: (value) => requestIds.push(value),
+      observeTiming: (value) => timings.push(value),
       afterResponse: () => {
         if (dropFirstResponse) {
           dropFirstResponse = false
@@ -52,6 +54,9 @@ describe('DaemonClient', () => {
 
     expect(registered.id).toBeTruthy()
     expect(requestIds).toEqual(['stable-r1', 'stable-r1'])
+    expect(timings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ requestId: 'stable-r1', executionMs: 0 }),
+    ]))
     expect(await client.call('listProjects', {}, { requestId: 'list-r1' }))
       .toEqual([expect.objectContaining({ id: registered.id })])
   })

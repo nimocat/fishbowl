@@ -6,6 +6,7 @@ import type { AwaitableKnowledgeBackend } from '../application/backend.js'
 import { KnowledgeServiceError } from '../application/errors.js'
 import { collectFinalizeWorkIssues } from '../application/finalize-work.js'
 import { OperationMetrics } from '../application/operation-metrics.js'
+import type { DaemonTimingLedger } from '../daemon/client.js'
 
 const MAX_ID_LENGTH = 200
 const MAX_TEXT_LENGTH = 4_096
@@ -456,18 +457,28 @@ async function invokeWithMetrics(
   metrics: OperationMetrics,
   toolName: string,
   operation: () => unknown | Promise<unknown>,
+  daemonTimings?: DaemonTimingLedger,
 ): Promise<CallToolResult> {
   const startedAt = performance.now()
+  const timingMarker = daemonTimings?.mark() ?? 0
   try {
     const result = await operation()
+    const durationMs = performance.now() - startedAt
+    const daemon = daemonTimings?.since(timingMarker) ?? []
+    const daemonClientMs = daemon.reduce((sum, sample) => sum + sample.totalMs, 0)
     metrics.record({
       operation: toolName,
       ok: true,
       errorCode: null,
-      durationMs: performance.now() - startedAt,
+      durationMs,
       responseBytes: responseBytes(result),
       itemCount: resultItemCount(result),
       occurredAt: new Date().toISOString(),
+      daemonQueueMs: daemon.reduce((sum, sample) => sum + sample.queueMs, 0),
+      daemonExecutionMs: daemon.reduce((sum, sample) => sum + sample.executionMs, 0),
+      daemonSerializationMs: daemon.reduce((sum, sample) => sum + sample.serializationMs, 0),
+      transportMs: daemon.reduce((sum, sample) => sum + sample.transportMs, 0),
+      mcpHostMs: Math.max(0, durationMs - daemonClientMs),
     })
     return successResult(toolName, result)
   } catch (error) {
@@ -485,10 +496,13 @@ async function invokeWithMetrics(
   }
 }
 
-export function createMcpServer(service: AwaitableKnowledgeBackend): McpServer {
+export function createMcpServer(
+  service: AwaitableKnowledgeBackend,
+  options: { daemonTimings?: DaemonTimingLedger } = {},
+): McpServer {
   const metrics = new OperationMetrics()
   const invoke = (toolName: string, operation: () => unknown | Promise<unknown>): Promise<CallToolResult> =>
-    invokeWithMetrics(metrics, toolName, operation)
+    invokeWithMetrics(metrics, toolName, operation, options.daemonTimings)
   const server = new McpServer({
     name: 'engineering-knowledge-graph',
     version: '0.1.0',
@@ -708,6 +722,11 @@ export function createMcpServer(service: AwaitableKnowledgeBackend): McpServer {
         p95DurationMs: z.number().nonnegative(),
         maxDurationMs: z.number().nonnegative(),
         maxResponseBytes: z.number().nonnegative(),
+        p95DaemonQueueMs: z.number().nonnegative(),
+        p95DaemonExecutionMs: z.number().nonnegative(),
+        p95DaemonSerializationMs: z.number().nonnegative(),
+        p95TransportMs: z.number().nonnegative(),
+        p95McpHostMs: z.number().nonnegative(),
       }).strict()).max(100)),
       annotations: readOnly,
     },

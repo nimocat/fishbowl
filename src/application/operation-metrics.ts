@@ -6,6 +6,11 @@ export interface OperationMetricSample {
   responseBytes: number
   itemCount: number | null
   occurredAt: string
+  daemonQueueMs?: number
+  daemonExecutionMs?: number
+  daemonSerializationMs?: number
+  transportMs?: number
+  mcpHostMs?: number
 }
 
 export interface OperationMetricAggregate {
@@ -16,6 +21,11 @@ export interface OperationMetricAggregate {
   p95DurationMs: number
   maxDurationMs: number
   maxResponseBytes: number
+  p95DaemonQueueMs: number
+  p95DaemonExecutionMs: number
+  p95DaemonSerializationMs: number
+  p95TransportMs: number
+  p95McpHostMs: number
 }
 
 interface StoredMetric {
@@ -26,6 +36,11 @@ interface StoredMetric {
   responseBytes: number
   itemCount: number | null
   occurredAt: string
+  daemonQueueMs: number
+  daemonExecutionMs: number
+  daemonSerializationMs: number
+  transportMs: number
+  mcpHostMs: number
 }
 
 function nonNegativeSafeInteger(value: number): number {
@@ -55,6 +70,11 @@ export class OperationMetrics {
       responseBytes: nonNegativeSafeInteger(sample.responseBytes),
       itemCount: sample.itemCount === null ? null : nonNegativeSafeInteger(sample.itemCount),
       occurredAt: sample.occurredAt.slice(0, 40),
+      daemonQueueMs: nonNegativeSafeInteger(sample.daemonQueueMs ?? 0),
+      daemonExecutionMs: nonNegativeSafeInteger(sample.daemonExecutionMs ?? 0),
+      daemonSerializationMs: nonNegativeSafeInteger(sample.daemonSerializationMs ?? 0),
+      transportMs: nonNegativeSafeInteger(sample.transportMs ?? 0),
+      mcpHostMs: nonNegativeSafeInteger(sample.mcpHostMs ?? 0),
     })
     if (this.samples.length > this.capacity) {
       this.samples.splice(0, this.samples.length - this.capacity)
@@ -80,6 +100,11 @@ export class OperationMetrics {
           p95DurationMs: percentile(durations, 0.95),
           maxDurationMs: durations.at(-1) ?? 0,
           maxResponseBytes: Math.max(0, ...samples.map((sample) => sample.responseBytes)),
+          p95DaemonQueueMs: percentile(samples.map((sample) => sample.daemonQueueMs).sort((a, b) => a - b), 0.95),
+          p95DaemonExecutionMs: percentile(samples.map((sample) => sample.daemonExecutionMs).sort((a, b) => a - b), 0.95),
+          p95DaemonSerializationMs: percentile(samples.map((sample) => sample.daemonSerializationMs).sort((a, b) => a - b), 0.95),
+          p95TransportMs: percentile(samples.map((sample) => sample.transportMs).sort((a, b) => a - b), 0.95),
+          p95McpHostMs: percentile(samples.map((sample) => sample.mcpHostMs).sort((a, b) => a - b), 0.95),
         }
       })
   }

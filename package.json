@@ -16,6 +16,7 @@
     "test:rust": "cargo test --workspace",
     "test:rust:release": "cargo test --release --workspace",
     "test:rust:query-shadow": "node scripts/rust-query-shadow.mjs",
+    "bench:native": "node scripts/native-daemon-benchmark.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "engines": {

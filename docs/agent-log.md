@@ -468,3 +468,11 @@
   child-process fixture proves a Rust-written Case is visible through the
   browser graph and packaged-style static page. Workspace tests and strict
   clippy remain green.
+- Metrics GREEN: MCP aggregates now separate daemon queue/execution/
+  serialization, client transport, and MCP-host delay. The release benchmark
+  passed at 1.065 ms warm RPC p95, 4.924 ms checkpoint p95, and 0.115 ms daemon
+  preflight execution p95 against 250/300/100 ms budgets.
+- Compatibility: the complete TypeScript suite remains 203/203 across 38
+  files. Stage 7 implementation/offline acceptance is complete. Production is
+  still not switched; TypeScript core removal and installed-state acceptance
+  belong to Stage 8 and retain the explicit human cutover gate.
