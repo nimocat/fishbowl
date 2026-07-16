@@ -737,6 +737,9 @@ validated against the Rust contract schema.
   a claim that source deletion alone caused every difference.
 - The installed-state test is intentionally not run until explicit user
   approval, because it changes the current-user daemon binary and writer.
+- The production procedure, strict-superset data selection, multi-process
+  quiescence check, atomic replacement, installed acceptance, and non-
+  destructive rollback are frozen in `docs/native-production-cutover.md`.
 
 ## 16. Rollout states
 

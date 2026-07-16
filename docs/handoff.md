@@ -23,6 +23,14 @@ installed production cutover followed by real installed preflight, query,
 checkpoint, and Trace Bench smoke. Do not switch the current-user daemon or
 modify production data without that approval.
 
+The executable production and rollback sequence is documented in
+`docs/native-production-cutover.md`. The legacy data directory is a proven
+strict superset across all non-rebuildable business tables; do not select the
+smaller platform-default database merely because the current LaunchAgent uses
+it. The current installation may contain both a descriptor daemon and another
+LaunchAgent-owned Node process, so cutover must verify database holders rather
+than stopping only one PID.
+
 ## Rust Migration Status
 
 Stages 0-1 are implemented on `codex/ekg-efficiency-rounds`. `ekg-core` provides a

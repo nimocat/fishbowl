@@ -495,3 +495,19 @@
   observations). A production database copy passed integrity plus native
   Preflight/query/checkpoint/Browser smoke. Production installation remains
   unchanged pending explicit cutover approval.
+- Final cutover audit: the legacy/full database has 1,262 events, 80 Cases,
+  and 442 nodes versus 801/59/288 in the platform-default database. Read-only
+  full-row `EXCEPT` checks across all 18 non-rebuildable business tables found
+  zero installed/default rows absent from the full database, proving it is a
+  strict superset rather than merely larger by count.
+- Packaging rehearsal first failed because the default npm cache contains
+  root-owned entries (`EPERM`). Re-running dry-run packaging with a private
+  `/private/tmp` cache succeeded; the cutover must not mutate npm-cache
+  ownership as a side effect.
+- Rollback rehearsal: candidate Rust wrote a checkpoint to an isolated SQLite
+  backup, then the pre-cutover TypeScript CLI read the Rust-written Attempt and
+  returned quick-check `ok`. Immutable follow-up measured 445 nodes and 1,271
+  events. The initial cleanup expected an old-daemon PID, but explicit
+  `--data-dir` correctly selected the old embedded recovery path and created
+  none. The runbook now distinguishes that mode from installed LaunchAgent
+  validation.
