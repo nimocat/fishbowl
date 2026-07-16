@@ -85,6 +85,14 @@ snapshot parity are still required. Command start/result is also implemented
 with project-root ownership, lifecycle events, argv/excerpt redaction, and
 operation replay. The installed TypeScript daemon remains the sole writer.
 
+The individual causal-node write set is now complete in Rust: RootCause,
+Solution, Verification, Artifact, and Guardrail enforce project/Case ownership,
+source/operation replay, graph relations, and specialized table rows in one
+transaction. Verified RootCause requires human confirmation and failed-Attempt
+evidence. Mixed automated plus confirmed human verification reuses the Rust
+promotion policy and atomically verifies the Case and Solution. Aggregate and
+lifecycle operations are still pending, so no cutover is allowed.
+
 The implementation order, TDD fixtures, phase exit gates, rollout states, and
 rollback rules are specified in
 `docs/plans/2026-07-16-rust-core-migration-tdd.md`. Stage 6 transactional Rust

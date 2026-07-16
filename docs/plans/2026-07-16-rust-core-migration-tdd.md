@@ -532,13 +532,16 @@ Current progress:
   one SQLite transaction per operation.
 - Added command-start and command-result DTOs/writes with project-root
   ownership, argv/excerpt redaction, lifecycle events, and operation replay.
+- Added RootCause, Solution, Verification, Artifact, and Guardrail writes with
+  strict trust validation, causal edges, specialized evidence/artifact/
+  guardrail rows, and Rust-owned mixed-verification promotion.
 - Project ownership, operation-ID replay, source-key replay/type checks,
   event/edge/search ordering, recursive redaction, and four injected rollback
   points pass focused tests.
 - A RED/GREEN cycle found that `token: value` could leak the value after a
   whitespace separator; stateful cross-token redaction now covers it.
-- No installed write route has changed. Remaining graph nodes,
-  checkpoint/finalize, close/regression, relevance/merge, import/export, schema
+- No installed write route has changed. `record_checkpoint`, checkpoint/
+  finalize, close/regression, relevance/merge, import/export, schema
   migration, backup, and recovery remain required before Stage 6 cutover.
 
 ## 14. Stage 7 — Rust daemon ownership and end-to-end metrics

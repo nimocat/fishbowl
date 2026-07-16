@@ -1,6 +1,11 @@
+use std::collections::BTreeMap;
+
 use ekg_contracts::{
-    ProjectReference, RecordAttemptInput, RecordCommandResultInput, RecordCommandStartedInput,
-    RecordProblemInput, SourceKey, WriteAttemptData, WriteProblemData,
+    NodeStatus, ProjectReference, RecordArtifactInput, RecordAttemptInput,
+    RecordCommandResultInput, RecordCommandStartedInput, RecordGuardrailInput, RecordProblemInput,
+    RecordRootCauseInput, RecordSolutionInput, RecordVerificationInput, SourceKey,
+    WriteArtifactData, WriteAttemptData, WriteGuardrailCriteria, WriteGuardrailData,
+    WriteProblemData, WriteRootCauseData, WriteSolutionData, WriteVerificationData,
 };
 use ekg_storage::{WriteFaultPoint, WriteRepository};
 use rusqlite::Connection;
@@ -173,6 +178,191 @@ fn command_lifecycle_is_project_owned_redacted_and_idempotent() {
     std::fs::remove_file(path).unwrap();
 }
 
+#[test]
+fn causal_node_chain_preserves_trust_edges_evidence_artifacts_and_guardrails() {
+    let path = database("causal-chain");
+    let mut repository = WriteRepository::open(path.to_str().unwrap()).unwrap();
+    let problem = repository
+        .record_problem(problem_input("chain-problem"))
+        .unwrap();
+    let attempt = repository
+        .record_attempt(RecordAttemptInput {
+            project: project("project-a"),
+            operation_id: Some("chain-attempt".into()),
+            source_key: None,
+            case_id: problem.case_id.clone(),
+            problem_id: problem.node_id.clone(),
+            previous_attempt_id: None,
+            data: WriteAttemptData {
+                hypothesis: "queue ownership".into(),
+                change: "inspect queue".into(),
+                outcome: "failed".into(),
+                command: None,
+                failure_explanation: Some("did not move binding".into()),
+                decisive_difference: None,
+            },
+        })
+        .unwrap();
+    let invalid_root = RecordRootCauseInput {
+        project: project("project-a"),
+        operation_id: Some("invalid-root".into()),
+        source_key: None,
+        case_id: problem.case_id.clone(),
+        problem_id: problem.node_id.clone(),
+        failed_attempt_ids: vec![attempt.node_id.clone()],
+        status: Some(NodeStatus::Verified),
+        human_confirmed: false,
+        data: WriteRootCauseData {
+            explanation: "session graph is synchronous".into(),
+            evidence: vec!["failed trace".into()],
+            rejected_alternatives: Vec::new(),
+            confidence: 0.95,
+        },
+    };
+    assert!(repository.record_root_cause(invalid_root).is_err());
+    let root = repository
+        .record_root_cause(RecordRootCauseInput {
+            operation_id: Some("root".into()),
+            human_confirmed: true,
+            ..RecordRootCauseInput {
+                project: project("project-a"),
+                operation_id: None,
+                source_key: None,
+                case_id: problem.case_id.clone(),
+                problem_id: problem.node_id.clone(),
+                failed_attempt_ids: vec![attempt.node_id.clone()],
+                status: Some(NodeStatus::Verified),
+                human_confirmed: false,
+                data: WriteRootCauseData {
+                    explanation: "session graph is synchronous".into(),
+                    evidence: vec!["failed trace".into()],
+                    rejected_alternatives: Vec::new(),
+                    confidence: 0.95,
+                },
+            }
+        })
+        .unwrap();
+    let solution = repository
+        .record_solution(RecordSolutionInput {
+            project: project("project-a"),
+            operation_id: Some("solution".into()),
+            source_key: None,
+            case_id: problem.case_id.clone(),
+            root_cause_id: root.node_id.clone(),
+            data: WriteSolutionData {
+                summary: "bind asynchronously".into(),
+                applicability: vec!["camera preview".into()],
+                limitations: vec!["session must remain serial".into()],
+                side_effects: Vec::new(),
+                decisive_difference: "moves graph construction off render path".into(),
+                applicability_boundary: BTreeMap::new(),
+                human_verification_required: true,
+                non_automatable_reason: None,
+            },
+        })
+        .unwrap();
+    let automated = repository
+        .record_verification(RecordVerificationInput {
+            project: project("project-a"),
+            operation_id: Some("verify-auto".into()),
+            source_key: None,
+            case_id: problem.case_id.clone(),
+            solution_id: solution.node_id.clone(),
+            data: WriteVerificationData {
+                kind: "automated".into(),
+                succeeded: true,
+                human_confirmed: false,
+                environment: BTreeMap::new(),
+                command: Some(vec!["cargo".into(), "test".into()]),
+                exit_status: Some(0),
+                source_revision: None,
+                excerpt: Some("passed".into()),
+            },
+        })
+        .unwrap();
+    let human = repository
+        .record_verification(RecordVerificationInput {
+            project: project("project-a"),
+            operation_id: Some("verify-human".into()),
+            source_key: None,
+            case_id: problem.case_id.clone(),
+            solution_id: solution.node_id.clone(),
+            data: WriteVerificationData {
+                kind: "human".into(),
+                succeeded: true,
+                human_confirmed: true,
+                environment: BTreeMap::new(),
+                command: None,
+                exit_status: None,
+                source_revision: None,
+                excerpt: Some("preview is responsive".into()),
+            },
+        })
+        .unwrap();
+    assert_eq!(human.promotion.status, NodeStatus::Verified);
+    let artifact = repository
+        .record_artifact(RecordArtifactInput {
+            project: project("project-a"),
+            operation_id: Some("artifact".into()),
+            source_key: None,
+            case_id: problem.case_id.clone(),
+            verification_id: automated.node_id,
+            data: WriteArtifactData {
+                kind: "report".into(),
+                uri: "https://example.invalid/report".into(),
+                digest: None,
+                media_type: Some("application/json".into()),
+            },
+            metadata: BTreeMap::new(),
+            is_external: true,
+        })
+        .unwrap();
+    assert!(artifact.created);
+    let guardrail = repository
+        .record_guardrail(RecordGuardrailInput {
+            project: project("project-a"),
+            operation_id: Some("guardrail".into()),
+            source_key: None,
+            case_id: problem.case_id,
+            root_cause_id: root.node_id,
+            status: Some(NodeStatus::Candidate),
+            data: WriteGuardrailData {
+                guidance: "do not bind synchronously".into(),
+                enforcement: "block".into(),
+                criteria: WriteGuardrailCriteria {
+                    task_includes: vec!["camera".into()],
+                    ..WriteGuardrailCriteria::default()
+                },
+            },
+        })
+        .unwrap();
+    assert!(guardrail.created);
+    drop(repository);
+    let connection = Connection::open(&path).unwrap();
+    assert_eq!(
+        connection
+            .query_row("SELECT count(*) FROM evidence", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        2
+    );
+    assert_eq!(
+        connection
+            .query_row("SELECT count(*) FROM artifacts", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        connection
+            .query_row("SELECT count(*) FROM guardrails", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+    std::fs::remove_file(path).unwrap();
+}
+
 fn problem_input(operation_id: &str) -> RecordProblemInput {
     RecordProblemInput {
         project: project("project-a"),
@@ -217,6 +407,8 @@ fn database(label: &str) -> std::path::PathBuf {
              CREATE TABLE operation_results (id TEXT PRIMARY KEY, project_id TEXT, operation_id TEXT, kind TEXT, result TEXT, created_at TEXT, UNIQUE(project_id,operation_id));
              CREATE TABLE command_runs (id TEXT PRIMARY KEY, project_id TEXT, case_id TEXT, attempt_node_id TEXT, command TEXT, working_directory TEXT, exit_status INTEGER, signal TEXT, duration_ms INTEGER, excerpt TEXT, raw_log_path TEXT, raw_log_digest TEXT, started_at TEXT, finished_at TEXT);
              CREATE TABLE artifacts (id TEXT PRIMARY KEY, project_id TEXT, node_id TEXT, kind TEXT, uri TEXT, digest TEXT, is_external INTEGER, metadata TEXT, created_at TEXT);
+             CREATE TABLE evidence (id TEXT PRIMARY KEY, project_id TEXT, node_id TEXT, kind TEXT, command TEXT, exit_status INTEGER, data TEXT, created_at TEXT);
+             CREATE TABLE guardrails (id TEXT PRIMARY KEY, project_id TEXT, node_id TEXT UNIQUE, enforcement TEXT, criteria TEXT, created_at TEXT);
              CREATE TABLE events (sequence INTEGER PRIMARY KEY AUTOINCREMENT, project_id TEXT, type TEXT, aggregate_id TEXT, payload TEXT, occurred_at TEXT, case_id TEXT);
              CREATE VIRTUAL TABLE node_search USING fts5(project_id UNINDEXED,node_id UNINDEXED,title,body,tokenize='unicode61');
              INSERT INTO projects VALUES ('project-a','A',NULL,'/project/a','2026-07-16T00:00:00Z');

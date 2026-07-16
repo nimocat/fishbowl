@@ -246,6 +246,175 @@ pub struct CommandResultWriteResult {
     pub created: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct WriteRootCauseData {
+    pub explanation: String,
+    pub evidence: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rejected_alternatives: Vec<String>,
+    pub confidence: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RecordRootCauseInput {
+    pub project: ProjectReference,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub operation_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_key: Option<SourceKey>,
+    pub case_id: String,
+    pub problem_id: String,
+    #[serde(default)]
+    pub failed_attempt_ids: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<NodeStatus>,
+    #[serde(default)]
+    pub human_confirmed: bool,
+    pub data: WriteRootCauseData,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct WriteSolutionData {
+    pub summary: String,
+    pub applicability: Vec<String>,
+    pub limitations: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub side_effects: Vec<String>,
+    pub decisive_difference: String,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub applicability_boundary: BTreeMap<String, Vec<String>>,
+    #[serde(default)]
+    pub human_verification_required: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub non_automatable_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RecordSolutionInput {
+    pub project: ProjectReference,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub operation_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_key: Option<SourceKey>,
+    pub case_id: String,
+    pub root_cause_id: String,
+    pub data: WriteSolutionData,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct WriteVerificationData {
+    pub kind: String,
+    pub succeeded: bool,
+    #[serde(default)]
+    pub human_confirmed: bool,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub environment: BTreeMap<String, String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exit_status: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_revision: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub excerpt: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RecordVerificationInput {
+    pub project: ProjectReference,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub operation_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_key: Option<SourceKey>,
+    pub case_id: String,
+    pub solution_id: String,
+    pub data: WriteVerificationData,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct WriteArtifactData {
+    pub kind: String,
+    pub uri: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub digest: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub media_type: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RecordArtifactInput {
+    pub project: ProjectReference,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub operation_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_key: Option<SourceKey>,
+    pub case_id: String,
+    pub verification_id: String,
+    pub data: WriteArtifactData,
+    #[serde(default)]
+    pub metadata: BTreeMap<String, Value>,
+    #[serde(default)]
+    pub is_external: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ArtifactWriteResult {
+    pub case_id: String,
+    pub node_id: String,
+    pub artifact_id: String,
+    pub promotion: PromotionStatus,
+    pub created: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct WriteGuardrailCriteria {
+    #[serde(default)]
+    pub task_includes: Vec<String>,
+    #[serde(default)]
+    pub command_includes: Vec<String>,
+    #[serde(default)]
+    pub file_includes: Vec<String>,
+    #[serde(default)]
+    pub task_includes_any: Vec<String>,
+    #[serde(default)]
+    pub command_includes_any: Vec<String>,
+    #[serde(default)]
+    pub file_includes_any: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct WriteGuardrailData {
+    pub guidance: String,
+    pub enforcement: String,
+    pub criteria: WriteGuardrailCriteria,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RecordGuardrailInput {
+    pub project: ProjectReference,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub operation_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_key: Option<SourceKey>,
+    pub case_id: String,
+    pub root_cause_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<NodeStatus>,
+    pub data: WriteGuardrailData,
+}
+
 impl Validate for ProjectReference {
     fn validate(&self) -> Result<(), ErrorCode> {
         match (&self.project_id, &self.project_root) {

@@ -371,3 +371,8 @@
 - Next slice GREEN: command start/result now enforces project-root ownership,
   stores one redacted command row, appends ordered started/recorded/completed
   lifecycle events, and replays an operation ID without duplicate rows.
+- Causal-chain GREEN: RootCause, Solution, Verification, Artifact, and
+  Guardrail now write nodes, causal edges, evidence/artifact/guardrail rows,
+  search records, events, and idempotency state atomically. Verified RootCause
+  rejects missing human confirmation and non-failed Attempt evidence. Mixed
+  verification promotes through the existing Rust policy.

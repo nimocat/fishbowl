@@ -1,9 +1,11 @@
 use chrono::Utc;
 use ekg_contracts::{
-    CommandResultWriteResult, CommandStartedResult, NodeStatus, NodeWriteResult, ProjectReference,
-    PromotionStatus, RecordAttemptInput, RecordCommandResultInput, RecordCommandStartedInput,
-    RecordProblemInput, SourceKey, Validate,
+    ArtifactWriteResult, CommandResultWriteResult, CommandStartedResult, NodeStatus,
+    NodeWriteResult, ProjectReference, PromotionStatus, RecordArtifactInput, RecordAttemptInput,
+    RecordCommandResultInput, RecordCommandStartedInput, RecordGuardrailInput, RecordProblemInput,
+    RecordRootCauseInput, RecordSolutionInput, RecordVerificationInput, SourceKey, Validate,
 };
+use ekg_core::{PromotionEvidence, PromotionRequirement, evaluate_promotion};
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -450,6 +452,731 @@ impl WriteRepository {
         )?;
         transaction.commit()?;
         Ok(result)
+    }
+
+    pub fn record_root_cause(
+        &mut self,
+        input: RecordRootCauseInput,
+    ) -> Result<NodeWriteResult, WriteError> {
+        input.project.validate().map_err(|_| WriteError::Contract)?;
+        if input.data.explanation.trim().is_empty()
+            || input.data.evidence.is_empty()
+            || input
+                .data
+                .evidence
+                .iter()
+                .any(|item| item.trim().is_empty())
+            || !input.data.confidence.is_finite()
+            || !(0.0..=1.0).contains(&input.data.confidence)
+            || input.status.is_some_and(|status| {
+                !matches!(status, NodeStatus::Candidate | NodeStatus::Verified)
+            })
+            || input.status == Some(NodeStatus::Verified) && !input.human_confirmed
+        {
+            return Err(WriteError::Validation("root cause"));
+        }
+        validate_identity(input.operation_id.as_deref(), input.source_key.as_ref())?;
+        let transaction = self.connection.transaction()?;
+        let project_id = resolve_project(&transaction, &input.project)?;
+        if let Some(mut result) = replay_operation::<NodeWriteResult>(
+            &transaction,
+            &project_id,
+            input.operation_id.as_deref(),
+            "record_root_cause",
+        )? {
+            result.created = false;
+            transaction.commit()?;
+            return Ok(result);
+        }
+        if let Some(result) = replay_source(
+            &transaction,
+            &project_id,
+            input.source_key.as_ref(),
+            "RootCause",
+        )? {
+            store_operation(
+                &transaction,
+                &project_id,
+                input.operation_id.as_deref(),
+                "record_root_cause",
+                &result,
+            )?;
+            transaction.commit()?;
+            return Ok(result);
+        }
+        let case_title = require_case(&transaction, &project_id, &input.case_id)?;
+        require_node(
+            &transaction,
+            &project_id,
+            &input.case_id,
+            &input.problem_id,
+            "Problem",
+        )?;
+        for attempt_id in &input.failed_attempt_ids {
+            require_node(
+                &transaction,
+                &project_id,
+                &input.case_id,
+                attempt_id,
+                "Attempt",
+            )?;
+            let data: String = transaction.query_row(
+                "SELECT data FROM nodes WHERE id = ?",
+                params![attempt_id],
+                |row| row.get(0),
+            )?;
+            if serde_json::from_str::<Value>(&data)?
+                .get("outcome")
+                .and_then(Value::as_str)
+                != Some("failed")
+            {
+                return Err(WriteError::Validation("root cause failed attempt"));
+            }
+        }
+        let now = timestamp();
+        let data = redact_value(serde_json::to_value(&input.data)?);
+        let node_id = insert_node(
+            &transaction,
+            &project_id,
+            &input.case_id,
+            &case_title,
+            "RootCause",
+            status_text(input.status.unwrap_or(NodeStatus::Candidate)),
+            &data,
+            &now,
+        )?;
+        add_edge(
+            &transaction,
+            &project_id,
+            &input.case_id,
+            &node_id,
+            "CAUSES",
+            &input.problem_id,
+            &now,
+        )?;
+        for attempt_id in &input.failed_attempt_ids {
+            add_edge(
+                &transaction,
+                &project_id,
+                &input.case_id,
+                attempt_id,
+                "FAILED_BECAUSE",
+                &node_id,
+                &now,
+            )?;
+        }
+        let promotion = evaluate_case_promotion(&transaction, &project_id, &input.case_id, true)?;
+        let result = NodeWriteResult {
+            case_id: input.case_id,
+            node_id: node_id.clone(),
+            promotion,
+            created: true,
+        };
+        store_source(
+            &transaction,
+            &project_id,
+            input.source_key.as_ref(),
+            &node_id,
+            &now,
+        )?;
+        store_operation(
+            &transaction,
+            &project_id,
+            input.operation_id.as_deref(),
+            "record_root_cause",
+            &result,
+        )?;
+        transaction.commit()?;
+        Ok(result)
+    }
+
+    pub fn record_solution(
+        &mut self,
+        input: RecordSolutionInput,
+    ) -> Result<NodeWriteResult, WriteError> {
+        input.project.validate().map_err(|_| WriteError::Contract)?;
+        if input.data.summary.trim().is_empty()
+            || input.data.applicability.is_empty()
+            || input.data.limitations.is_empty()
+            || input.data.decisive_difference.trim().is_empty()
+        {
+            return Err(WriteError::Validation("solution"));
+        }
+        validate_identity(input.operation_id.as_deref(), input.source_key.as_ref())?;
+        let transaction = self.connection.transaction()?;
+        let project_id = resolve_project(&transaction, &input.project)?;
+        if let Some(mut result) = replay_operation::<NodeWriteResult>(
+            &transaction,
+            &project_id,
+            input.operation_id.as_deref(),
+            "record_solution",
+        )? {
+            result.created = false;
+            transaction.commit()?;
+            return Ok(result);
+        }
+        if let Some(result) = replay_source(
+            &transaction,
+            &project_id,
+            input.source_key.as_ref(),
+            "Solution",
+        )? {
+            store_operation(
+                &transaction,
+                &project_id,
+                input.operation_id.as_deref(),
+                "record_solution",
+                &result,
+            )?;
+            transaction.commit()?;
+            return Ok(result);
+        }
+        let case_title = require_case(&transaction, &project_id, &input.case_id)?;
+        require_node(
+            &transaction,
+            &project_id,
+            &input.case_id,
+            &input.root_cause_id,
+            "RootCause",
+        )?;
+        let now = timestamp();
+        let data = redact_value(serde_json::to_value(&input.data)?);
+        let node_id = insert_node(
+            &transaction,
+            &project_id,
+            &input.case_id,
+            &case_title,
+            "Solution",
+            "candidate",
+            &data,
+            &now,
+        )?;
+        add_edge(
+            &transaction,
+            &project_id,
+            &input.case_id,
+            &node_id,
+            "ADDRESSES",
+            &input.root_cause_id,
+            &now,
+        )?;
+        let promotion = evaluate_case_promotion(&transaction, &project_id, &input.case_id, true)?;
+        let result = NodeWriteResult {
+            case_id: input.case_id,
+            node_id: node_id.clone(),
+            promotion,
+            created: true,
+        };
+        store_source(
+            &transaction,
+            &project_id,
+            input.source_key.as_ref(),
+            &node_id,
+            &now,
+        )?;
+        store_operation(
+            &transaction,
+            &project_id,
+            input.operation_id.as_deref(),
+            "record_solution",
+            &result,
+        )?;
+        transaction.commit()?;
+        Ok(result)
+    }
+
+    pub fn record_verification(
+        &mut self,
+        input: RecordVerificationInput,
+    ) -> Result<NodeWriteResult, WriteError> {
+        input.project.validate().map_err(|_| WriteError::Contract)?;
+        const ENVIRONMENT_KEYS: [&str; 6] = [
+            "os",
+            "toolVersion",
+            "architecture",
+            "scheme",
+            "destination",
+            "configuration",
+        ];
+        if !matches!(input.data.kind.as_str(), "automated" | "human")
+            || input.data.kind == "automated" && input.data.human_confirmed
+            || input
+                .data
+                .environment
+                .keys()
+                .any(|key| !ENVIRONMENT_KEYS.contains(&key.as_str()))
+        {
+            return Err(WriteError::Validation("verification"));
+        }
+        validate_identity(input.operation_id.as_deref(), input.source_key.as_ref())?;
+        let transaction = self.connection.transaction()?;
+        let project_id = resolve_project(&transaction, &input.project)?;
+        if let Some(mut result) = replay_operation::<NodeWriteResult>(
+            &transaction,
+            &project_id,
+            input.operation_id.as_deref(),
+            "record_verification",
+        )? {
+            result.created = false;
+            transaction.commit()?;
+            return Ok(result);
+        }
+        if let Some(result) = replay_source(
+            &transaction,
+            &project_id,
+            input.source_key.as_ref(),
+            "Verification",
+        )? {
+            store_operation(
+                &transaction,
+                &project_id,
+                input.operation_id.as_deref(),
+                "record_verification",
+                &result,
+            )?;
+            transaction.commit()?;
+            return Ok(result);
+        }
+        let case_title = require_case(&transaction, &project_id, &input.case_id)?;
+        require_node(
+            &transaction,
+            &project_id,
+            &input.case_id,
+            &input.solution_id,
+            "Solution",
+        )?;
+        let now = timestamp();
+        let data = redact_value(serde_json::to_value(&input.data)?);
+        let node_id = insert_node(
+            &transaction,
+            &project_id,
+            &input.case_id,
+            &case_title,
+            "Verification",
+            if input.data.succeeded {
+                "verified"
+            } else {
+                "open"
+            },
+            &data,
+            &now,
+        )?;
+        add_edge(
+            &transaction,
+            &project_id,
+            &input.case_id,
+            &input.solution_id,
+            "VERIFIED_BY",
+            &node_id,
+            &now,
+        )?;
+        transaction.execute(
+            "INSERT INTO evidence (id, project_id, node_id, kind, command, exit_status, data, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            params![id(), project_id, node_id, input.data.kind, input.data.command.as_ref().map(serde_json::to_string).transpose()?, input.data.exit_status, serde_json::to_string(&data)?, now],
+        )?;
+        append_event(
+            &transaction,
+            &project_id,
+            Some(&input.case_id),
+            "verification.recorded",
+            &node_id,
+            &json!({"caseId": input.case_id, "solutionId": input.solution_id, "verificationId": node_id, "kind": input.data.kind, "succeeded": input.data.succeeded}),
+            &now,
+        )?;
+        let promotion = evaluate_case_promotion(&transaction, &project_id, &input.case_id, true)?;
+        let result = NodeWriteResult {
+            case_id: input.case_id,
+            node_id: node_id.clone(),
+            promotion,
+            created: true,
+        };
+        store_source(
+            &transaction,
+            &project_id,
+            input.source_key.as_ref(),
+            &node_id,
+            &now,
+        )?;
+        store_operation(
+            &transaction,
+            &project_id,
+            input.operation_id.as_deref(),
+            "record_verification",
+            &result,
+        )?;
+        transaction.commit()?;
+        Ok(result)
+    }
+
+    pub fn record_artifact(
+        &mut self,
+        input: RecordArtifactInput,
+    ) -> Result<ArtifactWriteResult, WriteError> {
+        input.project.validate().map_err(|_| WriteError::Contract)?;
+        if input.data.kind.trim().is_empty() || input.data.uri.trim().is_empty() {
+            return Err(WriteError::Validation("artifact"));
+        }
+        validate_identity(input.operation_id.as_deref(), input.source_key.as_ref())?;
+        let transaction = self.connection.transaction()?;
+        let project_id = resolve_project(&transaction, &input.project)?;
+        if let Some(mut result) = replay_operation::<ArtifactWriteResult>(
+            &transaction,
+            &project_id,
+            input.operation_id.as_deref(),
+            "record_artifact",
+        )? {
+            result.created = false;
+            transaction.commit()?;
+            return Ok(result);
+        }
+        if !input.is_external {
+            require_project_path(&transaction, &project_id, &input.data.uri)?;
+        }
+        let case_title = require_case(&transaction, &project_id, &input.case_id)?;
+        require_node(
+            &transaction,
+            &project_id,
+            &input.case_id,
+            &input.verification_id,
+            "Verification",
+        )?;
+        let now = timestamp();
+        let data = redact_value(serde_json::to_value(&input.data)?);
+        let node_id = insert_node(
+            &transaction,
+            &project_id,
+            &input.case_id,
+            &case_title,
+            "Artifact",
+            "candidate",
+            &data,
+            &now,
+        )?;
+        add_edge(
+            &transaction,
+            &project_id,
+            &input.case_id,
+            &input.verification_id,
+            "REFERENCES",
+            &node_id,
+            &now,
+        )?;
+        let artifact_id = id();
+        transaction.execute(
+            "INSERT INTO artifacts (id, project_id, node_id, kind, uri, digest, is_external, metadata, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            params![artifact_id, project_id, node_id, input.data.kind, redact_string(&input.data.uri), input.data.digest.as_deref().map(redact_string), i64::from(input.is_external), serde_json::to_string(&redact_value(serde_json::to_value(&input.metadata)?))?, now],
+        )?;
+        append_event(
+            &transaction,
+            &project_id,
+            Some(&input.case_id),
+            "artifact.recorded",
+            &artifact_id,
+            &json!({"caseId": input.case_id, "nodeId": node_id, "artifactId": artifact_id}),
+            &now,
+        )?;
+        let result = ArtifactWriteResult {
+            case_id: input.case_id.clone(),
+            node_id: node_id.clone(),
+            artifact_id,
+            promotion: evaluate_case_promotion(&transaction, &project_id, &input.case_id, false)?,
+            created: true,
+        };
+        store_source(
+            &transaction,
+            &project_id,
+            input.source_key.as_ref(),
+            &node_id,
+            &now,
+        )?;
+        store_operation(
+            &transaction,
+            &project_id,
+            input.operation_id.as_deref(),
+            "record_artifact",
+            &result,
+        )?;
+        transaction.commit()?;
+        Ok(result)
+    }
+
+    pub fn record_guardrail(
+        &mut self,
+        input: RecordGuardrailInput,
+    ) -> Result<NodeWriteResult, WriteError> {
+        input.project.validate().map_err(|_| WriteError::Contract)?;
+        let criteria_count = input.data.criteria.task_includes.len()
+            + input.data.criteria.command_includes.len()
+            + input.data.criteria.file_includes.len()
+            + input.data.criteria.task_includes_any.len()
+            + input.data.criteria.command_includes_any.len()
+            + input.data.criteria.file_includes_any.len();
+        if input.data.guidance.trim().is_empty()
+            || !matches!(input.data.enforcement.as_str(), "advise" | "warn" | "block")
+            || criteria_count == 0
+            || input.status.is_some_and(|status| {
+                !matches!(status, NodeStatus::Candidate | NodeStatus::Verified)
+            })
+        {
+            return Err(WriteError::Validation("guardrail"));
+        }
+        validate_identity(input.operation_id.as_deref(), input.source_key.as_ref())?;
+        let transaction = self.connection.transaction()?;
+        let project_id = resolve_project(&transaction, &input.project)?;
+        if let Some(mut result) = replay_operation::<NodeWriteResult>(
+            &transaction,
+            &project_id,
+            input.operation_id.as_deref(),
+            "record_guardrail",
+        )? {
+            result.created = false;
+            transaction.commit()?;
+            return Ok(result);
+        }
+        let case_title = require_case(&transaction, &project_id, &input.case_id)?;
+        require_node(
+            &transaction,
+            &project_id,
+            &input.case_id,
+            &input.root_cause_id,
+            "RootCause",
+        )?;
+        let now = timestamp();
+        let data = redact_value(serde_json::to_value(&input.data)?);
+        let node_id = insert_node(
+            &transaction,
+            &project_id,
+            &input.case_id,
+            &case_title,
+            "Guardrail",
+            status_text(input.status.unwrap_or(NodeStatus::Candidate)),
+            &data,
+            &now,
+        )?;
+        add_edge(
+            &transaction,
+            &project_id,
+            &input.case_id,
+            &node_id,
+            "PREVENTS",
+            &input.root_cause_id,
+            &now,
+        )?;
+        transaction.execute(
+            "INSERT INTO guardrails (id, project_id, node_id, enforcement, criteria, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            params![id(), project_id, node_id, input.data.enforcement, serde_json::to_string(&input.data.criteria)?, now],
+        )?;
+        append_event(
+            &transaction,
+            &project_id,
+            Some(&input.case_id),
+            "guardrail.recorded",
+            &node_id,
+            &json!({"caseId": input.case_id, "guardrailId": node_id, "enforcement": input.data.enforcement}),
+            &now,
+        )?;
+        let result = NodeWriteResult {
+            case_id: input.case_id.clone(),
+            node_id: node_id.clone(),
+            promotion: evaluate_case_promotion(&transaction, &project_id, &input.case_id, false)?,
+            created: true,
+        };
+        store_source(
+            &transaction,
+            &project_id,
+            input.source_key.as_ref(),
+            &node_id,
+            &now,
+        )?;
+        store_operation(
+            &transaction,
+            &project_id,
+            input.operation_id.as_deref(),
+            "record_guardrail",
+            &result,
+        )?;
+        transaction.commit()?;
+        Ok(result)
+    }
+}
+
+fn insert_node(
+    transaction: &Transaction<'_>,
+    project_id: &str,
+    case_id: &str,
+    case_title: &str,
+    node_type: &str,
+    status: &str,
+    data: &Value,
+    now: &str,
+) -> Result<String, WriteError> {
+    let node_id = id();
+    transaction.execute(
+        "INSERT INTO nodes (id, case_id, type, status, data, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        params![
+            node_id,
+            case_id,
+            node_type,
+            status,
+            serde_json::to_string(data)?,
+            now
+        ],
+    )?;
+    index_node(transaction, project_id, &node_id, case_title, data)?;
+    append_event(
+        transaction,
+        project_id,
+        Some(case_id),
+        "node.added",
+        &node_id,
+        &json!({"caseId": case_id, "nodeId": node_id, "type": node_type, "status": status}),
+        now,
+    )?;
+    Ok(node_id)
+}
+
+fn evaluate_case_promotion(
+    transaction: &Transaction<'_>,
+    project_id: &str,
+    case_id: &str,
+    mutate: bool,
+) -> Result<PromotionStatus, WriteError> {
+    require_case(transaction, project_id, case_id)?;
+    let root_rows = transaction
+        .prepare("SELECT status, data FROM nodes WHERE case_id = ? AND type = 'RootCause'")?
+        .query_map(params![case_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    let root_cause_verified = root_rows.iter().any(|(status, _)| status == "verified");
+    let root_cause_evidence_count = root_rows
+        .iter()
+        .filter_map(|(_, data)| serde_json::from_str::<Value>(data).ok())
+        .filter_map(|data| data.get("evidence").and_then(Value::as_array).map(Vec::len))
+        .sum();
+    let solution_rows = transaction
+        .prepare("SELECT id, data FROM nodes WHERE case_id = ? AND type = 'Solution' ORDER BY created_at DESC, id DESC")?
+        .query_map(params![case_id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+        .collect::<Result<Vec<_>, _>>()?;
+    let solution = solution_rows
+        .first()
+        .and_then(|(_, data)| serde_json::from_str::<Value>(data).ok());
+    let solution_id = solution_rows.first().map(|(id, _)| id.as_str());
+    let verifications = if let Some(solution_id) = solution_id {
+        transaction
+            .prepare("SELECT nodes.data FROM edges JOIN nodes ON nodes.id = edges.target_id WHERE edges.case_id = ? AND edges.source_id = ? AND edges.relation = 'VERIFIED_BY' AND nodes.type = 'Verification'")?
+            .query_map(params![case_id, solution_id], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .filter_map(|data| serde_json::from_str::<Value>(&data).ok())
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    let successful_automated_verification_count = verifications
+        .iter()
+        .filter(|data| {
+            data.get("kind").and_then(Value::as_str) == Some("automated")
+                && data.get("succeeded").and_then(Value::as_bool) == Some(true)
+        })
+        .count();
+    let human_verification_present = verifications.iter().any(|data| {
+        data.get("kind").and_then(Value::as_str) == Some("human")
+            && data.get("succeeded").and_then(Value::as_bool) == Some(true)
+    });
+    let human_confirmed = verifications.iter().any(|data| {
+        data.get("kind").and_then(Value::as_str) == Some("human")
+            && data.get("succeeded").and_then(Value::as_bool) == Some(true)
+            && data.get("humanConfirmed").and_then(Value::as_bool) == Some(true)
+    });
+    let strings = |key: &str| {
+        solution
+            .as_ref()
+            .and_then(|data| data.get(key))
+            .and_then(Value::as_array)
+            .map(|values| {
+                values
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let evaluation = evaluate_promotion(&PromotionEvidence {
+        root_cause_evidence_count,
+        root_cause_verified,
+        successful_automated_verification_count,
+        non_automatable_reason: solution
+            .as_ref()
+            .and_then(|data| data.get("nonAutomatableReason"))
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+        human_verification_required: solution
+            .as_ref()
+            .and_then(|data| data.get("humanVerificationRequired"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        human_verification_present,
+        human_confirmed,
+        applicability: strings("applicability"),
+        limitations: strings("limitations"),
+        decisive_difference: solution
+            .as_ref()
+            .and_then(|data| data.get("decisiveDifference"))
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned(),
+    });
+    if mutate && evaluation.eligible {
+        transaction.execute(
+            "UPDATE cases SET status = 'verified' WHERE id = ? AND project_id = ?",
+            params![case_id, project_id],
+        )?;
+        if let Some(solution_id) = solution_id {
+            transaction.execute(
+                "UPDATE nodes SET status = 'verified' WHERE id = ?",
+                params![solution_id],
+            )?;
+        }
+    }
+    Ok(PromotionStatus {
+        status: if evaluation.eligible {
+            NodeStatus::Verified
+        } else {
+            NodeStatus::Candidate
+        },
+        missing_requirements: evaluation
+            .missing_requirements
+            .into_iter()
+            .map(requirement_text)
+            .map(str::to_owned)
+            .collect(),
+    })
+}
+
+fn requirement_text(requirement: PromotionRequirement) -> &'static str {
+    match requirement {
+        PromotionRequirement::RootCauseEvidence => "root-cause-evidence",
+        PromotionRequirement::VerifiedRootCause => "verified-root-cause",
+        PromotionRequirement::AutomatedVerificationOrException => {
+            "automated-verification-or-exception"
+        }
+        PromotionRequirement::RequiredHumanVerification => "required-human-verification",
+        PromotionRequirement::HumanConfirmation => "human-confirmation",
+        PromotionRequirement::Applicability => "applicability",
+        PromotionRequirement::Limitations => "limitations",
+        PromotionRequirement::DecisiveDifference => "decisive-difference",
+    }
+}
+
+fn status_text(status: NodeStatus) -> &'static str {
+    match status {
+        NodeStatus::Open => "open",
+        NodeStatus::Candidate => "candidate",
+        NodeStatus::Verified => "verified",
+        NodeStatus::Regressed => "regressed",
+        NodeStatus::Retired => "retired",
     }
 }
 
