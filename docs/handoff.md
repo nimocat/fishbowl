@@ -81,7 +81,9 @@ project ownership, operation/source idempotency, event/edge/FTS ordering,
 recursive redaction, and injected rollback tests. A focused sentinel test
 caught and fixed a `token: value` cross-word redaction leak. Project
 registration/update is now also Rust-owned with canonical path conflicts and
-atomic metadata/alias updates. Import/export, snapshot parity, and migration/
+atomic metadata/alias updates. Versioned snapshot export/import is Rust-owned
+with deterministic remapping, trust downgrade, redaction, relation/cycle
+validation, and local Artifact relocation. Source preview/apply plus migration/
 backup/recovery are still required. The installed TypeScript daemon remains
 the sole writer.
 

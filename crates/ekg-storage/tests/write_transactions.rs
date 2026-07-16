@@ -3,15 +3,15 @@ use std::collections::BTreeMap;
 use ekg_contracts::{
     ApplyCaseMergeInput, CheckpointProblemInput, CheckpointRootCauseAssertion,
     CheckpointSolutionAssertion, CheckpointWorkInput, CheckpointWrite, CloseCaseInput,
-    FinalizeCommitInput, FinalizeMergeInput, FinalizeRootCauseInput, FinalizeSolutionInput,
-    FinalizeVerificationInput, FinalizeWorkInput, MarkRegressionInput, NodeStatus,
-    ProjectReference, RecordArtifactInput, RecordAttemptInput, RecordCheckpointInput,
-    RecordCommandResultInput, RecordCommandStartedInput, RecordGuardrailInput, RecordProblemInput,
-    RecordRootCauseInput, RecordSolutionInput, RecordVerificationInput, RegisterProjectInput,
-    RegressionOutcomeContract, ReportRelevanceInput, SourceKey, SuggestCaseMergesInput,
-    UpdateProjectInput, WriteArtifactData, WriteAttemptData, WriteGuardrailCriteria,
-    WriteGuardrailData, WriteProblemData, WriteRootCauseData, WriteSolutionData,
-    WriteVerificationData,
+    ExportProjectGraphInput, FinalizeCommitInput, FinalizeMergeInput, FinalizeRootCauseInput,
+    FinalizeSolutionInput, FinalizeVerificationInput, FinalizeWorkInput, ImportProjectGraphInput,
+    MarkRegressionInput, NodeStatus, ProjectReference, RecordArtifactInput, RecordAttemptInput,
+    RecordCheckpointInput, RecordCommandResultInput, RecordCommandStartedInput,
+    RecordGuardrailInput, RecordProblemInput, RecordRootCauseInput, RecordSolutionInput,
+    RecordVerificationInput, RegisterProjectInput, RegressionOutcomeContract, RelationType,
+    ReportRelevanceInput, SnapshotEdge, SourceKey, SuggestCaseMergesInput, UpdateProjectInput,
+    WriteArtifactData, WriteAttemptData, WriteGuardrailCriteria, WriteGuardrailData,
+    WriteProblemData, WriteRootCauseData, WriteSolutionData, WriteVerificationData,
 };
 use ekg_storage::{WriteFaultPoint, WriteRepository};
 use rusqlite::Connection;
@@ -749,6 +749,151 @@ fn project_registration_and_update_are_atomic_canonical_and_idempotent() {
     std::fs::remove_file(path).unwrap();
     std::fs::remove_dir(root).unwrap();
     std::fs::remove_dir(alias).unwrap();
+}
+
+#[test]
+fn snapshot_export_import_is_bounded_redacted_atomic_and_idempotent() {
+    let path = database("snapshot");
+    let source_root =
+        std::env::temp_dir().join(format!("ekg-snapshot-source-{}", std::process::id()));
+    let target_root =
+        std::env::temp_dir().join(format!("ekg-snapshot-target-{}", std::process::id()));
+    std::fs::create_dir_all(&source_root).unwrap();
+    std::fs::create_dir_all(&target_root).unwrap();
+    let mut repository = WriteRepository::open(path.to_str().unwrap()).unwrap();
+    let source = repository
+        .register_project(RegisterProjectInput {
+            name: "Source".into(),
+            root: source_root.to_string_lossy().into_owned(),
+            description: None,
+            operation_id: Some("snapshot-source".into()),
+        })
+        .unwrap();
+    let target = repository
+        .register_project(RegisterProjectInput {
+            name: "Target".into(),
+            root: target_root.to_string_lossy().into_owned(),
+            description: None,
+            operation_id: Some("snapshot-target".into()),
+        })
+        .unwrap();
+    let mut problem_input = problem_input("snapshot-problem");
+    problem_input.project = project(&source.id);
+    let problem = repository.record_problem(problem_input).unwrap();
+    let artifact_node_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    let artifact_id = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    let local_uri = source_root
+        .join("logs/trace.log")
+        .to_string_lossy()
+        .into_owned();
+    let connection = Connection::open(&path).unwrap();
+    connection
+        .execute(
+            "INSERT INTO nodes VALUES (?, ?, 'Artifact', 'candidate', ?, '2026-07-16T00:00:00Z')",
+            rusqlite::params![
+                artifact_node_id,
+                problem.case_id,
+                serde_json::json!({"kind":"trace","uri":local_uri}).to_string()
+            ],
+        )
+        .unwrap();
+    connection
+        .execute(
+            "INSERT INTO node_search (project_id,node_id,title,body) VALUES (?,?,?,?)",
+            rusqlite::params![source.id, artifact_node_id, "Trace", "trace artifact"],
+        )
+        .unwrap();
+    connection
+        .execute(
+            "INSERT INTO artifacts VALUES (?,?,?,?,?,NULL,0,'{}','2026-07-16T00:00:00Z')",
+            rusqlite::params![artifact_id, source.id, artifact_node_id, "trace", local_uri],
+        )
+        .unwrap();
+    drop(connection);
+    let archive = repository
+        .export_project_graph(ExportProjectGraphInput {
+            project: project(&source.id),
+        })
+        .unwrap();
+    let encoded = serde_json::to_string(&archive).unwrap();
+    assert!(!encoded.contains("secret-value"));
+    assert!(!encoded.contains(source_root.to_string_lossy().as_ref()));
+    assert!(encoded.contains("[PROJECT_ROOT]/logs/trace.log"));
+    assert_eq!(archive.cases.len(), 1);
+    assert_eq!(archive.nodes.len(), 2);
+    assert!(archive.nodes.iter().any(|node| node.id == problem.node_id));
+
+    let input = ImportProjectGraphInput {
+        project: project(&target.id),
+        archive: archive.clone(),
+        operation_id: "snapshot-import".into(),
+    };
+    let first = repository.import_project_graph(input.clone()).unwrap();
+    let replay = repository.import_project_graph(input).unwrap();
+    assert_eq!(first, replay);
+    assert_eq!(first.created.cases, 1);
+    assert_eq!(first.created.nodes, 2);
+    assert_eq!(first.created.artifacts, 1);
+    assert_eq!(first.target_project_id, target.id);
+
+    let before = counts(&path);
+    let mut invalid = archive;
+    invalid.cases[0].project_id = "foreign-project".into();
+    assert!(
+        repository
+            .import_project_graph(ImportProjectGraphInput {
+                project: project(&target.id),
+                archive: invalid,
+                operation_id: "snapshot-invalid".into(),
+            })
+            .is_err()
+    );
+    assert_eq!(counts(&path), before);
+
+    let mut invalid_relation = repository
+        .export_project_graph(ExportProjectGraphInput {
+            project: project(&source.id),
+        })
+        .unwrap();
+    invalid_relation.edges.push(SnapshotEdge {
+        id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc".into(),
+        case_id: problem.case_id.clone(),
+        source_id: problem.node_id.clone(),
+        relation: RelationType::Addresses,
+        target_id: artifact_node_id.into(),
+        created_at: "2026-07-16T00:00:00Z".into(),
+    });
+    assert!(
+        repository
+            .import_project_graph(ImportProjectGraphInput {
+                project: project(&target.id),
+                archive: invalid_relation,
+                operation_id: "snapshot-invalid-relation".into(),
+            })
+            .is_err()
+    );
+    assert_eq!(counts(&path), before);
+
+    let connection = Connection::open(&path).unwrap();
+    let imported_uri: String = connection
+        .query_row(
+            "SELECT uri FROM artifacts WHERE project_id = ?",
+            [&target.id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        imported_uri,
+        std::fs::canonicalize(&target_root)
+            .unwrap()
+            .join("logs/trace.log")
+            .to_string_lossy()
+    );
+    drop(connection);
+
+    std::fs::remove_file(path).unwrap();
+    std::fs::remove_dir(source_root).unwrap();
+    std::fs::remove_dir(target_root).unwrap();
 }
 
 fn problem_input(operation_id: &str) -> RecordProblemInput {

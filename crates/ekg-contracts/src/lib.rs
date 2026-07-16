@@ -160,6 +160,148 @@ pub struct UpdateProjectInput {
     pub operation_id: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SnapshotProject {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SnapshotCase {
+    pub id: String,
+    pub project_id: String,
+    pub title: String,
+    pub status: NodeStatus,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SnapshotNode {
+    pub id: String,
+    pub case_id: String,
+    #[serde(rename = "type")]
+    pub node_type: NodeType,
+    pub status: NodeStatus,
+    pub data: BTreeMap<String, Value>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SnapshotEdge {
+    pub id: String,
+    pub case_id: String,
+    pub source_id: String,
+    pub relation: RelationType,
+    pub target_id: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SnapshotEvidence {
+    pub id: String,
+    pub project_id: String,
+    pub node_id: String,
+    pub kind: EvidenceKind,
+    pub command: Option<Vec<String>>,
+    pub exit_status: Option<i32>,
+    pub data: BTreeMap<String, Value>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SnapshotFingerprint {
+    pub id: String,
+    pub project_id: String,
+    pub problem_node_id: String,
+    pub algorithm: String,
+    pub value: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SnapshotGuardrail {
+    pub id: String,
+    pub project_id: String,
+    pub node_id: String,
+    pub enforcement: String,
+    pub criteria: BTreeMap<String, Value>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SnapshotArtifact {
+    pub id: String,
+    pub project_id: String,
+    pub node_id: Option<String>,
+    pub kind: String,
+    pub uri: String,
+    pub digest: Option<String>,
+    pub is_external: bool,
+    pub metadata: BTreeMap<String, Value>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProjectGraphSnapshot {
+    pub format: String,
+    pub version: u32,
+    pub exported_at: String,
+    pub project: SnapshotProject,
+    pub cases: Vec<SnapshotCase>,
+    pub nodes: Vec<SnapshotNode>,
+    pub edges: Vec<SnapshotEdge>,
+    pub evidence: Vec<SnapshotEvidence>,
+    pub fingerprints: Vec<SnapshotFingerprint>,
+    pub guardrails: Vec<SnapshotGuardrail>,
+    pub artifacts: Vec<SnapshotArtifact>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExportProjectGraphInput {
+    pub project: ProjectReference,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ImportProjectGraphInput {
+    pub project: ProjectReference,
+    pub archive: ProjectGraphSnapshot,
+    pub operation_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SnapshotCreatedCounts {
+    pub cases: usize,
+    pub nodes: usize,
+    pub edges: usize,
+    pub evidence: usize,
+    pub fingerprints: usize,
+    pub guardrails: usize,
+    pub artifacts: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ImportProjectGraphResult {
+    pub source_project_id: String,
+    pub target_project_id: String,
+    pub id_map: BTreeMap<String, String>,
+    pub created: SnapshotCreatedCounts,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SourceKey {
@@ -1124,7 +1266,7 @@ impl Validate for PreflightResult {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum RelationType {
     AttemptsToSolve,

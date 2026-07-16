@@ -394,3 +394,11 @@
   while preserving secret removal.
 - Remaining Stage 6 is narrowed to import/export snapshot parity and schema
   migration, production-copy integrity, backup, interruption, and recovery.
+- Snapshot GREEN: Rust typed snapshot export/import now enforces 1 MiB and
+  10,000-row bounds, UUID and project ownership, allowed relations, acyclic
+  graphs, deterministic SHA-256 IDs, imported-trust downgrade, operation replay,
+  secret/root redaction, and `[PROJECT_ROOT]` local Artifact relocation. The
+  complete write suite passes 10/10 and invalid ownership/relation archives
+  leave zero mutation.
+- Remaining Stage 6 is source preview/apply parsing and database migration,
+  production-copy integrity, backup, interruption, and recovery.

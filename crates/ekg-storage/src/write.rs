@@ -63,7 +63,7 @@ pub enum WriteFaultPoint {
 }
 
 pub struct WriteRepository {
-    connection: Connection,
+    pub(crate) connection: Connection,
 }
 
 impl WriteRepository {

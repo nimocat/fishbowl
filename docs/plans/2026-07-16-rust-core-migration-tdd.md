@@ -544,14 +544,19 @@ Current progress:
 - Added project registration and atomic metadata/alias update with canonical
   existing-path ownership, recursive redaction, ordered events, and operation
   replay. Registration replay is resolved before creating another project.
+- Added Rust-owned versioned project snapshot export/import with 1 MiB and
+  10,000-record bounds, global UUID/reference/relation/cycle validation,
+  deterministic SHA-256 remapping, trust downgrade, project-root redaction and
+  safe local Artifact relocation. Invalid archives mutate nothing; retries are
+  operation-idempotent.
 - Project ownership, operation-ID replay, source-key replay/type checks,
   event/edge/search ordering, recursive redaction, and four injected rollback
   points pass focused tests.
 - A RED/GREEN cycle found that `token: value` could leak the value after a
   whitespace separator; stateful cross-token redaction now covers it.
-- No installed write route has changed. Import/export, schema migration,
-  production-copy integrity, backup, and recovery remain required before
-  Stage 6 cutover.
+- No installed write route has changed. Source preview/apply parsing, schema
+  migration, production-copy integrity, backup, and recovery remain required
+  before Stage 6 cutover.
 
 ## 14. Stage 7 — Rust daemon ownership and end-to-end metrics
 

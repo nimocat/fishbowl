@@ -1,5 +1,6 @@
 //! Project-scoped, query-only repository for the existing EKG SQLite schema.
 
+mod snapshot;
 mod write;
 
 pub use write::*;
