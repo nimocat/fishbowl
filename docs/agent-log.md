@@ -420,3 +420,20 @@
   evidence rows, and 8 non-command-log Artifacts. Production was not modified.
 - Stage 6 implementation/offline acceptance is complete. Installed routing
   remains TypeScript-only and moves once, without dual writes, in Stage 7.
+
+## 2026-07-16 - Rust Migration Stage 7 Native Transport
+
+- RED: native HTTP tests initially failed because `ekg_daemon::http` did not
+  exist. A preceding Cargo-cache permission failure was classified separately
+  as environment setup rather than product evidence.
+- GREEN: Rust now owns a bounded Axum/Tokio transport seam with an IPv4
+  loopback-only listener, Host/same-origin enforcement, constant-time bearer
+  authentication, 64 KiB body limit, protocol mismatch mapping, and
+  content-aware bounded request replay.
+- Metrics: `Server-Timing` reports daemon queue, execution, and serialization
+  independently. It deliberately does not claim MCP host or network delay.
+- Verification: all native daemon tests pass (9 tests total), including four
+  new HTTP tests and a real ephemeral loopback socket.
+- Boundary: the installed TypeScript daemon has not changed. Full Rust RPC
+  dispatch, source acquisition, SSE, lifecycle, crash/restart, and installed
+  performance acceptance remain before cutover.

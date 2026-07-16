@@ -597,6 +597,20 @@ Current progress:
 - No normal TypeScript process opens SQLite.
 - Restart/replay acceptance passes on macOS and Windows.
 
+Current progress:
+
+- Added the native Axum/Tokio loopback transport with an IPv4 loopback-only
+  listener, strict Host/same-origin checks, constant-time bearer comparison,
+  a 64 KiB request bound, hardened response headers, and bounded replay state.
+- Reused request IDs are replayed only for identical canonical requests;
+  changed content returns `OPERATION_CONFLICT` without echoing the input.
+- `Server-Timing` now separates queue, execution, and serialization inside the
+  daemon. MCP-host delay remains a client-side measurement and is not falsely
+  attributed to the Rust process.
+- Four native transport tests pass, including a real ephemeral socket bind.
+  The installed daemon is unchanged; full RPC ownership, SSE, lifecycle, and
+  installed-state performance acceptance remain in this stage.
+
 ## 15. Stage 8 — Remove the TypeScript core
 
 **Goal:** Enforce the final architecture mechanically.
