@@ -160,14 +160,15 @@ The seven compatibility-focused TDD tasks are complete: schema-v6 indexed Case h
 
 ## Rust Core Migration
 
-**Status:** Stage 4 complete; Stage 5 in progress (2026-07-16)
+**Status:** Stage 5 complete; Stage 6 in progress (2026-07-16)
 
 The executable Stage 0-8 plan is in
 `docs/plans/2026-07-16-rust-core-migration-tdd.md`. Rust now owns the read
-contract, query-only schema-v7 retrieval, Preflight policy, and deterministic
-project/domain/k-core hierarchy. TypeScript remains the installed writer and
-daemon until transactional write parity, native daemon packaging, and the
-installed-state acceptance gates pass. Writes are never dual-routed.
+contract, query-only schema-v7 retrieval, Preflight policy, deterministic
+project/domain/k-core hierarchy, and bounded trust-aware PPR. TypeScript
+remains the installed writer and daemon until transactional write parity,
+native daemon packaging, and the installed-state acceptance gates pass.
+Writes are never dual-routed.
 
 ## Final Review Fix Wave
 

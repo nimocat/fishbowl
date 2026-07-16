@@ -332,3 +332,23 @@
   TypeScript release gates are run before the Stage 4 commit.
 - Boundary: no installed daemon routing or database writer changed. Stage 5 is
   bounded project-local graph expansion.
+
+## 2026-07-16 - Rust Migration Stage 5
+
+- Goal: recover multi-hop causal knowledge after deterministic tree pruning
+  without making approximate similarity authoritative.
+- RED: core tests failed because no bounded graph expansion API existed;
+  storage integration then failed because selected project-owned Cases could
+  not be expanded through `ReadRepository`.
+- GREEN: added deterministic personalized PageRank with relation/trust weights,
+  bidirectional causal traversal, supporting paths, exact-dominant scoring,
+  optional bounded semantic refinement, and explicit node/edge/iteration
+  termination. Storage loads only requested Cases owned by the resolved
+  project.
+- Quality: structural hierarchy nDCG@5 is 1.0 on its golden set; multi-hop
+  Recall@5 improved from 0% exact-only to 100% across ten causal paths.
+- Efficiency: 10,000-node bounded expansion release p95 is 21.746ms over 100
+  runs with a 256-node/512-edge/20-iteration budget.
+- Decision: defer HNSW because the bilingual set remains Recall@5 100% and PPR
+  closes the measured graph gap. An approximate index remains optional and
+  non-authoritative if a future golden corpus proves a gap.

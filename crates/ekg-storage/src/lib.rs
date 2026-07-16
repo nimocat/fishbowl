@@ -7,12 +7,13 @@ use std::time::Instant;
 use ekg_contracts::{
     ErrorCode, KnowledgeQueryItem, NodeRecord, NodeStatus, NodeType, PreflightGuardrail,
     PreflightInput, PreflightResult, ProjectReference, QueryKnowledgeInput, QueryKnowledgeResult,
-    Validate,
+    RelationType, Validate,
 };
 use ekg_core::{
-    GuardrailContext, GuardrailCriteria, GuardrailEnforcement, HierarchyEdge, HierarchyRecord,
-    KnowledgeHierarchy, RelevanceCandidate, RelevanceContext, compact_preflight,
-    evaluate_guardrail, rank_cases,
+    ExpansionConfig, ExpansionEdge, ExpansionNode, ExpansionResult, GuardrailContext,
+    GuardrailCriteria, GuardrailEnforcement, HierarchyEdge, HierarchyRecord, KnowledgeHierarchy,
+    RelevanceCandidate, RelevanceContext, compact_preflight, evaluate_guardrail, expand_bounded,
+    rank_cases,
 };
 use rusqlite::types::Value as SqlValue;
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
@@ -287,6 +288,80 @@ impl ReadRepository {
             }
         }
         Ok(KnowledgeHierarchy::build(revision, records, edges))
+    }
+
+    pub fn expand_case_graph(
+        &self,
+        project: &ProjectReference,
+        case_ids: &[String],
+        exact_node_ids: &[String],
+        semantic_scores: &[(String, u16)],
+        config: ExpansionConfig,
+    ) -> Result<ExpansionResult, StorageError> {
+        project.validate().map_err(StorageError::Contract)?;
+        if case_ids.is_empty() || case_ids.len() > 100 || exact_node_ids.is_empty() {
+            return Err(StorageError::Contract(ErrorCode::InvalidArgument));
+        }
+        let project_id = self.resolve_project(project)?;
+        let exact = exact_node_ids.iter().collect::<BTreeSet<_>>();
+        let semantic = semantic_scores.iter().cloned().collect::<BTreeMap<_, _>>();
+        let mut parameters = vec![SqlValue::Text(project_id.clone())];
+        parameters.extend(case_ids.iter().cloned().map(SqlValue::Text));
+        let node_sql = format!(
+            "SELECT nodes.id, nodes.type, nodes.status FROM nodes JOIN cases ON cases.id = nodes.case_id WHERE cases.project_id = ? AND cases.id IN ({}) ORDER BY nodes.id",
+            placeholders(case_ids.len())
+        );
+        let mut statement = self.connection.prepare(&node_sql)?;
+        let nodes = statement
+            .query_map(params_from_iter(parameters), |row| {
+                let node_id = row.get::<_, String>(0)?;
+                let node_type_text = row.get::<_, String>(1)?;
+                let status_text = row.get::<_, String>(2)?;
+                Ok((node_id, node_type_text, status_text))
+            })?
+            .map(|row| {
+                let (node_id, node_type_text, status_text) = row?;
+                Ok(ExpansionNode {
+                    project_id: project_id.clone(),
+                    exact_score: u32::from(exact.contains(&node_id)),
+                    semantic_score: semantic.get(&node_id).copied(),
+                    node_id,
+                    node_type: parse_node_type(&node_type_text)
+                        .ok_or(StorageError::InvalidStoredData("node type"))?,
+                    status: parse_status(&status_text)
+                        .ok_or(StorageError::InvalidStoredData("node status"))?,
+                })
+            })
+            .collect::<Result<Vec<_>, StorageError>>()?;
+
+        let mut parameters = vec![SqlValue::Text(project_id.clone())];
+        parameters.extend(case_ids.iter().cloned().map(SqlValue::Text));
+        let edge_sql = format!(
+            "SELECT edges.source_id, edges.relation, edges.target_id FROM edges JOIN cases ON cases.id = edges.case_id WHERE cases.project_id = ? AND cases.id IN ({}) ORDER BY edges.source_id, edges.relation, edges.target_id",
+            placeholders(case_ids.len())
+        );
+        let mut statement = self.connection.prepare(&edge_sql)?;
+        let edges = statement
+            .query_map(params_from_iter(parameters), |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })?
+            .map(|row| {
+                let (source_id, relation, target_id) = row?;
+                Ok(ExpansionEdge {
+                    source_id,
+                    relation: parse_relation(&relation)
+                        .ok_or(StorageError::InvalidStoredData("edge relation"))?,
+                    target_id,
+                })
+            })
+            .collect::<Result<Vec<_>, StorageError>>()?;
+
+        expand_bounded(&project_id, exact_node_ids, &nodes, &edges, config)
+            .map_err(|_| StorageError::Contract(ErrorCode::InvalidArgument))
     }
 
     pub fn preflight(&self, input: &PreflightInput) -> Result<PreflightResult, StorageError> {
@@ -810,4 +885,20 @@ fn parse_status(value: &str) -> Option<NodeStatus> {
         "retired" => NodeStatus::Retired,
         _ => return None,
     })
+}
+
+fn parse_relation(value: &str) -> Option<RelationType> {
+    match value {
+        "ATTEMPTS_TO_SOLVE" => Some(RelationType::AttemptsToSolve),
+        "PRECEDED_BY" => Some(RelationType::PrecededBy),
+        "FAILED_BECAUSE" => Some(RelationType::FailedBecause),
+        "CAUSES" => Some(RelationType::Causes),
+        "ADDRESSES" => Some(RelationType::Addresses),
+        "VERIFIED_BY" => Some(RelationType::VerifiedBy),
+        "REFERENCES" => Some(RelationType::References),
+        "INCLUDES" => Some(RelationType::Includes),
+        "PREVENTS" => Some(RelationType::Prevents),
+        "SUPERSEDES" => Some(RelationType::Supersedes),
+        _ => None,
+    }
 }

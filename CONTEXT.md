@@ -11,7 +11,8 @@ Engineering Knowledge Graph (EKG) is a local-first service for preserving the pa
   remains operational only until each Rust vertical slice passes parity.
 - The Rust workspace contains `ekg-contracts` (strict versioned public read
   contracts), `ekg-core` (Unicode routing, trusted policy, deterministic
-  project/domain/k-core hierarchy, and structural summaries), `ekg-storage`
+  project/domain/k-core hierarchy, structural summaries, and bounded
+  trust-aware graph expansion), `ekg-storage`
   (project-scoped query-only schema-v7 reads), and `ekg-daemon` (revision-cached
   retrieval and a bounded persistent JSON-lines protocol). TypeScript's Rust
   adapter validates transport shape only and imports neither storage nor

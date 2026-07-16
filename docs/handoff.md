@@ -64,10 +64,21 @@ affected project/domain branch. On 10,000 synthetic Cases, replacing the
 active-set scan with an ordered degree queue reduced release build from
 392.692ms to 51.882ms and incremental rebuild from 38.245ms to 3.288ms.
 
+Stage 5 bounded graph expansion is complete. Deterministic personalized
+PageRank follows the selected project-local causal subgraph in both directions
+with relation/trust-aware weights and explicit node, edge, and iteration
+budgets. Results keep supporting paths. Exact evidence occupies a dominant
+score tier; optional caller-provided similarity can refine but cannot displace
+an exact verified match by itself. The ten-path golden set improved multi-hop
+Recall@5 from 0% to 100%; a 10,000-node bounded release benchmark measured
+21.746ms p95. HNSW remains intentionally absent because current bilingual and
+multi-hop golden sets show no remaining recall gap that justifies an
+approximate index.
+
 The implementation order, TDD fixtures, phase exit gates, rollout states, and
 rollback rules are specified in
-`docs/plans/2026-07-16-rust-core-migration-tdd.md`. Stage 5 bounded graph
-expansion is the next executable slice; the plan alone does not authorize
+`docs/plans/2026-07-16-rust-core-migration-tdd.md`. Stage 6 transactional Rust
+writes are the next executable slice; the plan alone does not authorize
 production routing changes.
 
 ## Status

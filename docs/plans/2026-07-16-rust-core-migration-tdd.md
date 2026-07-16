@@ -425,8 +425,13 @@ Measured results:
 - Release 10,000-Case build is 51.882ms and one-domain incremental rebuild is
   3.288ms. Replacing an active-set scan with an ordered degree queue reduced
   these from 392.692ms and 38.245ms respectively.
+- The structural-conclusion golden set reached nDCG@5 1.0 and exceeded the
+  flat Case-text baseline.
 
 ## 12. Stage 5 — Bounded graph expansion and optional semantic recall
+
+**Status:** Complete without an approximate index; Stage 6 writes are next
+(2026-07-16)
 
 **Goal:** Recover multi-hop and paraphrased knowledge after deterministic
 candidate pruning.
@@ -454,6 +459,22 @@ candidate pruning.
 - Exact-match and Guardrail metrics do not regress.
 - P95 remains inside the end-to-end target.
 - Semantic index is optional, local, rebuildable, and non-authoritative.
+
+Measured results:
+
+- Deterministic personalized PageRank traverses project-local causal edges in
+  both directions with relation and trust weights.
+- Explicit node, edge, and iteration budgets terminate dense adversarial
+  graphs; every hit carries its seed-to-node supporting path.
+- The ten-path multi-hop golden set improved Recall@5 from 0% for exact seeds
+  alone to 100% after graph expansion.
+- A 10,000-node release benchmark with a 256-node/512-edge/20-iteration budget
+  measured 21.746ms p95 over 100 runs.
+- Exact matches occupy a dominant score tier. Optional similarity is bounded
+  to tie refinement and cannot outrank exact verified evidence by itself.
+- HNSW is intentionally deferred: bilingual Recall@5 is already 100% and the
+  graph golden set closes the measured multi-hop gap, so an approximate index
+  would add lifecycle and determinism cost without a demonstrated recall gain.
 
 ## 13. Stage 6 — Rust storage and transactional writes
 

@@ -1,4 +1,5 @@
 use ekg_contracts::{NodeStatus, NodeType, ProjectReference, QueryKnowledgeInput};
+use ekg_core::ExpansionConfig;
 use ekg_storage::ReadRepository;
 use rusqlite::Connection;
 
@@ -110,6 +111,33 @@ fn hierarchy_load_is_project_scoped_and_uses_event_revision() {
     std::fs::remove_file(path).unwrap();
 }
 
+#[test]
+fn graph_expansion_loads_only_selected_project_owned_cases() {
+    let path = database("graph-expansion");
+    let repository = ReadRepository::open(path.to_str().unwrap()).unwrap();
+    let result = repository
+        .expand_case_graph(
+            &ProjectReference {
+                project_id: Some("project-a".into()),
+                project_root: None,
+            },
+            &["case-a".into(), "case-b".into()],
+            &["problem-a".into()],
+            &[],
+            ExpansionConfig::default(),
+        )
+        .unwrap();
+    let ids = result
+        .hits
+        .iter()
+        .map(|hit| hit.node_id.as_str())
+        .collect::<Vec<_>>();
+    assert!(ids.contains(&"root-a"));
+    assert!(ids.contains(&"solution-a"));
+    assert!(!ids.contains(&"solution-b"));
+    std::fs::remove_file(path).unwrap();
+}
+
 fn database(label: &str) -> std::path::PathBuf {
     let path = std::env::temp_dir().join(format!("ekg-storage-{label}-{}.db", std::process::id()));
     let connection = Connection::open(&path).unwrap();
@@ -120,6 +148,7 @@ fn database(label: &str) -> std::path::PathBuf {
          CREATE TABLE project_aliases (id TEXT PRIMARY KEY, project_id TEXT, root TEXT, created_at TEXT);
          CREATE TABLE cases (id TEXT PRIMARY KEY, project_id TEXT, title TEXT, status TEXT, created_at TEXT);
          CREATE TABLE nodes (id TEXT PRIMARY KEY, case_id TEXT, type TEXT, status TEXT, data TEXT, created_at TEXT);
+         CREATE TABLE edges (id TEXT PRIMARY KEY, case_id TEXT, source_id TEXT, relation TEXT, target_id TEXT, created_at TEXT);
          CREATE TABLE fingerprints (id TEXT PRIMARY KEY, project_id TEXT, problem_node_id TEXT, algorithm TEXT, value TEXT, created_at TEXT);
          CREATE TABLE command_runs (id TEXT PRIMARY KEY, project_id TEXT, case_id TEXT, attempt_node_id TEXT, command TEXT, working_directory TEXT, exit_status INTEGER, signal TEXT, duration_ms INTEGER, excerpt TEXT, raw_log_path TEXT, raw_log_digest TEXT, started_at TEXT, finished_at TEXT);
          CREATE TABLE events (sequence INTEGER PRIMARY KEY, project_id TEXT, case_id TEXT);
@@ -131,9 +160,12 @@ fn database(label: &str) -> std::path::PathBuf {
          INSERT INTO cases VALUES ('case-a2','project-a','Older camera note','candidate','2026-07-15T00:00:00Z');
          INSERT INTO cases VALUES ('case-b','project-b','Same text elsewhere','verified','2026-07-16T00:00:00Z');
          INSERT INTO nodes VALUES ('problem-a','case-a','Problem','open','{\"summary\":\"camera session hang\",\"domain\":\"ios\",\"file\":\"CameraView.swift\"}','2026-07-16T00:00:00Z');
+         INSERT INTO nodes VALUES ('root-a','case-a','RootCause','verified','{\"explanation\":\"session binding is synchronous\"}','2026-07-16T00:01:00Z');
          INSERT INTO nodes VALUES ('solution-a','case-a','Solution','verified','{\"summary\":\"camera session fix\",\"file\":\"CameraView.swift\",\"command\":\"xcodebuild\"}','2026-07-16T00:02:00Z');
          INSERT INTO nodes VALUES ('problem-a2','case-a2','Problem','open','{\"summary\":\"other note\",\"domain\":\"ios\"}','2026-07-15T00:00:00Z');
          INSERT INTO nodes VALUES ('solution-b','case-b','Solution','verified','{\"summary\":\"camera session fix\",\"file\":\"CameraView.swift\"}','2026-07-16T00:03:00Z');
+         INSERT INTO edges VALUES ('edge-root','case-a','root-a','CAUSES','problem-a','2026-07-16T00:01:00Z');
+         INSERT INTO edges VALUES ('edge-solution','case-a','solution-a','ADDRESSES','root-a','2026-07-16T00:02:00Z');
          INSERT INTO node_search VALUES ('project-a','problem-a','Camera lifecycle','camera session hang ios CameraView.swift');
          INSERT INTO node_search VALUES ('project-a','solution-a','Camera lifecycle','camera session fix CameraView.swift xcodebuild');
          INSERT INTO node_search VALUES ('project-b','solution-b','Same text elsewhere','camera session fix CameraView.swift');
