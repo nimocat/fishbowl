@@ -3,36 +3,23 @@ use std::io::{self, BufRead, Write};
 
 use ekg_contracts::{ErrorCode, ReadOperation};
 use ekg_daemon::protocol::{ProtocolError, ProtocolSession};
-use ekg_daemon::{QueryRequest, RetrievalEngine};
+use ekg_storage::{ReadRepository, StorageError};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let database_path = env::args()
         .nth(1)
         .ok_or("usage: ekg-rust-core <database-path>")?;
-    let mut engine = RetrievalEngine::open(&database_path)?;
+    let repository =
+        ReadRepository::open(&database_path).map_err(|_| "failed to open Rust read repository")?;
     let mut protocol = ProtocolSession::new(1024);
     let stdin = io::stdin();
     let mut stdout = io::BufWriter::new(io::stdout().lock());
     for line in stdin.lock().lines() {
         let response = protocol.handle_line(&line?, |operation| match operation {
             ReadOperation::QueryKnowledge(input) => {
-                let project_id = input.project.project_id.clone().ok_or_else(|| {
-                    ProtocolError::new(
-                        ErrorCode::InvalidArgument,
-                        "Rust query migration slice requires a project ID",
-                    )
-                })?;
-                let result = engine
-                    .query(QueryRequest {
-                        request_id: "protocol-query".to_owned(),
-                        project_id,
-                        text: input.text.clone().unwrap_or_default(),
-                        domain: input.domain.clone(),
-                        limit: input.limit.unwrap_or(20),
-                    })
-                    .map_err(|_| {
-                        ProtocolError::new(ErrorCode::InternalError, "Unexpected service failure")
-                    })?;
+                let result = repository
+                    .query_knowledge(input)
+                    .map_err(map_storage_error)?;
                 serde_json::to_value(result).map_err(|_| {
                     ProtocolError::new(ErrorCode::InternalError, "Unexpected service failure")
                 })
@@ -47,4 +34,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         stdout.flush()?;
     }
     Ok(())
+}
+
+fn map_storage_error(error: StorageError) -> ProtocolError {
+    match error {
+        StorageError::Contract(code) => ProtocolError::new(code, "Request argument is invalid"),
+        StorageError::ProjectNotFound => {
+            ProtocolError::new(ErrorCode::NotFound, "Project was not found")
+        }
+        StorageError::Sqlite(_) | StorageError::InvalidStoredData(_) => {
+            ProtocolError::new(ErrorCode::InternalError, "Unexpected service failure")
+        }
+    }
 }

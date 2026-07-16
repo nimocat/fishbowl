@@ -279,6 +279,9 @@ No production routing changes occur in this phase.
 
 ## 9. Stage 2 — `query_knowledge` read cutover
 
+**Status:** Rust implementation and shadow gates complete; installed cutover
+pending native binary packaging/lifecycle integration in Stage 7 (2026-07-16)
+
 **Goal:** Rust returns the complete bounded `query_knowledge` result.
 
 ### RED tests
@@ -308,12 +311,28 @@ No production routing changes occur in this phase.
 - Rust response p95 below 50ms warm and 250ms cold for the large fixture.
 - Mismatch diagnostics contain IDs and reason codes only.
 
+Measured results:
+
+- 1,000 TypeScript-vs-Rust persistent-process queries: 0 mismatches.
+- Transport-inclusive p50 0.067ms, p95 0.135ms, p99 0.343ms.
+- 20-query bilingual tree golden set: Recall@5 100%.
+- 10,000-Case complete Rust response: cold 0.508ms, warm p50 0.034ms,
+  p95 0.053ms, p99 0.125ms.
+- Exact project/filter/order/truncation parity: 100% in the shadow corpus.
+- Schema-v7 metadata remains unchanged under query-only access.
+
 ### Cutover
 
 - Route `query_knowledge` to Rust.
 - Keep TypeScript fallback disabled by default and available only through a
   temporary local recovery switch.
 - Remove the fallback after the observation window.
+
+The installed cutover remains open because the npm/LaunchAgent distribution
+does not yet package a platform-native Rust binary. Silently depending on a
+developer `target/release` path would violate installed-state acceptance. The
+Rust response path is complete; Stage 7 must package, supervise, health-check,
+and select it without environment setup before this cutover can close.
 
 ## 10. Stage 3 — Preflight, ranking, and Guardrails
 

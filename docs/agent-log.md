@@ -1,5 +1,30 @@
 # Agent Log
 
+## 2026-07-16 - Rust Migration Stage 2 Query Core and Shadow
+
+- RED: schema-v7 complete response tests failed because `ReadRepository` did
+  not exist; Stage 0 returned only candidate Case IDs.
+- GREEN: added query-only `ekg-storage` with project ID/root/alias resolution,
+  complete compact node records, all current text/type/status/domain/file/
+  command/fingerprint filters, stable ordering/truncation, and strict project
+  isolation. The public Rust protocol now returns this complete result.
+- Shadow: a real persistent release Rust process replayed 1,000 queries against
+  the TypeScript `KnowledgeService`; mismatch count was zero. Transport-inclusive
+  p50/p95/p99 were 0.067/0.135/0.343ms. Diagnostics retain request IDs and
+  reason codes only.
+- Retrieval: added a 20-query Chinese/English golden set with omitted words and
+  prefixes; Recall@5 was 100%. A 10,000-Case complete-result benchmark measured
+  cold 0.508ms and warm p50/p95/p99 0.034/0.053/0.125ms.
+- Failed harness attempts: fixed incorrect `dist/src` assumption, macOS
+  `/var` versus canonical `/private/var` alias mismatch, and a 1,000-query false
+  mismatch caused by JSON key-order comparison. Structural comparison then
+  proved exact semantic parity.
+- Cutover boundary: installed npm/LaunchAgent delivery does not yet package a
+  native binary. Production remains TypeScript until Stage 7 provides bundled
+  binary selection, supervision, health checks, and no-configuration startup.
+- Next: migrate Preflight/ranking/Guardrails while retaining the installed
+  cutover gate for Stage 7.
+
 ## 2026-07-16 - Rust Migration Stage 1 Contract Ownership
 
 - Goal: freeze complete cross-language read contracts before Rust serves any

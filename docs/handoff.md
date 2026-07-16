@@ -27,11 +27,23 @@ bounded request-ID cache, rejects changed-input reuse, emits sanitized stable
 errors, and gives explicit restart/reinstall guidance for protocol mismatch.
 Release replay p95 is 3µs over 1,000 iterations, excluding startup.
 
-The Rust query path is still not wired into the installed daemon. Next, Stage 2
-must build the complete `queryKnowledge` response in Rust, compare ordered
-results against TypeScript in read-only shadow mode, and satisfy mismatch and
-recall gates before one-operation cutover. Do not duplicate retrieval or
-Guardrail policy in TypeScript.
+The Rust query path is still not wired into the installed daemon. Do not
+duplicate retrieval or Guardrail policy in TypeScript while the remaining Rust
+stages and installed lifecycle are completed.
+
+Stage 2 now has a query-only `ekg-storage` repository that resolves project IDs
+and canonical aliases, composes every current query filter, returns complete
+Case/node records, preserves deterministic truncation/order, and does not
+mutate schema-v7. A real persistent Rust process matched the TypeScript service
+for 1,000 synthetic queries with zero mismatches (p95 0.135ms including local
+transport). Complete 10,000-Case response p95 is 0.053ms; the bilingual tree
+golden set reached Recall@5 100%.
+
+Installed cutover is intentionally pending Stage 7: the current npm and
+LaunchAgent installation does not package a native Rust binary. Do not point
+production at a developer `target/release` path or require an environment
+variable. Package and supervise the binary first, then close the Stage 2
+cutover gate.
 
 The implementation order, TDD fixtures, phase exit gates, rollout states, and
 rollback rules are specified in

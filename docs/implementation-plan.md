@@ -30,6 +30,13 @@ graph diffusion, and transactional write migration. The TypeScript application
 and storage core cannot be removed until parity, migration, recovery, and
 release gates pass.
 
+Stage 2 core and shadow validation are now complete: `ekg-storage` constructs
+complete project-scoped schema-v7 query results, 1,000 persistent-process
+queries match TypeScript with zero mismatches, bilingual Recall@5 is 100%, and
+the 10,000-Case complete-response p95 is 0.053ms. Installed cutover is held for
+Stage 7 native binary packaging/lifecycle work; no developer-path or environment
+variable dependency will be introduced as a shortcut.
+
 The executable phase-by-phase migration and TDD plan is
 `docs/plans/2026-07-16-rust-core-migration-tdd.md`. It defines shared
 cross-language fixtures, RED/GREEN/shadow/cutover rules, read-only shadowing,

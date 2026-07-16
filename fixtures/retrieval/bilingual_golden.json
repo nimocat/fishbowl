@@ -1,0 +1,36 @@
+{
+  "records": [
+    { "caseId": "camera-session", "domain": "ios", "text": "camera preview session binding avoids synchronous capture graph construction 相机预览会话绑定" },
+    { "caseId": "validation-gates", "domain": "workflow", "text": "轻量代码修复采用三级风险验证门禁 small fix validation gates" },
+    { "caseId": "audio-decode", "domain": "media", "text": "AudioToolbox streaming AAC decode and Accelerate PCM features 音频流式解码采样" },
+    { "caseId": "video-metal", "domain": "media", "text": "VideoToolbox CVPixelBuffer Metal texture ring 视频硬件解码并行纹理环" },
+    { "caseId": "coreml-device", "domain": "ml", "text": "CoreML physical device ANE GPU inference prohibits slow CPU fallback 真机推理" },
+    { "caseId": "export-progress", "domain": "ui", "text": "export progress text local update avoids flashing 导出进度文字局部刷新" },
+    { "caseId": "daemon-replay", "domain": "ekg", "text": "persistent daemon request id replay stable protocol 常驻守护进程请求重放" },
+    { "caseId": "tree-retrieval", "domain": "ekg", "text": "hierarchical tree retrieval bounded graph diffusion 树形分层检索有界图扩散" },
+    { "caseId": "project-isolation", "domain": "security", "text": "explicit project scope prevents cross project contamination 项目隔离" },
+    { "caseId": "rust-contract", "domain": "ekg", "text": "strict Rust contract rejects unknown fields and unbounded arrays 严格契约边界" }
+  ],
+  "queries": [
+    { "text": "camera session bind", "expectedCaseId": "camera-session" },
+    { "text": "相机 会话 绑定", "expectedCaseId": "camera-session" },
+    { "text": "轻量修复 三级验证门禁", "expectedCaseId": "validation-gates" },
+    { "text": "small fix gates", "expectedCaseId": "validation-gates" },
+    { "text": "AudioTool streaming decode", "expectedCaseId": "audio-decode" },
+    { "text": "音频 解码 采样", "expectedCaseId": "audio-decode" },
+    { "text": "VideoTool pixel metal", "expectedCaseId": "video-metal" },
+    { "text": "视频 解码 纹理环", "expectedCaseId": "video-metal" },
+    { "text": "CoreML device GPU", "expectedCaseId": "coreml-device" },
+    { "text": "真机 推理", "expectedCaseId": "coreml-device" },
+    { "text": "export progress flashing", "expectedCaseId": "export-progress" },
+    { "text": "导出 文字 刷新", "expectedCaseId": "export-progress" },
+    { "text": "daemon request replay", "expectedCaseId": "daemon-replay" },
+    { "text": "守护进程 请求 重放", "expectedCaseId": "daemon-replay" },
+    { "text": "hierarchical retrieval diffusion", "expectedCaseId": "tree-retrieval" },
+    { "text": "树形 检索 图扩散", "expectedCaseId": "tree-retrieval" },
+    { "text": "project contamination", "expectedCaseId": "project-isolation" },
+    { "text": "项目 隔离", "expectedCaseId": "project-isolation" },
+    { "text": "Rust contract unknown fields", "expectedCaseId": "rust-contract" },
+    { "text": "严格 契约 边界", "expectedCaseId": "rust-contract" }
+  ]
+}

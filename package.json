@@ -15,6 +15,7 @@
     "test:acceptance": "vitest run tests/acceptance",
     "test:rust": "cargo test --workspace",
     "test:rust:release": "cargo test --release --workspace",
+    "test:rust:query-shadow": "node scripts/rust-query-shadow.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "engines": {
