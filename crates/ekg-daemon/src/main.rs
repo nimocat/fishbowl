@@ -42,15 +42,9 @@ fn run_integrity(arguments: &[String]) -> Result<(), String> {
     if arguments.len() != 2 || arguments[0] != "--database" {
         return Err("usage: ekg-rust-core integrity --database <path>".into());
     }
-    let database = DatabaseManager::open(Path::new(&arguments[1])).map_err(|_| {
+    let results = DatabaseManager::check_integrity(Path::new(&arguments[1])).map_err(|_| {
         "Database failed read-only preflight; original bytes were preserved".to_owned()
     })?;
-    let results = database
-        .quick_check()
-        .map_err(|_| "Database quick_check failed; original bytes were preserved".to_owned())?;
-    if results.iter().any(|value| value != "ok") {
-        return Err("Database quick_check did not return ok; original bytes were preserved".into());
-    }
     println!(
         "{}",
         json!({"ok": true, "check": "quick_check", "results": results})

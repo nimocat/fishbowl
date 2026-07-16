@@ -128,24 +128,39 @@ impl DatabaseManager {
         secure_file(destination)?;
         Ok(())
     }
+
+    /// Validate an existing database without requesting a writable connection or
+    /// changing its journal mode. This remains safe while the daemon owns the
+    /// live writer connection.
+    pub fn check_integrity(path: &Path) -> Result<Vec<String>, DatabaseError> {
+        // Preserve the existing first-run CLI contract: integrity on a fresh
+        // data directory initializes an empty managed database. Existing bytes,
+        // including the installed live database, always take the read-only path.
+        if !path.exists() {
+            return Self::open(path)?.quick_check();
+        }
+        let connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .map_err(|_| DatabaseError::CorruptRecovery)?;
+        connection.busy_timeout(Duration::from_secs(5))?;
+        let checks = quick_check(&connection).map_err(|_| DatabaseError::CorruptRecovery)?;
+        if checks.iter().any(|value| value != "ok") {
+            return Err(DatabaseError::CorruptRecovery);
+        }
+        let version: i64 = connection
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .map_err(|_| DatabaseError::CorruptRecovery)?;
+        if version > SCHEMA_VERSION {
+            return Err(DatabaseError::NewerSchema {
+                found: version,
+                supported: SCHEMA_VERSION,
+            });
+        }
+        Ok(checks)
+    }
 }
 
 fn inspect_existing(path: &Path) -> Result<(), DatabaseError> {
-    let connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-        .map_err(|_| DatabaseError::CorruptRecovery)?;
-    let checks = quick_check(&connection).map_err(|_| DatabaseError::CorruptRecovery)?;
-    if checks.iter().any(|value| value != "ok") {
-        return Err(DatabaseError::CorruptRecovery);
-    }
-    let version: i64 = connection
-        .pragma_query_value(None, "user_version", |row| row.get(0))
-        .map_err(|_| DatabaseError::CorruptRecovery)?;
-    if version > SCHEMA_VERSION {
-        return Err(DatabaseError::NewerSchema {
-            found: version,
-            supported: SCHEMA_VERSION,
-        });
-    }
+    DatabaseManager::check_integrity(path)?;
     Ok(())
 }
 

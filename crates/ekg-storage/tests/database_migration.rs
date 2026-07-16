@@ -24,6 +24,23 @@ fn new_database_is_schema_v7_safe_and_integral() {
 }
 
 #[test]
+fn integrity_check_is_read_only_while_the_managed_database_is_online() {
+    let path = path("online-integrity");
+    let managed = DatabaseManager::open(&path).unwrap();
+    let before = fs::metadata(&path).unwrap().permissions().readonly();
+
+    assert_eq!(DatabaseManager::check_integrity(&path).unwrap(), vec!["ok"]);
+    assert_eq!(managed.user_version().unwrap(), ekg_storage::SCHEMA_VERSION);
+    assert_eq!(
+        fs::metadata(&path).unwrap().permissions().readonly(),
+        before
+    );
+
+    drop(managed);
+    fs::remove_file(path).unwrap();
+}
+
+#[test]
 fn schema_v5_migrates_after_backup_and_preserves_owned_history() {
     let path = path("v5");
     legacy_v5(&path);
