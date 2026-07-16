@@ -1,0 +1,12 @@
+[
+  { "criteria": { "taskIncludes": ["CoreML"], "taskIncludesAny": ["真机", "physical device"] }, "status": "verified", "enforcement": "block", "task": "CoreML 真机验证", "command": "", "files": "", "matches": true, "blocks": true },
+  { "criteria": { "taskIncludes": ["CoreML"], "taskIncludesAny": ["真机", "physical device"] }, "status": "verified", "enforcement": "block", "task": "CoreML simulator", "command": "", "files": "", "matches": false, "blocks": false },
+  { "criteria": { "taskIncludes": ["deploy"] }, "status": "candidate", "enforcement": "block", "task": "deploy app", "command": "", "files": "", "matches": true, "blocks": false },
+  { "criteria": { "taskIncludes": ["deploy"] }, "status": "verified", "enforcement": "warn", "task": "deploy app", "command": "", "files": "", "matches": true, "blocks": false },
+  { "criteria": { "commandIncludesAny": ["cargo test", "npm test"] }, "status": "verified", "enforcement": "block", "task": "release", "command": "npm test", "files": "", "matches": true, "blocks": true },
+  { "criteria": { "commandIncludesAny": ["cargo test", "npm test"] }, "status": "verified", "enforcement": "block", "task": "release", "command": "git diff", "files": "", "matches": false, "blocks": false },
+  { "criteria": { "taskIncludes": ["camera"], "commandIncludes": ["xcodebuild"], "fileIncludesAny": ["Camera.swift", "Session.swift"] }, "status": "verified", "enforcement": "block", "task": "camera fix", "command": "xcodebuild test", "files": "Session.swift", "matches": true, "blocks": true },
+  { "criteria": { "taskIncludes": ["camera"], "commandIncludes": ["xcodebuild"], "fileIncludesAny": ["Camera.swift", "Session.swift"] }, "status": "verified", "enforcement": "block", "task": "camera fix", "command": "swift test", "files": "Session.swift", "matches": false, "blocks": false },
+  { "criteria": {}, "status": "verified", "enforcement": "block", "task": "anything", "command": "anything", "files": "anything", "matches": false, "blocks": false },
+  { "criteria": { "fileIncludes": ["Model.swift", "Runner.swift"] }, "status": "verified", "enforcement": "advise", "task": "model", "command": "", "files": "Model.swift Runner.swift", "matches": true, "blocks": false }
+]

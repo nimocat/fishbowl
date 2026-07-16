@@ -37,6 +37,13 @@ the 10,000-Case complete-response p95 is 0.053ms. Installed cutover is held for
 Stage 7 native binary packaging/lifecycle work; no developer-path or environment
 variable dependency will be introduced as a shortcut.
 
+Stage 3 is complete in Rust. Promotion/regression policy, candidate staleness,
+all-of/explicit-any-of Guardrails, verified-block trust, explainable relevance
+weights, compact Case cards, 12KiB response bounding, and revisioned content-free
+cache metrics now live in `ekg-core`/`ekg-storage`. A 1,000-request Preflight
+shadow run has zero mismatches and p95 0.113ms; blocking recall is 100% with no
+false positives in the Guardrail golden set.
+
 The executable phase-by-phase migration and TDD plan is
 `docs/plans/2026-07-16-rust-core-migration-tdd.md`. It defines shared
 cross-language fixtures, RED/GREEN/shadow/cutover rules, read-only shadowing,

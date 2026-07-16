@@ -336,6 +336,9 @@ and select it without environment setup before this cutover can close.
 
 ## 10. Stage 3 — Preflight, ranking, and Guardrails
 
+**Status:** Complete in Rust; installed routing remains part of the Stage 7
+native-daemon cutover (2026-07-16)
+
 **Goal:** Rust owns all preflight selection and trusted blocking policy.
 
 ### RED tests
@@ -365,6 +368,17 @@ and select it without environment setup before this cutover can close.
 - Preflight Recall@5 at least 95% and not below the TypeScript oracle.
 - Warm daemon-internal p95 below 50ms.
 - Default response below 12KiB.
+
+Measured results:
+
+- 1,000 TypeScript-vs-Rust Preflight requests: 0 mismatches.
+- Persistent-process p50 0.045ms, p95 0.113ms, p99 0.235ms.
+- Ten-case Guardrail golden set: blocking recall 100%, false positives 0.
+- Bilingual/query shadow corpus: Recall@5 is not below TypeScript; exact
+  semantic parity is 100%.
+- Default result is capped at five cards and strictly below 12KiB.
+- Project revision cache invalidates on the next event and reports only
+  cache-hit, candidate/card counts, and execution duration.
 
 ## 11. Stage 4 — Deterministic hierarchical knowledge tree
 

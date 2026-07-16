@@ -24,7 +24,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     ProtocolError::new(ErrorCode::InternalError, "Unexpected service failure")
                 })
             }
-            ReadOperation::Preflight(_) | ReadOperation::GetCase(_) => Err(ProtocolError::new(
+            ReadOperation::Preflight(input) => {
+                let result = repository.preflight(input).map_err(map_storage_error)?;
+                serde_json::to_value(result).map_err(|_| {
+                    ProtocolError::new(ErrorCode::InternalError, "Unexpected service failure")
+                })
+            }
+            ReadOperation::GetCase(_) => Err(ProtocolError::new(
                 ErrorCode::ValidationFailed,
                 "Read operation is not enabled in this migration stage",
             )),

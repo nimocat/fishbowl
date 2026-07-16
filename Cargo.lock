@@ -30,6 +30,7 @@ dependencies = [
 name = "ekg-core"
 version = "0.1.0"
 dependencies = [
+ "ekg-contracts",
  "serde_json",
 ]
 
@@ -50,6 +51,7 @@ name = "ekg-storage"
 version = "0.1.0"
 dependencies = [
  "ekg-contracts",
+ "ekg-core",
  "rusqlite",
  "serde_json",
 ]

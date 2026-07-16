@@ -6,6 +6,417 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use ekg_contracts::{
+    MatchKind, MatchReason, NodeRecord, NodeStatus, NodeType, PreflightCard, PreflightGuardrail,
+    PreflightResult,
+};
+use serde_json::Value;
+
+pub type ApplicabilityBoundary = BTreeMap<String, Vec<String>>;
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct PromotionEvidence {
+    pub root_cause_evidence_count: usize,
+    pub root_cause_verified: bool,
+    pub successful_automated_verification_count: usize,
+    pub non_automatable_reason: Option<String>,
+    pub human_verification_required: bool,
+    pub human_verification_present: bool,
+    pub human_confirmed: bool,
+    pub applicability: Vec<String>,
+    pub limitations: Vec<String>,
+    pub decisive_difference: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PromotionRequirement {
+    RootCauseEvidence,
+    VerifiedRootCause,
+    AutomatedVerificationOrException,
+    RequiredHumanVerification,
+    HumanConfirmation,
+    Applicability,
+    Limitations,
+    DecisiveDifference,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PromotionEvaluation {
+    pub eligible: bool,
+    pub missing_requirements: Vec<PromotionRequirement>,
+}
+
+pub fn evaluate_promotion(input: &PromotionEvidence) -> PromotionEvaluation {
+    let mut missing = Vec::new();
+    if input.root_cause_evidence_count < 1 {
+        missing.push(PromotionRequirement::RootCauseEvidence);
+    }
+    if !input.root_cause_verified {
+        missing.push(PromotionRequirement::VerifiedRootCause);
+    }
+    if input.successful_automated_verification_count < 1
+        && input
+            .non_automatable_reason
+            .as_deref()
+            .is_none_or(|value| value.trim().is_empty())
+    {
+        missing.push(PromotionRequirement::AutomatedVerificationOrException);
+    }
+    if input.human_verification_required && !input.human_verification_present {
+        missing.push(PromotionRequirement::RequiredHumanVerification);
+    }
+    if !input.human_confirmed {
+        missing.push(PromotionRequirement::HumanConfirmation);
+    }
+    if !input
+        .applicability
+        .iter()
+        .any(|value| !value.trim().is_empty())
+    {
+        missing.push(PromotionRequirement::Applicability);
+    }
+    if !input
+        .limitations
+        .iter()
+        .any(|value| !value.trim().is_empty())
+    {
+        missing.push(PromotionRequirement::Limitations);
+    }
+    if input.decisive_difference.trim().is_empty() {
+        missing.push(PromotionRequirement::DecisiveDifference);
+    }
+    PromotionEvaluation {
+        eligible: missing.is_empty(),
+        missing_requirements: missing,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RegressionOutcome {
+    Regressed,
+    OutsideApplicability,
+    DifferentFingerprint,
+}
+
+pub fn evaluate_regression(
+    fingerprint_matches: bool,
+    boundary: &ApplicabilityBoundary,
+    observed_context: &[(&str, &str)],
+) -> RegressionOutcome {
+    if !fingerprint_matches {
+        return RegressionOutcome::DifferentFingerprint;
+    }
+    let observed = observed_context.iter().copied().collect::<BTreeMap<_, _>>();
+    let inside = !boundary.is_empty()
+        && boundary.iter().all(|(dimension, allowed)| {
+            observed.get(dimension.as_str()).is_some_and(|value| {
+                !allowed.is_empty() && allowed.iter().any(|candidate| candidate == value)
+            })
+        });
+    if inside {
+        RegressionOutcome::Regressed
+    } else {
+        RegressionOutcome::OutsideApplicability
+    }
+}
+
+const COMMON_TERMS: &[&str] = &[
+    "build", "test", "tests", "project", "change", "update", "error", "issue", "fix", "with",
+    "from", "this", "that", "keep", "verify", "the", "and", "for",
+];
+
+#[derive(Debug, Clone)]
+pub struct RelevanceCandidate {
+    pub case_id: String,
+    pub case_title: String,
+    pub case_status: NodeStatus,
+    pub nodes: Vec<NodeRecord>,
+    pub guardrails: Vec<PreflightGuardrail>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RelevanceContext {
+    pub task_description: String,
+    pub changed_files: Vec<String>,
+    pub command: Vec<String>,
+    pub fingerprint_case_ids: Vec<String>,
+    pub now_epoch_ms: i64,
+}
+
+pub fn rank_cases(
+    context: &RelevanceContext,
+    candidates: Vec<RelevanceCandidate>,
+) -> Vec<PreflightCard> {
+    let task = context.task_description.to_lowercase();
+    let files = context
+        .changed_files
+        .iter()
+        .map(|value| value.to_lowercase())
+        .collect::<Vec<_>>();
+    let command = context.command.join(" ").to_lowercase();
+    let mut meaningful_terms = Vec::new();
+    for term in lexical_tokens(&format!("{task} {} {command}", files.join(" "))) {
+        if term.chars().count() >= 3
+            && !COMMON_TERMS.contains(&term.as_str())
+            && !meaningful_terms.contains(&term)
+        {
+            meaningful_terms.push(term);
+        }
+    }
+    let fingerprint_cases = context.fingerprint_case_ids.iter().collect::<BTreeSet<_>>();
+    let mut cards = Vec::new();
+    for candidate in candidates {
+        let serialized = format!(
+            "{} {}",
+            candidate.case_title,
+            serde_json::to_string(&candidate.nodes).unwrap_or_default()
+        )
+        .to_lowercase();
+        let mut reasons = Vec::new();
+        let mut score = 0.0;
+        if fingerprint_cases.contains(&candidate.case_id) {
+            score += 1000.0;
+            reasons.push(MatchReason {
+                kind: MatchKind::ExactFingerprint,
+                value: "normalized failure fingerprint".into(),
+            });
+        }
+        if candidate.guardrails.iter().any(|item| item.blocks) {
+            score += 900.0;
+            reasons.push(MatchReason {
+                kind: MatchKind::BlockingGuardrail,
+                value: "verified blocking guardrail".into(),
+            });
+        }
+        if let Some(file) = files
+            .iter()
+            .find(|file| !file.is_empty() && serialized.contains(file.as_str()))
+        {
+            score += 500.0;
+            reasons.push(MatchReason {
+                kind: MatchKind::ExactFile,
+                value: file.clone(),
+            });
+        }
+        if !command.is_empty() && serialized.contains(&command) {
+            score += 350.0;
+            reasons.push(MatchReason {
+                kind: MatchKind::ExactCommand,
+                value: command.clone(),
+            });
+        }
+        if candidate.nodes.iter().any(|node| {
+            node.status == NodeStatus::Verified
+                && matches!(node.node_type, NodeType::RootCause | NodeType::Solution)
+        }) {
+            score += 200.0;
+            reasons.push(MatchReason {
+                kind: MatchKind::VerifiedKnowledge,
+                value: "verified root cause or solution".into(),
+            });
+        }
+        let matches = meaningful_terms
+            .iter()
+            .filter(|term| serialized.contains(term.as_str()))
+            .take(4)
+            .cloned()
+            .collect::<Vec<_>>();
+        if !matches.is_empty() {
+            score += (matches.len() * 40) as f64;
+            reasons.push(MatchReason {
+                kind: MatchKind::Text,
+                value: matches
+                    .iter()
+                    .take(3)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            });
+        }
+        let newest = candidate
+            .nodes
+            .iter()
+            .filter_map(|node| parse_iso_epoch_ms(&node.created_at))
+            .max()
+            .unwrap_or(context.now_epoch_ms);
+        let age_days = (context.now_epoch_ms - newest) as f64 / 86_400_000.0;
+        if candidate
+            .nodes
+            .iter()
+            .any(|node| node.status == NodeStatus::Candidate)
+        {
+            if age_days >= 90.0 {
+                score -= 400.0;
+            } else if age_days >= 30.0 {
+                score -= 80.0;
+            }
+        }
+        if candidate.case_status == NodeStatus::Regressed {
+            score -= 250.0;
+        }
+        if candidate.case_status == NodeStatus::Retired {
+            score -= 1000.0;
+        }
+        if score <= 0.0 || reasons.is_empty() {
+            continue;
+        }
+        cards.push(PreflightCard {
+            case_id: candidate.case_id,
+            case_title: candidate.case_title,
+            score,
+            why_matched: reasons,
+            failed_attempt: newest_node(&candidate.nodes, |node| {
+                node.node_type == NodeType::Attempt
+                    && node.data.get("outcome").and_then(Value::as_str) == Some("failed")
+            }),
+            root_cause: newest_node(&candidate.nodes, |node| {
+                node.node_type == NodeType::RootCause && node.status == NodeStatus::Verified
+            }),
+            solution: newest_node(&candidate.nodes, |node| {
+                node.node_type == NodeType::Solution && node.status == NodeStatus::Verified
+            }),
+            guardrails: (!candidate.guardrails.is_empty()).then_some(candidate.guardrails),
+        });
+    }
+    cards.sort_by(|left, right| {
+        right
+            .score
+            .total_cmp(&left.score)
+            .then_with(|| left.case_id.cmp(&right.case_id))
+    });
+    cards
+}
+
+pub fn compact_preflight(mut input: PreflightResult, max_bytes: usize) -> PreflightResult {
+    let original_ids = input
+        .cards
+        .iter()
+        .map(|card| card.case_id.clone())
+        .collect::<Vec<_>>();
+    input.cards = input.cards.into_iter().take(5).map(compact_card).collect();
+    rebuild_preflight_projections(&mut input);
+    input.truncated |= original_ids.len() > input.cards.len();
+    input.expansion_case_ids = original_ids.into_iter().skip(input.cards.len()).collect();
+    while serde_json::to_vec(&input).map_or(usize::MAX, |value| value.len()) >= max_bytes
+        && input.cards.len() > 1
+    {
+        if let Some(removed) = input.cards.pop() {
+            input.expansion_case_ids.insert(0, removed.case_id);
+        }
+        input.truncated = true;
+        rebuild_preflight_projections(&mut input);
+    }
+    if serde_json::to_vec(&input).map_or(usize::MAX, |value| value.len()) >= max_bytes
+        && !input.uncertain.is_empty()
+    {
+        input.uncertain.clear();
+        input.truncated = true;
+    }
+    input
+}
+
+fn newest_node(
+    nodes: &[NodeRecord],
+    predicate: impl Fn(&NodeRecord) -> bool,
+) -> Option<NodeRecord> {
+    nodes
+        .iter()
+        .filter(|node| predicate(node))
+        .max_by(|left, right| left.created_at.cmp(&right.created_at))
+        .cloned()
+}
+
+fn compact_card(mut card: PreflightCard) -> PreflightCard {
+    card.case_title = card.case_title.chars().take(300).collect();
+    card.why_matched.truncate(4);
+    card.failed_attempt = card.failed_attempt.map(compact_node);
+    card.root_cause = card.root_cause.map(compact_node);
+    card.solution = card.solution.map(compact_node);
+    if let Some(guardrails) = &mut card.guardrails {
+        guardrails.truncate(2);
+        for item in guardrails {
+            item.node = compact_node(item.node.clone());
+        }
+    }
+    card
+}
+
+fn compact_node(mut node: NodeRecord) -> NodeRecord {
+    node.data = node
+        .data
+        .into_iter()
+        .take(8)
+        .map(|(key, value)| {
+            let compact = match value {
+                Value::String(text) => Value::String(text.chars().take(160).collect()),
+                Value::Array(items) => Value::Array(
+                    items
+                        .into_iter()
+                        .take(3)
+                        .map(|item| match item {
+                            Value::String(text) => Value::String(text.chars().take(120).collect()),
+                            other => other,
+                        })
+                        .collect(),
+                ),
+                other => other,
+            };
+            (key, compact)
+        })
+        .collect();
+    node
+}
+
+fn rebuild_preflight_projections(result: &mut PreflightResult) {
+    result.guardrails = result
+        .cards
+        .iter()
+        .flat_map(|card| card.guardrails.clone().unwrap_or_default())
+        .collect();
+    result.failed_attempts = result
+        .cards
+        .iter()
+        .filter_map(|card| card.failed_attempt.clone())
+        .collect();
+    result.root_causes = result
+        .cards
+        .iter()
+        .filter_map(|card| card.root_cause.clone())
+        .collect();
+    result.solutions = result
+        .cards
+        .iter()
+        .filter_map(|card| card.solution.clone())
+        .collect();
+    result.uncertain = result
+        .uncertain
+        .clone()
+        .into_iter()
+        .take(3)
+        .map(compact_node)
+        .collect();
+}
+
+fn parse_iso_epoch_ms(value: &str) -> Option<i64> {
+    if value.len() < 19 {
+        return None;
+    }
+    let year = value.get(0..4)?.parse::<i64>().ok()?;
+    let month = value.get(5..7)?.parse::<i64>().ok()?;
+    let day = value.get(8..10)?.parse::<i64>().ok()?;
+    let hour = value.get(11..13)?.parse::<i64>().ok()?;
+    let minute = value.get(14..16)?.parse::<i64>().ok()?;
+    let second = value.get(17..19)?.parse::<i64>().ok()?;
+    let adjusted_year = year - i64::from(month <= 2);
+    let era = adjusted_year.div_euclid(400);
+    let year_of_era = adjusted_year - era * 400;
+    let shifted_month = month + if month > 2 { -3 } else { 9 };
+    let day_of_year = (153 * shifted_month + 2) / 5 + day - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    let days_since_epoch = era * 146_097 + day_of_era - 719_468;
+    Some(((days_since_epoch * 24 + hour) * 60 * 60 + minute * 60 + second) * 1000)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KnowledgeRecord {
     pub case_id: String,
@@ -105,6 +516,34 @@ pub struct GuardrailContext<'a> {
     pub task: &'a str,
     pub command: &'a str,
     pub files: &'a str,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GuardrailEnforcement {
+    Advise,
+    Warn,
+    Block,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GuardrailEvaluation {
+    pub matches: bool,
+    pub blocks: bool,
+}
+
+pub fn evaluate_guardrail(
+    criteria: &GuardrailCriteria,
+    status: NodeStatus,
+    enforcement: GuardrailEnforcement,
+    context: GuardrailContext<'_>,
+) -> GuardrailEvaluation {
+    let matches = criteria.matches(context);
+    GuardrailEvaluation {
+        matches,
+        blocks: matches
+            && status == NodeStatus::Verified
+            && enforcement == GuardrailEnforcement::Block,
+    }
 }
 
 impl GuardrailCriteria {

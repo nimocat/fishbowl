@@ -1,5 +1,28 @@
 # Agent Log
 
+## 2026-07-16 - Rust Migration Stage 3 Policy and Preflight
+
+- RED: Rust lacked promotion/regression, ranking/compaction, and repository
+  Preflight APIs. Focused tests failed at each missing boundary.
+- GREEN: moved promotion, regression, candidate aging, Guardrail all-of and
+  explicit any-of semantics, verified-block trust, relevance weights/reasons,
+  five-card/12KiB compaction, and revision-keyed cache metrics into Rust.
+  `ekg-storage` evaluates every Guardrail outside approximate candidate limits.
+- Trust gate: 10 synthetic Guardrail contexts produced 100% blocking recall and
+  zero false positives; candidate block and verified warn rules never block.
+- Shadow/performance: 1,000 persistent-process Preflights matched TypeScript
+  exactly after canonical object-key comparison and stable first-occurrence
+  reason ordering. Final p50/p95/p99 was 0.045/0.113/0.235ms.
+- Failed attempts: parallel Rust tests initially shared a PID-only temporary
+  database name and collided with query-only access; per-test labels fixed it.
+  A BTree-sorted explanation term list also differed from TypeScript insertion
+  order; preserving first occurrence restored exact reason parity.
+- Verification: Rust debug/release workspace tests, rustfmt, clippy with denied
+  warnings, TypeScript typecheck, 203/203 Vitest tests, build, 2,000 combined
+  query/Preflight shadows, and diff checks passed.
+- Next: Stage 4 deterministic project/domain/community/Case hierarchy with
+  revisioned branch rebuilds and evidence-preserving local/global traversal.
+
 ## 2026-07-16 - Rust Migration Stage 2 Query Core and Shadow
 
 - RED: schema-v7 complete response tests failed because `ReadRepository` did

@@ -45,6 +45,15 @@ production at a developer `target/release` path or require an environment
 variable. Package and supervise the binary first, then close the Stage 2
 cutover gate.
 
+Stage 3 Rust policy and Preflight are complete. `ekg-core` owns promotion,
+regression, staleness, Guardrail all/any evaluation, trusted blocking,
+explainable ranking, and response compaction. `ekg-storage` evaluates every
+project Guardrail independently of FTS candidate limits and caches by project
+event revision with content-free metrics. The 10-case Guardrail golden set has
+100% block recall and zero false positives. A real persistent process matched
+TypeScript for 1,000 Preflights with zero mismatches; p95 was 0.113ms and every
+default response stayed below 12KiB.
+
 The implementation order, TDD fixtures, phase exit gates, rollout states, and
 rollback rules are specified in
 `docs/plans/2026-07-16-rust-core-migration-tdd.md`. Stage 2 query parity is the
