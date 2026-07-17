@@ -31,7 +31,7 @@ async fn native_http_dispatches_a_transactional_write_then_reads_it_without_type
     let registered = call(
         &app,
         json!({
-            "protocolVersion": 1,
+            "protocolVersion": 2,
             "requestId": "register-1",
             "operation": "registerProject",
             "input": {
@@ -48,7 +48,7 @@ async fn native_http_dispatches_a_transactional_write_then_reads_it_without_type
     let disk_started = call(
         &app,
         json!({
-            "protocolVersion": 1,
+            "protocolVersion": 2,
             "requestId": "disk-start-1",
             "operation": "startDiskObservation",
             "input": {
@@ -66,7 +66,7 @@ async fn native_http_dispatches_a_transactional_write_then_reads_it_without_type
     let disk_finished = call(
         &app,
         json!({
-            "protocolVersion": 1,
+            "protocolVersion": 2,
             "requestId": "disk-finish-1",
             "operation": "finishDiskObservation",
             "input": {
@@ -87,7 +87,7 @@ async fn native_http_dispatches_a_transactional_write_then_reads_it_without_type
     let disk_candidates = call(
         &app,
         json!({
-            "protocolVersion": 1,
+            "protocolVersion": 2,
             "requestId": "disk-candidates-1",
             "operation": "listCleanupCandidates",
             "input": {"project": {"projectId": project_id}}
@@ -103,7 +103,7 @@ async fn native_http_dispatches_a_transactional_write_then_reads_it_without_type
     let problem = call(
         &app,
         json!({
-            "protocolVersion": 1,
+            "protocolVersion": 2,
             "requestId": "problem-1",
             "operation": "recordProblem",
             "input": {
@@ -122,7 +122,7 @@ async fn native_http_dispatches_a_transactional_write_then_reads_it_without_type
     let case_detail = call(
         &app,
         json!({
-            "protocolVersion": 1,
+            "protocolVersion": 2,
             "requestId": "case-1",
             "operation": "getCase",
             "input": {
@@ -139,7 +139,7 @@ async fn native_http_dispatches_a_transactional_write_then_reads_it_without_type
     let projects = call(
         &app,
         json!({
-            "protocolVersion": 1,
+            "protocolVersion": 2,
             "requestId": "projects-1",
             "operation": "listProjects",
             "input": {}
@@ -151,7 +151,7 @@ async fn native_http_dispatches_a_transactional_write_then_reads_it_without_type
     let query = call(
         &app,
         json!({
-            "protocolVersion": 1,
+            "protocolVersion": 2,
             "requestId": "query-1",
             "operation": "queryKnowledge",
             "input": {"project": {"projectId": project_id}, "text": "Rust owns"}
@@ -169,7 +169,7 @@ async fn native_http_dispatches_a_transactional_write_then_reads_it_without_type
     let preview = call(
         &app,
         json!({
-            "protocolVersion": 1,
+            "protocolVersion": 2,
             "requestId": "preview-1",
             "operation": "previewImport",
             "input": {
@@ -194,7 +194,7 @@ async fn native_http_dispatches_a_transactional_write_then_reads_it_without_type
     let applied = call(
         &restarted,
         json!({
-            "protocolVersion": 1,
+            "protocolVersion": 2,
             "requestId": "apply-1",
             "operation": "applyImport",
             "input": {
@@ -213,7 +213,7 @@ async fn native_http_dispatches_a_transactional_write_then_reads_it_without_type
     let rejected = call(
         &app,
         json!({
-            "protocolVersion": 1,
+            "protocolVersion": 2,
             "requestId": "preview-outside",
             "operation": "previewImport",
             "input": {
@@ -266,7 +266,7 @@ async fn native_http_dispatches_a_transactional_write_then_reads_it_without_type
     let git_preview = call(
         &app,
         json!({
-            "protocolVersion": 1,
+            "protocolVersion": 2,
             "requestId": "preview-git",
             "operation": "previewImport",
             "input": {
@@ -281,7 +281,7 @@ async fn native_http_dispatches_a_transactional_write_then_reads_it_without_type
     let hostile_range = call(
         &app,
         json!({
-            "protocolVersion": 1,
+            "protocolVersion": 2,
             "requestId": "preview-hostile-git",
             "operation": "previewImport",
             "input": {

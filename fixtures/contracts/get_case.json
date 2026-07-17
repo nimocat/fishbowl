@@ -1,6 +1,6 @@
 {
   "request": {
-    "protocolVersion": 1,
+    "protocolVersion": 2,
     "requestId": "get-case-fixture-1",
     "operation": "getCase",
     "input": {

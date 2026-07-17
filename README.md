@@ -60,11 +60,16 @@ Data-directory precedence is:
 2. `EKG_DATA_DIR`
 3. macOS: `~/Library/Application Support/EKG`; Windows: `%LOCALAPPDATA%\EKG`; Linux: `${XDG_DATA_HOME:-~/.local/share}/ekg`
 
-The data directory is independent of the current client repository. Use the same directory for the CLI and MCP client if they should share knowledge.
+The data directory is independent of the current client repository. Normal CLI,
+MCP, and installed-daemon use must leave `EKG_DATA_DIR` unset so every client
+uses the platform-default store. A leading `--data-dir` or `EKG_DATA_DIR` is a
+recovery/test isolation mechanism, not a second production entry.
 
 ```bash
-export EKG_DATA_DIR="$HOME/.engineering-knowledge-graph/data"
 ekg integrity
+
+# Isolated recovery only; stop any writer for this directory first.
+ekg --data-dir "$HOME/ekg-recovery" integrity
 ```
 
 ## Client Project Workflow
@@ -164,7 +169,16 @@ For a concise engineering checkpoint, no long write-array JSON is required:
 ekg checkpoint --project "$PROJECT_ID" --task "Fix Metal flicker" --outcome failed --summary "Two-pass Gaussian increased latency"
 ```
 
-Routine successes may be skipped; failures are always retained. Optional `--data-json` can add `importance`, `fingerprint`, `files`, `command`, `evidence`, `rootCause`, and `solution`. Supplied roots and solutions remain candidates until the normal mixed-verification gate is satisfied.
+Routine successes may be skipped; failures are always retained. Optional
+`--data-json` can add `importance`, `fingerprint`, `files`, `command`,
+`evidence`, `rootCause`, and `solution`. `rootCause` and `solution` are typed
+objects, not summary strings; invalid shapes are rejected by the CLI before a
+daemon request. Supplied roots and solutions remain candidates until the
+normal mixed-verification gate is satisfied.
+
+```bash
+ekg checkpoint --project "$PROJECT_ID" --task "Fix protocol failure" --outcome succeeded --summary "Validated checkpoint locally" --data-json '{"rootCause":{"explanation":"The client sent an obsolete payload shape","confidence":0.99,"rejectedAlternatives":["SQLite corruption"]},"solution":{"summary":"Validate the public checkpoint contract before RPC","applicability":["CLI checkpoint writes"],"limitations":["Does not repair semantically incorrect evidence"],"decisiveDifference":"Malformed writes now fail locally with a field-specific message"}}'
+```
 
 ### Track Task Disk Growth
 

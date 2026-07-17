@@ -73,7 +73,7 @@ fn rpc(body: &str) -> Request<Body> {
 
 fn valid_request(id: &str, text: &str) -> String {
     json!({
-        "protocolVersion": 1,
+        "protocolVersion": 2,
         "requestId": id,
         "operation": "queryKnowledge",
         "input": {"project": {"projectId": "project-a"}, "text": text}
@@ -97,7 +97,7 @@ async fn health_is_bounded_but_rpc_requires_loopback_host_origin_and_bearer() {
     assert_eq!(health.headers()[header::CACHE_CONTROL], "no-store");
     let body = to_bytes(health.into_body(), 4096).await.unwrap();
     let value: Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(value["protocolVersion"], 1);
+    assert_eq!(value["protocolVersion"], 2);
     assert_eq!(value["daemonVersion"], "stage7-test");
     assert!(value.get("token").is_none());
 
@@ -136,7 +136,7 @@ async fn request_bounds_protocol_and_content_aware_replay_are_enforced() {
     );
 
     let mismatch = rpc(&valid_request("version-1", "safe")
-        .replace("\"protocolVersion\":1", "\"protocolVersion\":999"));
+        .replace("\"protocolVersion\":2", "\"protocolVersion\":999"));
     assert_eq!(
         app().oneshot(mismatch).await.unwrap().status(),
         StatusCode::CONFLICT

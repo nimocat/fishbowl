@@ -1,6 +1,6 @@
 {
   "request": {
-    "protocolVersion": 1,
+    "protocolVersion": 2,
     "requestId": "preflight-fixture-1",
     "operation": "preflight",
     "input": {

@@ -111,6 +111,76 @@ function data(reader: ArgumentReader): Record<string, unknown> {
   return reader.json<Record<string, unknown>>('--data-json')
 }
 
+function checkpointData(reader: ArgumentReader): Record<string, unknown> {
+  const value = reader.json<Record<string, unknown>>('--data-json', {})
+  if (!isObject(value)) throw new Error('checkpoint --data-json must be a JSON object')
+  const allowed = new Set([
+    'caseId', 'importance', 'fingerprint', 'files', 'command', 'evidence',
+    'rootCause', 'solution', 'humanConfirmed',
+  ])
+  const unsupported = Object.keys(value).find((key) => !allowed.has(key))
+  if (unsupported) throw new Error(`checkpoint --data-json has unsupported field: ${unsupported}`)
+  for (const field of ['caseId', 'fingerprint'] as const) {
+    if (value[field] !== undefined && !nonEmptyString(value[field])) {
+      throw new Error(`checkpoint --data-json ${field} must be a non-empty string`)
+    }
+  }
+  if (value.importance !== undefined && !['routine', 'notable', 'critical'].includes(String(value.importance))) {
+    throw new Error('checkpoint --data-json importance must be routine, notable, or critical')
+  }
+  for (const field of ['files', 'evidence'] as const) validateStringArray(value[field], field, false)
+  validateStringArray(value.command, 'command', true)
+  if (value.humanConfirmed !== undefined && typeof value.humanConfirmed !== 'boolean') {
+    throw new Error('checkpoint --data-json humanConfirmed must be boolean')
+  }
+  if (value.rootCause !== undefined) {
+    if (!isObject(value.rootCause)
+      || !exactKeys(value.rootCause, ['explanation', 'confidence', 'rejectedAlternatives'])
+      || !nonEmptyString(value.rootCause.explanation)
+      || typeof value.rootCause.confidence !== 'number'
+      || !Number.isFinite(value.rootCause.confidence)
+      || value.rootCause.confidence < 0
+      || value.rootCause.confidence > 1) {
+      throw new Error('checkpoint --data-json rootCause must be an object with explanation (string) and confidence (number from 0 to 1)')
+    }
+    validateStringArray(value.rootCause.rejectedAlternatives, 'rootCause.rejectedAlternatives', false)
+  }
+  if (value.solution !== undefined) {
+    if (!isObject(value.solution)
+      || !exactKeys(value.solution, ['summary', 'applicability', 'limitations', 'decisiveDifference'])
+      || !nonEmptyString(value.solution.summary)
+      || !nonEmptyString(value.solution.decisiveDifference)) {
+      throw new Error('checkpoint --data-json solution must be an object with summary, applicability, limitations, and decisiveDifference')
+    }
+    validateStringArray(value.solution.applicability, 'solution.applicability', true, true)
+    validateStringArray(value.solution.limitations, 'solution.limitations', true, true)
+  }
+  return value
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function nonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0
+}
+
+function exactKeys(value: Record<string, unknown>, allowed: string[]): boolean {
+  const keys = Object.keys(value)
+  return keys.every((key) => allowed.includes(key))
+}
+
+function validateStringArray(value: unknown, field: string, requireNonEmpty: boolean, required = false): void {
+  if (value === undefined && !required) return
+  if (!Array.isArray(value)
+    || (requireNonEmpty && value.length === 0)
+    || value.some((item) => !nonEmptyString(item))) {
+    const qualifier = requireNonEmpty ? 'a non-empty array' : 'an array'
+    throw new Error(`checkpoint --data-json ${field} must be ${qualifier} of non-empty strings`)
+  }
+}
+
 function operationId(reader: ArgumentReader): string | undefined {
   return reader.option('--operation')
 }
@@ -180,7 +250,7 @@ export function parseArguments(argv: string[]): ParsedArguments {
       kind: 'checkpoint', projectId: selectedProjectId, projectRoot: selectedProjectRoot,
       operationId: reader.option('--operation'), task: reader.required('--task'),
       outcome: outcome as 'failed' | 'succeeded' | 'inconclusive',
-      summary: reader.required('--summary'), data: reader.json<Record<string, unknown>>('--data-json', {}),
+      summary: reader.required('--summary'), data: checkpointData(reader),
     }
   } else if (commandName === 'run') {
     const separator = values.indexOf('--')

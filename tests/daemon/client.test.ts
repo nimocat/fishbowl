@@ -29,7 +29,7 @@ describe('DaemonClient adapter', () => {
     let starts = 0
     const client = new DaemonClient({
       descriptor: {
-        protocolVersion: 1,
+        protocolVersion: 2,
         daemonVersion: 'test',
         host: '127.0.0.1',
         port: 1,

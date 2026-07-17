@@ -2,7 +2,7 @@
   {
     "name": "both project selectors",
     "request": {
-      "protocolVersion": 1,
+      "protocolVersion": 2,
       "requestId": "invalid-project-both",
       "operation": "queryKnowledge",
       "input": { "project": { "projectId": "alpha", "projectRoot": "/alpha" } }
@@ -12,7 +12,7 @@
   {
     "name": "neither project selector",
     "request": {
-      "protocolVersion": 1,
+      "protocolVersion": 2,
       "requestId": "invalid-project-neither",
       "operation": "queryKnowledge",
       "input": { "project": {} }
@@ -22,7 +22,7 @@
   {
     "name": "unbounded request id",
     "request": {
-      "protocolVersion": 1,
+      "protocolVersion": 2,
       "requestId": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
       "operation": "queryKnowledge",
       "input": { "project": { "projectId": "alpha" } }
@@ -32,7 +32,7 @@
   {
     "name": "unknown operation",
     "request": {
-      "protocolVersion": 1,
+      "protocolVersion": 2,
       "requestId": "unknown-operation",
       "operation": "readArbitraryFile",
       "input": { "secret": "secret-input" }

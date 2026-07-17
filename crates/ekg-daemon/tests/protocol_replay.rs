@@ -47,14 +47,14 @@ fn protocol_failures_are_stable_bounded_and_actionable() {
         })
     );
     let hostile = session.handle_line(
-        r#"{"protocolVersion":1,"requestId":"bad-1","operation":"readArbitraryFile","input":{"secret":"do-not-echo"}}"#,
+        r#"{"protocolVersion":2,"requestId":"bad-1","operation":"readArbitraryFile","input":{"secret":"do-not-echo"}}"#,
         |_| Ok(json!({})),
     );
     assert!(!hostile.contains("do-not-echo"));
     assert!(hostile.contains("INVALID_REQUEST"));
 
-    let first = r#"{"protocolVersion":1,"requestId":"reused-1","operation":"queryKnowledge","input":{"project":{"projectId":"alpha"},"text":"first"}}"#;
-    let changed = r#"{"protocolVersion":1,"requestId":"reused-1","operation":"queryKnowledge","input":{"project":{"projectId":"alpha"},"text":"changed-secret"}}"#;
+    let first = r#"{"protocolVersion":2,"requestId":"reused-1","operation":"queryKnowledge","input":{"project":{"projectId":"alpha"},"text":"first"}}"#;
+    let changed = r#"{"protocolVersion":2,"requestId":"reused-1","operation":"queryKnowledge","input":{"project":{"projectId":"alpha"},"text":"changed-secret"}}"#;
     session.handle_line(first, |_| Ok(json!({"items": []})));
     let conflict = session.handle_line(changed, |_| panic!("conflicting replay must not dispatch"));
     assert!(conflict.contains("OPERATION_CONFLICT"));

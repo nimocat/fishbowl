@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -61,7 +61,7 @@ describe('daemon configuration', () => {
     }
 
     const descriptor = {
-      protocolVersion: 1 as const,
+      protocolVersion: 2 as const,
       daemonVersion: '0.1.0',
       host: '127.0.0.1' as const,
       port: 4317,
@@ -73,5 +73,27 @@ describe('daemon configuration', () => {
 
     expect(readDaemonDescriptor({ paths })).toEqual(descriptor)
     expect(JSON.parse(readFileSync(paths.descriptorFile, 'utf8'))).not.toHaveProperty('token')
+  })
+
+  it('rejects a descriptor from the retired protocol generation', () => {
+    const sandbox = mkdtempSync(join(tmpdir(), 'ekg-daemon-stale-config-'))
+    sandboxes.push(sandbox)
+    const paths = resolveDaemonPaths({
+      platform: process.platform,
+      home: sandbox,
+      environment: { EKG_DATA_DIR: join(sandbox, 'data') },
+    })
+    mkdirSync(paths.dataDirectory, { recursive: true })
+    writeFileSync(paths.descriptorFile, JSON.stringify({
+      protocolVersion: 1,
+      daemonVersion: '0.1.0',
+      host: '127.0.0.1',
+      port: 4317,
+      instanceId: 'retired-v1',
+      pid: 123,
+      startedAt: '2026-07-15T00:00:00.000Z',
+    }))
+
+    expect(() => readDaemonDescriptor({ paths })).toThrow(/invalid.*descriptor/i)
   })
 })

@@ -250,3 +250,15 @@ are complete: repeated hot start/finish measured 0.55/0.54 seconds with 22 hits,
 zero misses, and zero byte delta; `quick_check=ok` preserved 83 Cases and 480
 nodes. The rollback branch and quiesced schema-v8 backup are recorded in the
 benchmark report.
+
+## Daemon protocol and unified-entry handoff (2026-07-17)
+
+The generic daemon error was not database corruption. The failing checkpoint
+sent obsolete string RootCause/Solution fields, and workspace configuration
+also selected a separate legacy data directory. Protocol generation 2 and
+field-specific CLI validation are implemented with focused RED/GREEN coverage.
+Codex user/workspace configuration now contains no `EKG_DATA_DIR`; normal
+traffic targets the platform-default installed daemon. Production acceptance
+must retain backup hashes, prove the HarmonyOS legacy project was merged,
+confirm one writer/listener, run SQLite quick/foreign-key checks, and replay a
+well-formed checkpoint through the user-level Codex MCP entry.

@@ -633,3 +633,17 @@
   were created, then the LaunchAgent was reinstalled on schema v9. Repeated hot
   start/finish measured 0.55/0.54 seconds with 22/22 hits and zero byte delta.
   Installed `quick_check=ok`; 83 Cases and 480 nodes were preserved.
+
+## 2026-07-17 — daemon protocol diagnosis and unified Codex entry
+
+- Reproduced the reported failure against the legacy daemon: checkpoint JSON
+  used string RootCause/Solution values where the public contract requires
+  structured objects. A minimal checkpoint succeeded, excluding SQLite and the
+  checkpoint operation itself as causes.
+- Found two active stores selected by configuration: the installed macOS
+  platform-default store and a workspace-injected legacy `EKG_DATA_DIR`.
+- Added RED/GREEN CLI coverage for local checkpoint validation and daemon
+  configuration coverage that retires protocol generation 1. Protocol constants
+  and contract fixtures now use generation 2.
+- Removed the legacy directory override from Codex/project guidance. Codex uses
+  one user-level MCP entry and the installed platform-default store.

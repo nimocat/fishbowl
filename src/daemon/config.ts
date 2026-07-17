@@ -9,7 +9,7 @@ import {
 } from 'node:fs'
 import { join } from 'node:path'
 
-export const DAEMON_PROTOCOL_VERSION = 1 as const
+export const DAEMON_PROTOCOL_VERSION = 2 as const
 
 export interface DaemonPaths {
   dataDirectory: string

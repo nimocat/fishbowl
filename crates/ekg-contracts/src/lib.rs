@@ -10,7 +10,7 @@ use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 
-pub const PROTOCOL_VERSION: u32 = 1;
+pub const PROTOCOL_VERSION: u32 = 2;
 const MAX_REQUEST_ID: usize = 200;
 const MAX_REFERENCE: usize = 4096;
 const MAX_TEXT: usize = 16_384;

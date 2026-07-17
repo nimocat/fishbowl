@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-const protocolVersion = 1 as const
+const protocolVersion = 2 as const
 const projectReferenceSchema = z.object({
   projectId: z.string().min(1).max(4096).optional(),
   projectRoot: z.string().min(1).max(4096).optional(),

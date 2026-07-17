@@ -116,7 +116,7 @@ fn retrieval_explanations_and_diagnostics_enforce_p0_budgets() {
 #[test]
 fn disk_observation_contracts_are_strict_bounded_and_canonical() {
     let value = serde_json::json!({
-        "protocolVersion": 1,
+        "protocolVersion": 2,
         "requestId": "disk-start-1",
         "operation": "startDiskObservation",
         "input": {
@@ -130,7 +130,7 @@ fn disk_observation_contracts_are_strict_bounded_and_canonical() {
     assert_eq!(serde_json::to_value(request).unwrap(), value);
 
     let oversized = serde_json::json!({
-        "protocolVersion": 1,
+        "protocolVersion": 2,
         "requestId": "disk-list-1",
         "operation": "listCleanupCandidates",
         "input": {"project": {"projectId": "project-alpha"}, "limit": 101}

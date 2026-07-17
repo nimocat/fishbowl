@@ -145,4 +145,35 @@ describe('CLI command dispatch', () => {
     expect(result.code).toBe(0)
     expect(JSON.parse(result.stdout)).toMatchObject({ recorded: true, createdCase: true })
   })
+
+  it('rejects malformed checkpoint assertions locally with actionable field guidance', async () => {
+    const { data } = sandbox()
+    const result = await invoke([
+      '--data-dir', data, 'checkpoint', '--project', 'project-a',
+      '--task', 'Malformed checkpoint', '--outcome', 'inconclusive',
+      '--summary', 'The daemon must not receive this payload.',
+      '--data-json', JSON.stringify({
+        rootCause: 'plain text',
+        solution: 'plain text',
+      }),
+    ])
+
+    expect(result.code).toBe(1)
+    expect(result.stdout).toBe('')
+    expect(result.stderr).toMatch(/rootCause must be an object/i)
+    expect(result.stderr).toMatch(/explanation.*confidence/i)
+    expect(existsSync(join(data, 'daemon.pid'))).toBe(false)
+
+    const incompleteSolution = await invoke([
+      '--data-dir', data, 'checkpoint', '--project', 'project-a',
+      '--task', 'Incomplete solution', '--outcome', 'inconclusive',
+      '--summary', 'Required arrays are absent.',
+      '--data-json', JSON.stringify({
+        solution: { summary: 'Validate locally', decisiveDifference: 'No daemon request' },
+      }),
+    ])
+    expect(incompleteSolution.code).toBe(1)
+    expect(incompleteSolution.stderr).toMatch(/solution\.applicability must be a non-empty array/i)
+    expect(existsSync(join(data, 'daemon.pid'))).toBe(false)
+  })
 })

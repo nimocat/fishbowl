@@ -43,8 +43,13 @@ Codex's native configuration is TOML, not JSON. The equivalent `~/.codex/config.
 
 ```toml
 [mcp_servers.engineering-knowledge-graph]
-command = "node"
+command = "/absolute/path/to/node"
 args = ["/Users/eric/engineering-knowledge-graph/dist/cli/main.js", "mcp", "--stdio"]
+enabled = true
+required = false
+startup_timeout_sec = 30
+tool_timeout_sec = 60
+default_tools_approval_mode = "writes"
 
 ```
 
@@ -93,7 +98,11 @@ Add this entry to `opencode.json` or `opencode.jsonc`:
 
 ## Verify The Connection
 
-Use the client's MCP server list to confirm that `engineering-knowledge-graph` exposes tools such as `get_preflight_guidance`, `checkpoint_work`, `finalize_work`, `report_relevance`, and `suggest_case_merges`. CLI and every MCP client share the daemon-owned database automatically. Set `EKG_DATA_DIR` only when intentionally selecting a non-default isolated store, and use the identical value for daemon installation/startup.
+Use the client's MCP server list to confirm that `engineering-knowledge-graph` exposes tools such as `get_preflight_guidance`, `checkpoint_work`, `finalize_work`, `report_relevance`, and `suggest_case_merges`. CLI and every MCP client share the daemon-owned database automatically. Configure this server at Codex's user level and do not add `EKG_DATA_DIR` to user or workspace MCP configuration. An explicit alternate directory is reserved for isolated tests or recovery and must never be allowed to become a second production writer.
+
+The daemon RPC contract is versioned. Protocol generation 2 rejects generation
+1 descriptors so a stale installed process cannot silently receive requests
+whose operation or response shape has changed.
 
 Use `finalize_work` as the fixed “提交事实＋验证事实＋合并事实” recording template. It never runs Git or validation commands. Its arrays contain strings, its retry key is `operationId`, and device evidence does not become human-confirmed unless the caller explicitly supplies `humanConfirmed: true`. Prefer an explicit `caseId`; without one, only an exact normalized fingerprint may reuse a Case.
 

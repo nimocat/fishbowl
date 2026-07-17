@@ -37,7 +37,7 @@ fn native_daemon_publishes_descriptor_and_replays_persisted_operation_after_rest
         first_port,
         "process-token",
         json!({
-            "protocolVersion": 1,
+            "protocolVersion": 2,
             "requestId": "register-before-crash",
             "operation": "registerProject",
             "input": {
@@ -53,7 +53,7 @@ fn native_daemon_publishes_descriptor_and_replays_persisted_operation_after_rest
         first_port,
         "process-token",
         json!({
-            "protocolVersion": 1,
+            "protocolVersion": 2,
             "requestId": "problem-before-crash",
             "operation": "recordProblem",
             "input": {
@@ -88,7 +88,7 @@ fn native_daemon_publishes_descriptor_and_replays_persisted_operation_after_rest
         second_port,
         "process-token",
         json!({
-            "protocolVersion": 1,
+            "protocolVersion": 2,
             "requestId": "register-after-crash",
             "operation": "registerProject",
             "input": {
@@ -103,7 +103,7 @@ fn native_daemon_publishes_descriptor_and_replays_persisted_operation_after_rest
         second_port,
         "process-token",
         json!({
-            "protocolVersion": 1,
+            "protocolVersion": 2,
             "requestId": "list-after-crash",
             "operation": "listProjects",
             "input": {}

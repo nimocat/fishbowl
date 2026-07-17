@@ -21,7 +21,7 @@ Engineering Knowledge Graph (EKG) is a local-first service for preserving the pa
 - Schema v8 adds a task disk-growth ledger. Schema v9 adds a project-scoped persistent measurement cache for that ledger. Rust captures bounded metadata-only snapshots of known regenerable roots, stores only project-relative paths, byte counts, and directory modification stamps, marks cached and overlapping evidence for review, and never deletes candidates.
 - The append-only `events` table is an audit log and live-update cursor, not a complete event-sourcing replay log.
 - `KnowledgeService` is the transport-neutral application boundary.
-- A persistent authenticated loopback daemon is the normal SQLite owner. Thin stdio MCP and CLI adapters call its versioned RPC allowlist; explicit `--embedded`/`--data-dir` remains for tests and recovery.
+- A persistent authenticated loopback daemon is the normal SQLite owner. Thin stdio MCP and CLI adapters call its protocol-generation-2 RPC allowlist; generation-1 descriptors are retired. Normal clients use the platform-default data directory, while explicit `--embedded`/`--data-dir` remains for tests and recovery only.
 - The daemon also owns the read-only local HTTP/SSE Trace Bench, so browser views update from the same graph event cursor.
 - Raw command logs live outside SQLite under `data/logs/<project-id>/`.
 - `ImportService` owns explicit-source acquisition, candidate preview persistence, and selected transactional apply.
@@ -69,7 +69,7 @@ Engineering Knowledge Graph (EKG) is a local-first service for preserving the pa
   knowledge and blocking Guardrails remain independent of approximate recall.
 - `get_case` defaults to the graph projection without history; summary and cursor-paged full projections keep large Case reads bounded.
 - `record_checkpoint` atomically dispatches up to 25 existing write commands under one project and one idempotency key.
-- `checkpoint_work` is the concise capture path: failures always record; routine successes may skip; optional RootCause/Solution assertions remain candidates until mixed verification.
+- `checkpoint_work` is the concise capture path: failures always record; routine successes may skip; optional RootCause/Solution assertions remain candidates until mixed verification. CLI checkpoint payloads are locally shape-validated so malformed structured assertions never collapse into a generic daemon protocol error.
 - `finalize_work` atomically records a completed engineering delivery and its failed Attempts, RootCause, Solution, Verifications, commit, and merge disposition. It is idempotent, never executes Git or validation commands, and reuses Cases only through explicit `caseId` or an exact normalized fingerprint.
 - Default Preflight is Case-ranked, explainable, cached by project event revision, capped at five cards, and compacted below 12 KiB.
 - Case-scoped event writes persist explicit `case_id`; history paging and cycle prevention use indexed Case-local queries rather than JSON extraction or whole-graph loading.

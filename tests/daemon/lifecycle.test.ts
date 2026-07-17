@@ -49,7 +49,7 @@ describe('installed daemon lifecycle', () => {
       ensureDaemonCredentials({ paths })
       writeFileSync(paths.tokenFile, token)
       writeDaemonDescriptor(paths, {
-        protocolVersion: 1,
+        protocolVersion: 2,
         daemonVersion: 'test',
         host: '127.0.0.1',
         port: address.port,
