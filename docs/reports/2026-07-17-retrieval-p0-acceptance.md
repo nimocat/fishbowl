@@ -118,3 +118,16 @@ Installed acceptance passed on the live schema-v7 database:
 The deterministic retrieval P0 and its production installation are complete.
 HNSW, embeddings, and RAPTOR-style summaries remain deliberately deferred and
 non-authoritative.
+
+## Production trust promotion
+
+After the project owner explicitly approved promotion from the tested state to
+production, Case `087bb44e-24ac-4a75-a49b-3a7f74935f89` was promoted from
+candidate to verified. The immutable promotion chain contains verified
+RootCause `8282369a-64a3-4b8b-a968-85af1c09ed93`, verified Solution
+`3b338254-ab3e-4a45-99f1-65c5a1f2aa84`, successful automated Verification
+`45fb7c0a-7303-4db1-968e-a1321cf8da61`, and successful human-confirmed
+Verification `7d83a753-bc50-4f01-8ccb-981b0175ba09`. `close_case` reported no
+missing promotion requirements, post-write integrity remained `quick_check=ok`,
+and verified-only retrieval returned the promoted Case with `verified-trust`
+evidence.

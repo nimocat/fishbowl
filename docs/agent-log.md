@@ -589,3 +589,11 @@
   boundaries, 0.327 ms warm RPC p95, 4.062 ms checkpoint p95, and 0.034 ms
   Preflight execution p95. Retrieval P0 is complete; HNSW, embeddings, and
   RAPTOR summaries remain deferred and non-authoritative.
+- The project owner subsequently authorized tested-to-production trust
+  promotion for `yqshunjian-ios-codex`. Case
+  `087bb44e-24ac-4a75-a49b-3a7f74935f89` now has a verified evidenced
+  RootCause, verified production Solution, separate successful automated and
+  human-confirmed Verifications, and a successful `close_case` result with no
+  missing requirements. Post-promotion integrity is `quick_check=ok`, and
+  verified-only retrieval returns the promoted Case with explicit
+  `verified-trust` evidence.
