@@ -5,6 +5,7 @@ use fishbowl_core::{HierarchicalIndex, KnowledgeRecord};
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 
+pub mod disk_watch;
 pub mod http;
 pub mod native;
 pub mod protocol;

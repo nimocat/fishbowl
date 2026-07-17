@@ -6,7 +6,7 @@ use fishbowl_contracts::{
 };
 use fishbowl_storage::{
     DatabaseManager, ReadRepository, WriteRepository, capture_project_disk,
-    capture_project_disk_cached,
+    capture_project_disk_cached, capture_project_disk_incremental,
 };
 
 #[test]
@@ -74,6 +74,55 @@ fn persistent_measurement_cache_hits_unchanged_roots_and_invalidates_only_change
     assert_eq!(removed.cache_entries.len(), 1);
     assert_eq!(removed.cache_hits, 1);
     assert_eq!(removed.snapshot.tracked_bytes, 60);
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn incremental_capture_skips_recursive_walks_until_a_watched_root_changes() {
+    let root = temp_dir("incremental-cache");
+    fs::create_dir_all(root.join("server/target/debug/deps")).unwrap();
+    fs::write(root.join("server/target/debug/deps/api.o"), vec![1; 41]).unwrap();
+    fs::create_dir_all(root.join("admin/node_modules/pkg/lib")).unwrap();
+    fs::write(
+        root.join("admin/node_modules/pkg/lib/index.js"),
+        vec![2; 23],
+    )
+    .unwrap();
+
+    let cold = capture_project_disk_cached(&root, &[]).unwrap();
+    let unchanged = capture_project_disk_incremental(&root, &cold.cache_entries, &[]).unwrap();
+    assert_eq!(unchanged.cache_hits, 2);
+    assert_eq!(unchanged.cache_misses, 0);
+    assert_eq!(unchanged.snapshot.scanned_entries, 0);
+    assert!(!unchanged.snapshot.truncated);
+    assert_eq!(unchanged.snapshot.tracked_bytes, 64);
+
+    let changed_file = root.join("server/target/debug/deps/new.o");
+    fs::write(&changed_file, vec![3; 19]).unwrap();
+    let changed =
+        capture_project_disk_incremental(&root, &unchanged.cache_entries, &[changed_file]).unwrap();
+    assert_eq!(changed.cache_hits, 1);
+    assert_eq!(changed.cache_misses, 1);
+    assert!(changed.snapshot.scanned_entries > 0);
+    assert_eq!(changed.snapshot.tracked_bytes, 83);
+
+    let new_root = root.join("tools/node_modules/pkg");
+    fs::create_dir_all(&new_root).unwrap();
+    fs::write(new_root.join("index.js"), vec![4; 11]).unwrap();
+    let rediscovered = capture_project_disk_incremental(
+        &root,
+        &changed.cache_entries,
+        &[root.join("tools/node_modules")],
+    )
+    .unwrap();
+    assert!(
+        rediscovered
+            .snapshot
+            .entries
+            .iter()
+            .any(|entry| entry.relative_path == "tools/node_modules")
+    );
 
     fs::remove_dir_all(root).unwrap();
 }

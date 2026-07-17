@@ -8,7 +8,7 @@ mod write;
 
 pub use disk::{
     DiskCapture, DiskDirectoryStamp, DiskMeasurementCacheEntry, DiskSnapshot, DiskSnapshotEntry,
-    capture_project_disk, capture_project_disk_cached,
+    capture_project_disk, capture_project_disk_cached, capture_project_disk_incremental,
 };
 pub use schema::*;
 pub use write::*;

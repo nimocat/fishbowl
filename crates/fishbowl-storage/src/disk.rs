@@ -138,6 +138,99 @@ pub fn capture_project_disk_cached(
     })
 }
 
+/// Captures only cache roots affected by a trusted filesystem-event delta.
+///
+/// Callers must use this only after a watcher has established a complete baseline.
+/// The function deliberately falls back to full discovery when an event can introduce
+/// or remove a tracked root. That preserves discovery correctness without turning an
+/// unchanged checkpoint into another recursive walk of the whole repository.
+pub fn capture_project_disk_incremental(
+    project_root: &Path,
+    cached: &[DiskMeasurementCacheEntry],
+    changed_paths: &[PathBuf],
+) -> Result<DiskCapture, std::io::Error> {
+    let root = fs::canonicalize(project_root)?;
+    let cache = cached
+        .iter()
+        .filter(|entry| valid_relative_path(&entry.relative_path))
+        .map(|entry| (entry.relative_path.as_str(), entry))
+        .collect::<BTreeMap<_, _>>();
+    if cache.is_empty() {
+        return capture_project_disk_cached(&root, &[]);
+    }
+
+    let mut candidates = cache
+        .values()
+        .map(|entry| Candidate {
+            path: root.join(&entry.relative_path),
+            relative_path: entry.relative_path.clone(),
+            kind: entry.kind,
+        })
+        .collect::<Vec<_>>();
+    candidates.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
+    candidates.dedup_by(|left, right| left.relative_path == right.relative_path);
+    if candidates.is_empty() || candidates.len() > MAX_TRACKED_PATHS {
+        return capture_project_disk_cached(&root, &[]);
+    }
+
+    let changed = changed_paths
+        .iter()
+        .map(|path| normalized_change_path(&root, path))
+        .collect::<Vec<_>>();
+    if changed_requires_discovery(&root, &candidates, &changed)
+        || candidates
+            .iter()
+            .any(|candidate| !is_directory(&candidate.path))
+    {
+        return capture_project_disk_cached(&root, &[]);
+    }
+
+    let mut state = ScanState {
+        discovery_complete: true,
+        ..ScanState::default()
+    };
+    let mut entries = Vec::with_capacity(candidates.len());
+    let mut cache_entries = Vec::with_capacity(candidates.len());
+    let mut cache_hits = 0;
+    let mut cache_misses = 0;
+    for candidate in candidates {
+        let cached = cache
+            .get(candidate.relative_path.as_str())
+            .expect("candidate originates from cache");
+        let measured = if changed.iter().any(|path| path.starts_with(&candidate.path)) {
+            cache_misses += 1;
+            measure_candidate(&candidate, &mut state)?
+        } else {
+            cache_hits += 1;
+            (*cached).clone()
+        };
+        state.truncated |= measured.truncated;
+        entries.push(DiskSnapshotEntry {
+            relative_path: measured.relative_path.clone(),
+            kind: measured.kind,
+            bytes: measured.bytes,
+        });
+        if !measured.directory_stamps.is_empty() {
+            cache_entries.push(measured);
+        }
+    }
+    let tracked_bytes = entries
+        .iter()
+        .fold(0_u64, |total, entry| total.saturating_add(entry.bytes));
+    Ok(DiskCapture {
+        snapshot: DiskSnapshot {
+            entries,
+            tracked_bytes,
+            scanned_entries: state.scanned_entries,
+            truncated: state.truncated,
+        },
+        cache_entries,
+        cache_hits,
+        cache_misses,
+        discovery_complete: true,
+    })
+}
+
 #[derive(Default)]
 struct ScanState {
     scanned_entries: usize,
@@ -149,6 +242,42 @@ struct Candidate {
     path: PathBuf,
     relative_path: String,
     kind: DiskArtifactKind,
+}
+
+fn normalized_change_path(root: &Path, path: &Path) -> PathBuf {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        root.join(path)
+    };
+    // macOS commonly reports /var while a project root canonicalizes to /private/var.
+    // Canonicalize existing event paths so starts_with comparisons remain stable. Deleted
+    // paths cannot be canonicalized and are safely handled by the full-discovery fallback.
+    fs::canonicalize(&absolute).unwrap_or(absolute)
+}
+
+fn changed_requires_discovery(root: &Path, candidates: &[Candidate], changed: &[PathBuf]) -> bool {
+    changed.iter().any(|path| {
+        if path == root {
+            return true;
+        }
+        if candidates
+            .iter()
+            .any(|candidate| path.starts_with(&candidate.path))
+        {
+            return false;
+        }
+        path.strip_prefix(root).ok().is_some_and(|relative| {
+            relative.components().any(|component| {
+                classify(component.as_os_str().to_string_lossy().as_ref()).is_some()
+            })
+        })
+    })
+}
+
+fn is_directory(path: &Path) -> bool {
+    fs::symlink_metadata(path)
+        .is_ok_and(|metadata| !metadata.file_type().is_symlink() && metadata.is_dir())
 }
 
 fn discover(
