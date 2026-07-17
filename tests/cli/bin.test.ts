@@ -10,14 +10,14 @@ import { isDirectExecution } from '../../src/cli/direct-execution.js'
 
 const root = fileURLToPath(new URL('../../', import.meta.url))
 
-describe('ekg executable wiring', () => {
-  it('publishes the built CLI as the ekg bin with a Node shebang', () => {
+describe('fishbowl executable wiring', () => {
+  it('publishes the built CLI as the fishbowl bin with a Node shebang', () => {
     const packageJson = JSON.parse(readFileSync(`${root}/package.json`, 'utf8')) as {
       bin?: Record<string, string>
     }
     const source = readFileSync(`${root}/src/cli/main.ts`, 'utf8')
 
-    expect(packageJson.bin).toEqual({ ekg: './dist/cli/main.js' })
+    expect(packageJson.bin).toEqual({ fishbowl: './dist/cli/main.js' })
     expect(source.startsWith('#!/usr/bin/env node\n')).toBe(true)
   })
 
@@ -32,10 +32,10 @@ describe('ekg executable wiring', () => {
   })
 
   it('recognizes npm-style symbolic-link execution as direct', () => {
-    const sandbox = mkdtempSync(join(tmpdir(), 'ekg-bin-link-'))
+    const sandbox = mkdtempSync(join(tmpdir(), 'fishbowl-bin-link-'))
     try {
       const target = join(sandbox, 'real-cli.js')
-      const link = join(sandbox, 'ekg')
+      const link = join(sandbox, 'fishbowl')
       writeFileSync(target, '#!/usr/bin/env node\n')
       symlinkSync(target, link)
       expect(isDirectExecution(pathToFileURL(target).href, link)).toBe(true)

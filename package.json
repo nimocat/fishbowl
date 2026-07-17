@@ -1,16 +1,16 @@
 {
-  "name": "engineering-knowledge-graph",
+  "name": "fishbowl",
   "version": "0.1.0",
   "description": "A local-first engineering memory graph for failures, decisions, evidence, and verification.",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/nimocat/engineering-knowledge-graph.git"
+    "url": "git+https://github.com/nimocat/fishbowl.git"
   },
   "bugs": {
-    "url": "https://github.com/nimocat/engineering-knowledge-graph/issues"
+    "url": "https://github.com/nimocat/fishbowl/issues"
   },
-  "homepage": "https://github.com/nimocat/engineering-knowledge-graph#readme",
+  "homepage": "https://github.com/nimocat/fishbowl#readme",
   "keywords": [
     "engineering-memory",
     "knowledge-graph",
@@ -22,7 +22,7 @@
   "private": true,
   "type": "module",
   "bin": {
-    "ekg": "./dist/cli/main.js"
+    "fishbowl": "./dist/cli/main.js"
   },
   "exports": "./dist/index.js",
   "types": "./dist/index.d.ts",

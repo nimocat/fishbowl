@@ -61,7 +61,7 @@ describe('Trace Bench static application', () => {
   })
 
   it('copies the static allowlist into a built web directory', () => {
-    const sandbox = mkdtempSync(join(tmpdir(), 'ekg-web-build-'))
+    const sandbox = mkdtempSync(join(tmpdir(), 'fishbowl-web-build-'))
     const source = join(sandbox, 'source')
     const destination = join(sandbox, 'dist', 'web')
     mkdirSync(source)

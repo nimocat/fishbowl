@@ -8,7 +8,7 @@ import Database from 'better-sqlite3'
 
 import { KnowledgeService } from '../dist/application/knowledge-service.js'
 
-const root = mkdtempSync(join(tmpdir(), 'ekg-rust-shadow-'))
+const root = mkdtempSync(join(tmpdir(), 'fishbowl-rust-shadow-'))
 const databasePath = join(root, 'knowledge.db')
 let projectARoot = join(root, 'project-a')
 let projectAAlias = join(root, 'project-a-worktree')
@@ -58,7 +58,7 @@ database.prepare('UPDATE projects SET canonical_root = ? WHERE id = ?').run(proj
 database.prepare('UPDATE project_aliases SET root = ? WHERE id = ?').run(projectAAlias, 'alias-a')
 
 const service = new KnowledgeService(database, { dataRoot: root })
-const binary = join(process.cwd(), 'target/release/ekg-rust-core')
+const binary = join(process.cwd(), 'target/release/fishbowl-rust-core')
 const child = spawn(binary, [databasePath], { stdio: ['pipe', 'pipe', 'inherit'] })
 const lines = createInterface({ input: child.stdout })[Symbol.asyncIterator]()
 const templates = [

@@ -1,14 +1,21 @@
-# Engineering Knowledge Graph
+# Fishbowl
 
-**Local-first engineering memory for humans and coding agents.**
+<p align="center">
+  <img src="docs/assets/fishbowl-logo.png" width="220" alt="Fishbowl logo: a diving-goggle brain in a fishbowl" />
+</p>
 
-Engineering Knowledge Graph (EKG) turns debugging history, failed approaches, evidence, verified fixes, and regressions into a queryable local graph. It provides a CLI, a stdio MCP server, and a loopback-only Trace Bench browser. Registered client repositories are not modified by default.
+<p align="center">
+  <strong>Local-first engineering memory for humans and coding agents.</strong><br />
+  <a href="README.zh-CN.md">简体中文</a> · <a href="docs/mcp-client-configuration.md">MCP setup</a> · <a href="SECURITY.md">Security</a>
+</p>
 
-> EKG is deliberately local-first: no account, cloud sync, telemetry, or hosted service is required.
+Fishbowl turns debugging history, failed approaches, evidence, verified fixes, and regressions into a queryable local graph. It provides a CLI, a stdio MCP server, and the loopback-only Trace Bench browser. Registered client repositories are not modified by default.
 
-## Why EKG
+> Fishbowl is deliberately local-first: no account, cloud sync, telemetry, or hosted service is required.
 
-Engineering work often repeats the same investigations because the decisive context lives in terminal scrollback, chat sessions, and people’s memory. EKG retains the useful engineering record without treating every note as fact.
+## Why Fishbowl
+
+Engineering work often repeats the same investigations because the decisive context lives in terminal scrollback, chat sessions, and people’s memory. Fishbowl retains the useful engineering record without treating every note as fact.
 
 - **Preserve failed attempts** so agents and teammates do not repeat them.
 - **Separate evidence from conclusions**: attempts, root causes, solutions, and verification have distinct graph types.
@@ -20,7 +27,7 @@ Engineering work often repeats the same investigations because the decisive cont
 
 | Component | Purpose |
 | --- | --- |
-| `ekg` CLI | Register projects, query context, record cases, import/export graphs, and inspect integrity. |
+| `fishbowl` CLI | Register projects, query context, record cases, import/export graphs, and inspect integrity. |
 | Persistent daemon | Reuses one authenticated local process, SQLite connection, prepared state, and Trace Bench server. |
 | MCP stdio server | Lets compatible coding agents query and checkpoint engineering knowledge. |
 | Trace Bench | Read-only local browser for inspecting project knowledge and event activity. |
@@ -31,14 +38,14 @@ Engineering work often repeats the same investigations because the decisive cont
 ### macOS / Linux
 
 ```bash
-git clone https://github.com/nimocat/engineering-knowledge-graph.git
-cd engineering-knowledge-graph
+git clone https://github.com/nimocat/fishbowl.git
+cd fishbowl
 npm install
 npm run build
 npm link
 
-ekg daemon install
-ekg daemon status
+fishbowl daemon install
+fishbowl daemon status
 ```
 
 ### Windows (PowerShell)
@@ -46,19 +53,19 @@ ekg daemon status
 Install Node.js 22 or newer and Git first, then run:
 
 ```powershell
-git clone https://github.com/nimocat/engineering-knowledge-graph.git
-Set-Location engineering-knowledge-graph
+git clone https://github.com/nimocat/fishbowl.git
+Set-Location fishbowl
 npm install
 npm run build
 npm link
 
-ekg daemon install
-ekg daemon status
+fishbowl daemon install
+fishbowl daemon status
 ```
 
-The Windows daemon is registered for the current user only and EKG stores its local data at `%LOCALAPPDATA%\EKG` by default. No administrator account is required.
+The Windows daemon is registered for the current user only and Fishbowl stores its local data at `%LOCALAPPDATA%\Fishbowl` by default. No administrator account is required.
 
-To use EKG without `npm link`, replace `ekg` in the examples with:
+To use Fishbowl without `npm link`, replace `fishbowl` in the examples with:
 
 ```powershell
 node .\dist\cli\main.js
@@ -68,15 +75,15 @@ node .\dist\cli\main.js
 
 ```bash
 cd /absolute/path/to/your-project
-ekg project register --root "$PWD" --name "My Project" --description "Local engineering knowledge"
-ekg project list
+fishbowl project register --root "$PWD" --name "My Project" --description "Local engineering knowledge"
+fishbowl project list
 ```
 
 Copy the returned project ID, then query prior work or record a compact checkpoint:
 
 ```bash
-ekg query --project "<project-id>" "export failure"
-ekg checkpoint --project "<project-id>" --task "Fix export failure" --outcome succeeded --summary "Kept composition work off the main actor and verified the focused test suite"
+fishbowl query --project "<project-id>" "export failure"
+fishbowl checkpoint --project "<project-id>" --task "Fix export failure" --outcome succeeded --summary "Kept composition work off the main actor and verified the focused test suite"
 ```
 
 ## Agent / MCP Setup
@@ -84,10 +91,14 @@ ekg checkpoint --project "<project-id>" --task "Fix export failure" --outcome su
 Start the stdio MCP bridge with:
 
 ```bash
-node /absolute/path/to/engineering-knowledge-graph/dist/cli/main.js mcp --stdio
+node /absolute/path/to/fishbowl/dist/cli/main.js mcp --stdio
 ```
 
 It writes protocol frames to stdout, so do not wrap it in commands that print banners. See [MCP client configuration](docs/mcp-client-configuration.md) for ready-to-use client entries.
+
+### Give Fishbowl to an agent in one step
+
+Copy the [Agent Bootstrap Prompt](docs/agent-bootstrap-prompt.md) into a coding agent. It instructs the agent to install Fishbowl, register the current repository, query prior engineering knowledge before substantive work, and save only redacted completion checkpoints.
 
 ## Privacy and Security at a Glance
 
@@ -95,9 +106,9 @@ It writes protocol frames to stdout, so do not wrap it in commands that print ba
 - The Trace Bench HTTP server binds only to `127.0.0.1`.
 - Durable graph records are recursively secret-redacted and bounded.
 - Raw command logs are intentionally unredacted, local-only, retention-bounded, and excluded from graph exports.
-- EKG is single-user and is not a hosted collaboration service.
+- Fishbowl is single-user and is not a hosted collaboration service.
 
-Read [SECURITY.md](SECURITY.md) before exposing any part of an EKG data directory or raw log collection.
+Read [SECURITY.md](SECURITY.md) before exposing any part of a Fishbowl data directory or raw log collection.
 
 ## Contributing
 
@@ -119,7 +130,7 @@ npm run build
 npm link
 ```
 
-`npm link` exposes the built `dist/cli/main.js` as `ekg`. Re-run `npm run build` after source changes. You can avoid a global link by replacing `ekg` below with `node /absolute/path/to/engineering-knowledge-graph/dist/cli/main.js`.
+`npm link` exposes the built `dist/cli/main.js` as `fishbowl`. Re-run `npm run build` after source changes. You can avoid a global link by replacing `fishbowl` below with `node /absolute/path/to/fishbowl/dist/cli/main.js`.
 
 Release verification commands:
 
@@ -132,45 +143,45 @@ npm run test:browser
 npm run build
 ```
 
-This first release does not implement `ekg --help`. The commands below are the supported CLI reference.
+This first release does not implement `fishbowl --help`. The commands below are the supported CLI reference.
 
 ## Install The Persistent Daemon
 
-EKG now keeps one authenticated loopback daemon alive, so CLI and MCP calls reuse the same Node.js process, SQLite connection, prepared state, relevance cache, and live Trace Bench server.
+Fishbowl now keeps one authenticated loopback daemon alive, so CLI and MCP calls reuse the same Node.js process, SQLite connection, prepared state, relevance cache, and live Trace Bench server.
 
 ```bash
-ekg daemon install
-ekg daemon status
+fishbowl daemon install
+fishbowl daemon status
 ```
 
-Installation is per-user and needs no administrator access. macOS uses `~/Library/LaunchAgents/io.ekg.daemon.plist`; Windows uses `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`. Uninstall preserves the database:
+Installation is per-user and needs no administrator access. macOS uses `~/Library/LaunchAgents/io.fishbowl.daemon.plist`; Windows uses `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`. Uninstall preserves the database:
 
 ```bash
-ekg daemon uninstall
+fishbowl daemon uninstall
 ```
 
-Any normal command starts the daemon once if it is not already ready. `ekg daemon status` prints the live Trace Bench `webUrl`; the browser receives updates over SSE as graph events are committed.
+Any normal command starts the daemon once if it is not already ready. `fishbowl daemon status` prints the live Trace Bench `webUrl`; the browser receives updates over SSE as graph events are committed.
 
 ## Data Directory
 
-EKG stores its database at `<data-directory>/knowledge.db` and raw command logs under `<data-directory>/logs/<project-id>/`.
+Fishbowl stores its database at `<data-directory>/knowledge.db` and raw command logs under `<data-directory>/logs/<project-id>/`.
 
 Data-directory precedence is:
 
-1. A leading global option: `ekg --data-dir /absolute/path <command>`
-2. `EKG_DATA_DIR`
-3. macOS: `~/Library/Application Support/EKG`; Windows: `%LOCALAPPDATA%\EKG`; Linux: `${XDG_DATA_HOME:-~/.local/share}/ekg`
+1. A leading global option: `fishbowl --data-dir /absolute/path <command>`
+2. `FISHBOWL_DATA_DIR`
+3. macOS: `~/Library/Application Support/Fishbowl`; Windows: `%LOCALAPPDATA%\Fishbowl`; Linux: `${XDG_DATA_HOME:-~/.local/share}/fishbowl`
 
 The data directory is independent of the current client repository. Normal CLI,
-MCP, and installed-daemon use must leave `EKG_DATA_DIR` unset so every client
-uses the platform-default store. A leading `--data-dir` or `EKG_DATA_DIR` is a
+MCP, and installed-daemon use must leave `FISHBOWL_DATA_DIR` unset so every client
+uses the platform-default store. A leading `--data-dir` or `FISHBOWL_DATA_DIR` is a
 recovery/test isolation mechanism, not a second production entry.
 
 ```bash
-ekg integrity
+fishbowl integrity
 
 # Isolated recovery only; stop any writer for this directory first.
-ekg --data-dir "$HOME/ekg-recovery" integrity
+fishbowl --data-dir "$HOME/fishbowl-recovery" integrity
 ```
 
 ## Client Project Workflow
@@ -181,8 +192,8 @@ Run these commands from the client project that owns the knowledge. CLI output i
 
 ```bash
 cd /absolute/path/to/client-project
-ekg project register --root "$PWD" --name "Client Project" --description "Local engineering knowledge"
-ekg project list
+fishbowl project register --root "$PWD" --name "Client Project" --description "Local engineering knowledge"
+fishbowl project list
 ```
 
 Set `PROJECT_ID` to the returned project `id`:
@@ -194,8 +205,8 @@ export PROJECT_ID="<project-id>"
 Resolve an already registered project or add a worktree alias:
 
 ```bash
-ekg project resolve --root "$PWD"
-ekg project update --project "$PROJECT_ID" --add-alias "/absolute/path/to/client-worktree"
+fishbowl project resolve --root "$PWD"
+fishbowl project update --project "$PROJECT_ID" --add-alias "/absolute/path/to/client-worktree"
 ```
 
 ### Capture A Command
@@ -203,17 +214,17 @@ ekg project update --project "$PROJECT_ID" --add-alias "/absolute/path/to/client
 Everything after `--` is passed directly as the child argv without a shell:
 
 ```bash
-ekg run --project "$PROJECT_ID" --task "Run focused tests" --changed-files-json '["src/example.ts"]' -- npm test -- src/example.test.ts
+fishbowl run --project "$PROJECT_ID" --task "Run focused tests" --changed-files-json '["src/example.ts"]' -- npm test -- src/example.test.ts
 ```
 
-EKG streams the child output and normally preserves its exit status. Exit `78` means a verified blocking Guardrail prevented the child from starting; command-not-found is `127`, and a non-executable command is `126`. A post-run knowledge-recording failure is reported as a warning and does not turn a successful child command into a failure.
+Fishbowl streams the child output and normally preserves its exit status. Exit `78` means a verified blocking Guardrail prevented the child from starting; command-not-found is `127`, and a non-executable command is `126`. A post-run knowledge-recording failure is reported as a warning and does not turn a successful child command into a failure.
 
 ### Record A Case Manually
 
 Start a Problem and copy the returned `caseId` and `nodeId`:
 
 ```bash
-ekg case start --project "$PROJECT_ID" --title "Generated module is missing" --data-json '{"summary":"Compilation cannot resolve generated output","symptoms":["Build exits 1"],"domain":"build","fingerprint":"compiler cannot resolve generated output"}'
+fishbowl case start --project "$PROJECT_ID" --title "Generated module is missing" --data-json '{"summary":"Compilation cannot resolve generated output","symptoms":["Build exits 1"],"domain":"build","fingerprint":"compiler cannot resolve generated output"}'
 export CASE_ID="<case-id>"
 export PROBLEM_ID="<problem-node-id>"
 ```
@@ -221,32 +232,32 @@ export PROBLEM_ID="<problem-node-id>"
 Record a failed Attempt and copy its `nodeId`:
 
 ```bash
-ekg case attempt --project "$PROJECT_ID" --case "$CASE_ID" --problem "$PROBLEM_ID" --data-json '{"hypothesis":"The compiler cache is stale","change":"Cleared the cache","outcome":"failed","failureExplanation":"Generated output remained absent"}'
+fishbowl case attempt --project "$PROJECT_ID" --case "$CASE_ID" --problem "$PROBLEM_ID" --data-json '{"hypothesis":"The compiler cache is stale","change":"Cleared the cache","outcome":"failed","failureExplanation":"Generated output remained absent"}'
 export FAILED_ATTEMPT_ID="<failed-attempt-node-id>"
 ```
 
 Record an evidenced RootCause and copy its `nodeId`:
 
 ```bash
-ekg case root-cause --project "$PROJECT_ID" --case "$CASE_ID" --problem "$PROBLEM_ID" --failed-attempts-json "[\"$FAILED_ATTEMPT_ID\"]" --status verified --human-confirmed --data-json '{"explanation":"Compilation ran before source generation","evidence":["The build trace has no generator invocation"],"confidence":0.95}'
+fishbowl case root-cause --project "$PROJECT_ID" --case "$CASE_ID" --problem "$PROBLEM_ID" --failed-attempts-json "[\"$FAILED_ATTEMPT_ID\"]" --status verified --human-confirmed --data-json '{"explanation":"Compilation ran before source generation","evidence":["The build trace has no generator invocation"],"confidence":0.95}'
 export ROOT_CAUSE_ID="<root-cause-node-id>"
 ```
 
 Record a Solution and a successful Attempt, copying the Solution `nodeId`:
 
 ```bash
-ekg case solution --project "$PROJECT_ID" --case "$CASE_ID" --root-cause "$ROOT_CAUSE_ID" --data-json '{"summary":"Generate sources before compilation","applicability":["Node.js 22 builds"],"limitations":["Requires the generator binary"],"decisiveDifference":"Generation now precedes compilation"}'
+fishbowl case solution --project "$PROJECT_ID" --case "$CASE_ID" --root-cause "$ROOT_CAUSE_ID" --data-json '{"summary":"Generate sources before compilation","applicability":["Node.js 22 builds"],"limitations":["Requires the generator binary"],"decisiveDifference":"Generation now precedes compilation"}'
 export SOLUTION_ID="<solution-node-id>"
 
-ekg case attempt --project "$PROJECT_ID" --case "$CASE_ID" --problem "$PROBLEM_ID" --previous-attempt "$FAILED_ATTEMPT_ID" --data-json '{"hypothesis":"Generation must precede compilation","change":"Inserted generation before compilation","outcome":"succeeded","decisiveDifference":"Generation now precedes compilation"}'
+fishbowl case attempt --project "$PROJECT_ID" --case "$CASE_ID" --problem "$PROBLEM_ID" --previous-attempt "$FAILED_ATTEMPT_ID" --data-json '{"hypothesis":"Generation must precede compilation","change":"Inserted generation before compilation","outcome":"succeeded","decisiveDifference":"Generation now precedes compilation"}'
 ```
 
 Record automated verification and explicit human confirmation, then close the Case:
 
 ```bash
-ekg case verify --project "$PROJECT_ID" --case "$CASE_ID" --solution "$SOLUTION_ID" --data-json '{"kind":"automated","succeeded":true,"command":["npm","test"],"exitStatus":0,"excerpt":"Focused tests passed"}'
-ekg case verify --project "$PROJECT_ID" --case "$CASE_ID" --solution "$SOLUTION_ID" --data-json '{"kind":"human","succeeded":true,"humanConfirmed":true,"excerpt":"Reviewed the evidence and confirmed the reusable result"}'
-ekg case close --project "$PROJECT_ID" --case "$CASE_ID"
+fishbowl case verify --project "$PROJECT_ID" --case "$CASE_ID" --solution "$SOLUTION_ID" --data-json '{"kind":"automated","succeeded":true,"command":["npm","test"],"exitStatus":0,"excerpt":"Focused tests passed"}'
+fishbowl case verify --project "$PROJECT_ID" --case "$CASE_ID" --solution "$SOLUTION_ID" --data-json '{"kind":"human","succeeded":true,"humanConfirmed":true,"excerpt":"Reviewed the evidence and confirmed the reusable result"}'
+fishbowl case close --project "$PROJECT_ID" --case "$CASE_ID"
 ```
 
 Promotion always requires a verified evidenced RootCause and a successful human Verification with `"humanConfirmed":true`. Verification `environment` accepts only `os`, `toolVersion`, `architecture`, `scheme`, `destination`, and `configuration`.
@@ -254,10 +265,10 @@ Promotion always requires a verified evidenced RootCause and a successful human 
 ### Query And Preflight
 
 ```bash
-ekg query --project "$PROJECT_ID" generated
-ekg query --project "$PROJECT_ID" --filters-json '{"nodeTypes":["Solution"],"statuses":["verified"],"limit":20}' generation
-ekg preflight --project "$PROJECT_ID" --task "Change the build pipeline" --command-json '["npm","test"]' --changed-files-json '["package.json"]'
-ekg activity --project "$PROJECT_ID" --after 0 --limit 50
+fishbowl query --project "$PROJECT_ID" generated
+fishbowl query --project "$PROJECT_ID" --filters-json '{"nodeTypes":["Solution"],"statuses":["verified"],"limit":20}' generation
+fishbowl preflight --project "$PROJECT_ID" --task "Change the build pipeline" --command-json '["npm","test"]' --changed-files-json '["package.json"]'
+fishbowl activity --project "$PROJECT_ID" --after 0 --limit 50
 ```
 
 Supported query filter keys are `domain`, `nodeTypes`, `statuses`, `file`, `command`, `fingerprint`, and `limit`.
@@ -267,7 +278,7 @@ Preflight returns at most five ranked Case cards by default and keeps its encode
 For a concise engineering checkpoint, no long write-array JSON is required:
 
 ```bash
-ekg checkpoint --project "$PROJECT_ID" --task "Fix Metal flicker" --outcome failed --summary "Two-pass Gaussian increased latency"
+fishbowl checkpoint --project "$PROJECT_ID" --task "Fix Metal flicker" --outcome failed --summary "Two-pass Gaussian increased latency"
 ```
 
 Routine successes may be skipped; failures are always retained. Optional
@@ -278,18 +289,18 @@ daemon request. Supplied roots and solutions remain candidates until the
 normal mixed-verification gate is satisfied.
 
 ```bash
-ekg checkpoint --project "$PROJECT_ID" --task "Fix protocol failure" --outcome succeeded --summary "Validated checkpoint locally" --data-json '{"rootCause":{"explanation":"The client sent an obsolete payload shape","confidence":0.99,"rejectedAlternatives":["SQLite corruption"]},"solution":{"summary":"Validate the public checkpoint contract before RPC","applicability":["CLI checkpoint writes"],"limitations":["Does not repair semantically incorrect evidence"],"decisiveDifference":"Malformed writes now fail locally with a field-specific message"}}'
+fishbowl checkpoint --project "$PROJECT_ID" --task "Fix protocol failure" --outcome succeeded --summary "Validated checkpoint locally" --data-json '{"rootCause":{"explanation":"The client sent an obsolete payload shape","confidence":0.99,"rejectedAlternatives":["SQLite corruption"]},"solution":{"summary":"Validate the public checkpoint contract before RPC","applicability":["CLI checkpoint writes"],"limitations":["Does not repair semantically incorrect evidence"],"decisiveDifference":"Malformed writes now fail locally with a field-specific message"}}'
 ```
 
 ### Track Task Disk Growth
 
-Agents can bracket one task with a bounded disk observation. EKG records only sizes and project-relative paths for known regenerable roots; it never reads file contents or follows symlinks:
+Agents can bracket one task with a bounded disk observation. Fishbowl records only sizes and project-relative paths for known regenerable roots; it never reads file contents or follows symlinks:
 
 ```bash
-ekg disk start --project "$PROJECT_ID" --operation "<stable-start-id>" --task "Build feature"
-ekg disk finish --project "$PROJECT_ID" --operation "<stable-finish-id>" --observation "<observation-id>"
-ekg disk list --project "$PROJECT_ID" --limit 25
-ekg disk candidates --project "$PROJECT_ID" --limit 25
+fishbowl disk start --project "$PROJECT_ID" --operation "<stable-start-id>" --task "Build feature"
+fishbowl disk finish --project "$PROJECT_ID" --operation "<stable-finish-id>" --observation "<observation-id>"
+fishbowl disk list --project "$PROJECT_ID" --limit 25
+fishbowl disk candidates --project "$PROJECT_ID" --limit 25
 ```
 
 Cleanup candidates are advisory. Existing directories are marked for review, paths observed during overlapping tasks are marked shared, and no command deletes files automatically. Re-check ownership and request explicit authorization before removing anything.
@@ -306,7 +317,7 @@ scans may progressively fill roots that did not fit within an earlier
 ### Browse Locally
 
 ```bash
-ekg daemon status
+fishbowl daemon status
 ```
 
 Open the printed `webUrl`. Trace Bench is read-only and runs beside the daemon; use CLI or MCP tools for writes. It refreshes from the append-only project event cursor without restarting the browser.
@@ -316,17 +327,17 @@ Open the printed `webUrl`. Trace Bench is read-only and runs beside the daemon; 
 File paths must be absolute, explicit, and inside the registered project. A preview is non-mutating and expires after 24 hours.
 
 ```bash
-ekg import preview --project "$PROJECT_ID" --sources-json '[{"kind":"file","path":"/absolute/path/to/client-project/engineering-notes.md"}]'
+fishbowl import preview --project "$PROJECT_ID" --sources-json '[{"kind":"file","path":"/absolute/path/to/client-project/engineering-notes.md"}]'
 export PREVIEW_ID="<preview-id>"
 export PROPOSAL_ID="<approved-proposal-id>"
 
-ekg import apply --project "$PROJECT_ID" --preview "$PREVIEW_ID" --proposals-json "[\"$PROPOSAL_ID\"]" --operation "apply-notes-20260713"
+fishbowl import apply --project "$PROJECT_ID" --preview "$PREVIEW_ID" --proposals-json "[\"$PROPOSAL_ID\"]" --operation "apply-notes-20260713"
 ```
 
 An explicit Git range is also supported:
 
 ```bash
-ekg import preview --project "$PROJECT_ID" --sources-json '[{"kind":"git","range":"main..feature/build-fix"}]'
+fishbowl import preview --project "$PROJECT_ID" --sources-json '[{"kind":"git","range":"main..feature/build-fix"}]'
 ```
 
 Imported proposals remain candidates until reviewed and verified.
@@ -334,14 +345,14 @@ Imported proposals remain candidates until reviewed and verified.
 ### Export And Import A Project Graph
 
 ```bash
-ekg export --project "$PROJECT_ID" --output "/absolute/path/to/client-project-ekg.json"
+fishbowl export --project "$PROJECT_ID" --output "/absolute/path/to/client-project-fishbowl.json"
 ```
 
 Register or choose an explicit target project, then import the archive with a unique operation ID:
 
 ```bash
 export TARGET_PROJECT_ID="<target-project-id>"
-ekg import graph --project "$TARGET_PROJECT_ID" --file "/absolute/path/to/client-project-ekg.json" --operation "import-client-project-20260713"
+fishbowl import graph --project "$TARGET_PROJECT_ID" --file "/absolute/path/to/client-project-fishbowl.json" --operation "import-client-project-20260713"
 ```
 
 Exports are versioned, recursively redacted JSON snapshots. They exclude raw logs, command-run records, and the source project's canonical root.
@@ -351,7 +362,7 @@ Exports are versioned, recursively redacted JSON snapshots. They exclude raw log
 The MCP stdio process is now a thin proxy to the installed daemon:
 
 ```bash
-node /absolute/path/to/engineering-knowledge-graph/dist/cli/main.js mcp --stdio
+node /absolute/path/to/fishbowl/dist/cli/main.js mcp --stdio
 ```
 
 The process writes MCP protocol frames to stdout, so do not wrap it with commands that print banners there. See [docs/mcp-client-configuration.md](docs/mcp-client-configuration.md) for client configurations.
@@ -383,7 +394,7 @@ All `files`, `evidence`, applicability, limitation, and command entries are stri
 
 ## Raw Logs And Retention
 
-`ekg run` stores complete, unredacted child stdout and stderr in mode-`0600` files under `logs/<project-id>/`. Defaults are:
+`fishbowl run` stores complete, unredacted child stdout and stderr in mode-`0600` files under `logs/<project-id>/`. Defaults are:
 
 - 10 MiB per segment.
 - 100 MiB retained per project.
@@ -406,27 +417,27 @@ Pruning runs when a raw-log session closes. SQLite stores only an 8 KiB bounded 
 Check the active database with SQLite `quick_check`:
 
 ```bash
-ekg integrity
+fishbowl integrity
 ```
 
-The command exits nonzero when the database cannot be safely opened or the check fails. EKG preflights an existing database read-only before writable pragmas or migrations. A corrupt or newer-schema database is not deleted or replaced.
+The command exits nonzero when the database cannot be safely opened or the check fails. Fishbowl preflights an existing database read-only before writable pragmas or migrations. A corrupt or newer-schema database is not deleted or replaced.
 
-For routine backups, stop EKG writers and preserve the full data directory, including `knowledge.db`, any `knowledge.db-wal` and `knowledge.db-shm` files, and `logs/`. For a healthy online SQLite backup:
+For routine backups, stop Fishbowl writers and preserve the full data directory, including `knowledge.db`, any `knowledge.db-wal` and `knowledge.db-shm` files, and `logs/`. For a healthy online SQLite backup:
 
 ```bash
-sqlite3 "$EKG_DATA_DIR/knowledge.db" ".backup '$HOME/ekg-backup.db'"
+sqlite3 "$FISHBOWL_DATA_DIR/knowledge.db" ".backup '$HOME/fishbowl-backup.db'"
 ```
 
-If EKG reports a newer schema, make a backup and use the compatible newer EKG build to export each project. Import those JSON archives into the desired installation.
+If Fishbowl reports a newer schema, make a backup and use the compatible newer Fishbowl build to export each project. Import those JSON archives into the desired installation.
 
-If EKG reports corruption:
+If Fishbowl reports corruption:
 
-1. Stop every EKG CLI, MCP, and browser-server process using that data directory.
+1. Stop every Fishbowl CLI, MCP, and browser-server process using that data directory.
 2. Copy `knowledge.db` and any WAL/SHM sidecars before attempting repair.
 3. Prefer restoring a known-good backup.
 4. Otherwise recover from a copy: `sqlite3 damaged-knowledge.db ".recover" > recovered.sql`.
 5. Load `recovered.sql` into a separate `knowledge.db` under a separate data directory.
-6. Run `ekg --data-dir /separate/recovered-data integrity`; if it passes, export projects and import them into a clean data directory.
+6. Run `fishbowl --data-dir /separate/recovered-data integrity`; if it passes, export projects and import them into a clean data directory.
 
 Never run recovery in place against the only copy.
 

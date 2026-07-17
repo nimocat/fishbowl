@@ -2,18 +2,18 @@
 
 ## Product
 
-Engineering Knowledge Graph (EKG) is a local-first service for preserving the path from engineering failures through attempts, evidenced root causes, solutions, verification, and regressions. It never modifies registered client repositories by default.
+Fishbowl (Fishbowl) is a local-first service for preserving the path from engineering failures through attempts, evidenced root causes, solutions, verification, and regressions. It never modifies registered client repositories by default.
 
 ## Architecture
 
 - Migration target: Rust owns the knowledge engine; TypeScript is limited to
   MCP/HTTP adaptation and browser presentation. The current Node.js 22 core
   remains operational only until each Rust vertical slice passes parity.
-- The Rust workspace contains `ekg-contracts` (strict versioned public read
-  contracts), `ekg-core` (Unicode routing, trusted policy, deterministic
+- The Rust workspace contains `fishbowl-contracts` (strict versioned public read
+  contracts), `fishbowl-core` (Unicode routing, trusted policy, deterministic
   project/domain/k-core hierarchy, structural summaries, and bounded
-  trust-aware graph expansion), `ekg-storage`
-  (project-scoped query-only schema-v9 reads), and `ekg-daemon` (revision-cached
+  trust-aware graph expansion), `fishbowl-storage`
+  (project-scoped query-only schema-v9 reads), and `fishbowl-daemon` (revision-cached
   retrieval and a bounded persistent JSON-lines protocol). TypeScript's Rust
   adapter validates transport shape only and imports neither storage nor
   policy.
@@ -30,7 +30,7 @@ Engineering Knowledge Graph (EKG) is a local-first service for preserving the pa
 - `runStdioServer()` reserves stdout exclusively for MCP frames and proxies to the daemon; it opens SQLite only when an explicit embedded database path is injected for tests/recovery.
 - `startTraceBenchServer({ service, port })` owns the native HTTP listener and always binds to `127.0.0.1`; HTTP and SSE reads use only `KnowledgeServiceContract`.
 - Trace Bench static assets are allowlisted and copied to `dist/web`; the browser is read-only, uses native button nodes with SVG edges, and keeps a semantic trace visible alongside the graph.
-- `ekg daemon install` registers a no-admin macOS LaunchAgent or Windows HKCU Run entry. Normal CLI calls auto-start once, authenticate with an owner-only 32-byte token, and retry once with a stable transport request ID.
+- `fishbowl daemon install` registers a no-admin macOS LaunchAgent or Windows HKCU Run entry. Normal CLI calls auto-start once, authenticate with an owner-only 32-byte token, and retry once with a stable transport request ID.
 - `runCommand()` resolves and preflights before spawning exact argv with `shell: false`, inherited stdin, unchanged cwd, byte-preserving output teeing, rotating raw logs, and fail-open post-run recording.
 - Existing on-disk databases are inspected read-only with SQLite `quick_check` and schema-version validation before writable pragmas or migrations. Corrupt and newer-schema files are preserved and surface stable backup/recovery/export guidance.
 
@@ -51,12 +51,12 @@ Engineering Knowledge Graph (EKG) is a local-first service for preserving the pa
 - Public inputs use camelCase; SQLite columns use snake_case.
 - Commands are argv arrays and execute with `shell: false`.
 - CLI structured payloads use explicit JSON flags; query filter JSON cannot override project scope.
-- `ekg run` exits `78` only for a verified blocking Guardrail, maps spawn `ENOENT` to `127` and permission errors to `126`, and otherwise preserves the child exit or POSIX signal.
+- `fishbowl run` exits `78` only for a verified blocking Guardrail, maps spawn `ENOENT` to `127` and permission errors to `126`, and otherwise preserves the child exit or POSIX signal.
 - Durable command excerpts are capped at 8 KiB and redacted. SQLite receives only canonical raw-log paths inside the selected project's roots or the service data directory, plus digest metadata; it never receives raw output or environment values.
 - All project-scoped reads require an explicit project reference.
 - Browser mutations are out of scope for the first release.
 - IDs are UUIDs; timestamps are UTC ISO 8601 strings.
-- New databases carry the EKG SQLite `application_id`; schema version 9 adds persistent disk-measurement cache rows while retaining task observations, relevance, merge, and supersession data. Older files remain backup-first and transactionally upgradeable.
+- New databases carry the Fishbowl SQLite `application_id`; schema version 9 adds persistent disk-measurement cache rows while retaining task observations, relevance, merge, and supersession data. Older files remain backup-first and transactionally upgradeable.
 - Promotion requires explicit `humanConfirmed` evidence, and Verification environments use a fixed non-secret allowlist.
 - Import sources are explicit project-contained files or explicit Git `base..head` ranges; no service scans project trees.
 - Portable snapshot imports never confer verified trust: verified Case, RootCause, Solution, SuccessCase, and Guardrail assertions become candidates, and blocking Guardrails therefore cannot arrive verified by assertion alone.
@@ -79,4 +79,4 @@ Engineering Knowledge Graph (EKG) is a local-first service for preserving the pa
 - MCP publishes concrete string item schemas for files and evidence; `finalize_work` mirrors application cross-field validation and reports precise field paths.
 - HTTP requires a loopback `Host`, rejects non-matching `Origin`, emits no permissive CORS headers, and caps URLs, JSON bytes, graph Cases, and per-Case graph complexity.
 - SSE resumes from `Last-Event-ID` before the `after` query cursor, polls project-filtered SQLite-backed activity in bounded batches, and emits `snapshot_required` rather than skipping an excessive gap.
-- `ekg integrity` reports `check: "quick_check"`, exits nonzero on failure, and directs recovery into a separate data directory. The first release does not implement CLI `--help`; `README.md` is the command reference.
+- `fishbowl integrity` reports `check: "quick_check"`, exits nonzero on failure, and directs recovery into a separate data directory. The first release does not implement CLI `--help`; `README.md` is the command reference.

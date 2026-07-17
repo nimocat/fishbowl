@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import {
   ensureDaemonCredentials,
+  migrateLegacyDataDirectory,
   readDaemonDescriptor,
   resolveDaemonPaths,
   writeDaemonDescriptor,
@@ -19,33 +20,33 @@ describe('daemon configuration', () => {
     for (const sandbox of sandboxes.splice(0)) rmSync(sandbox, { recursive: true, force: true })
   })
 
-  it('uses platform data locations and honors EKG_DATA_DIR', () => {
+  it('uses platform data locations and honors FISHBOWL_DATA_DIR', () => {
     expect(resolveDaemonPaths({
       platform: 'darwin',
       home: '/Users/tester',
       environment: {},
-    }).dataDirectory).toBe('/Users/tester/Library/Application Support/EKG')
+    }).dataDirectory).toBe('/Users/tester/Library/Application Support/Fishbowl')
 
     expect(resolveDaemonPaths({
       platform: 'win32',
       home: 'C:\\Users\\tester',
       environment: { LOCALAPPDATA: 'C:\\Users\\tester\\AppData\\Local' },
-    }).dataDirectory).toBe('C:\\Users\\tester\\AppData\\Local/EKG')
+    }).dataDirectory).toBe('C:\\Users\\tester\\AppData\\Local/Fishbowl')
 
     expect(resolveDaemonPaths({
       platform: 'linux',
       home: '/home/tester',
-      environment: { EKG_DATA_DIR: '/var/tmp/ekg-test' },
-    }).dataDirectory).toBe('/var/tmp/ekg-test')
+      environment: { FISHBOWL_DATA_DIR: '/var/tmp/fishbowl-test' },
+    }).dataDirectory).toBe('/var/tmp/fishbowl-test')
   })
 
   it('creates an owner-only token and atomically stores a public descriptor', () => {
-    const sandbox = mkdtempSync(join(tmpdir(), 'ekg-daemon-config-'))
+    const sandbox = mkdtempSync(join(tmpdir(), 'fishbowl-daemon-config-'))
     sandboxes.push(sandbox)
     const paths = resolveDaemonPaths({
       platform: process.platform,
       home: sandbox,
-      environment: { EKG_DATA_DIR: join(sandbox, 'data') },
+      environment: { FISHBOWL_DATA_DIR: join(sandbox, 'data') },
     })
     mkdirSync(paths.dataDirectory, { recursive: true })
 
@@ -76,12 +77,12 @@ describe('daemon configuration', () => {
   })
 
   it('rejects a descriptor from the retired protocol generation', () => {
-    const sandbox = mkdtempSync(join(tmpdir(), 'ekg-daemon-stale-config-'))
+    const sandbox = mkdtempSync(join(tmpdir(), 'fishbowl-daemon-stale-config-'))
     sandboxes.push(sandbox)
     const paths = resolveDaemonPaths({
       platform: process.platform,
       home: sandbox,
-      environment: { EKG_DATA_DIR: join(sandbox, 'data') },
+      environment: { FISHBOWL_DATA_DIR: join(sandbox, 'data') },
     })
     mkdirSync(paths.dataDirectory, { recursive: true })
     writeFileSync(paths.descriptorFile, JSON.stringify({
@@ -95,5 +96,22 @@ describe('daemon configuration', () => {
     }))
 
     expect(() => readDaemonDescriptor({ paths })).toThrow(/invalid.*descriptor/i)
+  })
+
+  it('atomically relocates a populated legacy store before Fishbowl creates state', () => {
+    const sandbox = mkdtempSync(join(tmpdir(), 'fishbowl-legacy-migration-'))
+    sandboxes.push(sandbox)
+    const legacyDirectory = join(sandbox, 'Library', 'Application Support', 'EKG')
+    mkdirSync(legacyDirectory, { recursive: true })
+    writeFileSync(join(legacyDirectory, 'knowledge.db'), 'legacy-db')
+    writeFileSync(join(legacyDirectory, 'daemon.token'), 'legacy-token')
+
+    const options = { platform: 'darwin' as const, home: sandbox, environment: {} }
+    expect(migrateLegacyDataDirectory(options)).toEqual({ migrated: true, source: legacyDirectory })
+
+    const fishbowl = resolveDaemonPaths(options)
+    expect(readFileSync(fishbowl.databasePath, 'utf8')).toBe('legacy-db')
+    expect(readFileSync(fishbowl.tokenFile, 'utf8')).toBe('legacy-token')
+    expect(existsSync(legacyDirectory)).toBe(false)
   })
 })

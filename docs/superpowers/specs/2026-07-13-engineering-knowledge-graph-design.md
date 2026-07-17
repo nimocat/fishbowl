@@ -1,8 +1,8 @@
-# Engineering Knowledge Graph Design
+# Fishbowl Design
 
 **Date:** 2026-07-13  
 **Status:** Implemented — first local release
-**Target repository:** `/Users/eric/engineering-knowledge-graph`
+**Target repository:** `/Users/eric/fishbowl`
 
 ## 1. Purpose
 
@@ -73,7 +73,7 @@ An agent must pass either `project_id` or `project_root` to project-scoped MCP t
 All graph data is stored under the standalone system's data directory:
 
 ```text
-/Users/eric/engineering-knowledge-graph/
+/Users/eric/fishbowl/
   data/
     knowledge.db
     events/
@@ -246,17 +246,17 @@ The MCP server never scans arbitrary project files merely because it knows a roo
 The CLI mirrors the MCP capabilities for developers and shell workflows:
 
 ```text
-ekg serve
-ekg project register --root <path> --name <name>
-ekg query --project <id> <text>
-ekg preflight --project <id> --command <command>
-ekg run --project <id> -- <command and arguments>
-ekg case start|attempt|root-cause|solution|verify|close
-ekg import preview|apply
-ekg export
+fishbowl serve
+fishbowl project register --root <path> --name <name>
+fishbowl query --project <id> <text>
+fishbowl preflight --project <id> --command <command>
+fishbowl run --project <id> -- <command and arguments>
+fishbowl case start|attempt|root-cause|solution|verify|close
+fishbowl import preview|apply
+fishbowl export
 ```
 
-`ekg run` preserves the child process exit code and signal behavior. A knowledge-recording failure must not change a successful build into a failed build. A verified blocking Guardrail stops execution before the child starts and returns a distinct documented exit code.
+`fishbowl run` preserves the child process exit code and signal behavior. A knowledge-recording failure must not change a successful build into a failed build. A verified blocking Guardrail stops execution before the child starts and returns a distinct documented exit code.
 
 ## 11. Browser Application
 

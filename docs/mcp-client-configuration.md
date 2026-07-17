@@ -1,22 +1,22 @@
 # MCP Client Configuration
 
-Build EKG before configuring a client:
+Build Fishbowl before configuring a client:
 
 ```bash
-cd /Users/eric/engineering-knowledge-graph
+cd /Users/eric/fishbowl
 npm install
 npm run build
 npm link
-ekg daemon install
+fishbowl daemon install
 ```
 
 Every example starts a thin local stdio process that authenticates to the persistent daemon:
 
 ```text
-node /Users/eric/engineering-knowledge-graph/dist/cli/main.js mcp --stdio
+node /Users/eric/fishbowl/dist/cli/main.js mcp --stdio
 ```
 
-The client must keep stdin/stdout attached for MCP protocol traffic. EKG does not print startup diagnostics to stdout.
+The client must keep stdin/stdout attached for MCP protocol traffic. Fishbowl does not print startup diagnostics to stdout.
 
 ## Claude Desktop Style
 
@@ -25,10 +25,10 @@ Add this server under `mcpServers` in the client's JSON configuration, then rest
 ```json
 {
   "mcpServers": {
-    "engineering-knowledge-graph": {
+    "fishbowl": {
       "command": "node",
       "args": [
-        "/Users/eric/engineering-knowledge-graph/dist/cli/main.js",
+        "/Users/eric/fishbowl/dist/cli/main.js",
         "mcp",
         "--stdio"
       ]
@@ -42,9 +42,9 @@ Add this server under `mcpServers` in the client's JSON configuration, then rest
 Codex's native configuration is TOML, not JSON. The equivalent `~/.codex/config.toml` entry is:
 
 ```toml
-[mcp_servers.engineering-knowledge-graph]
+[mcp_servers.fishbowl]
 command = "/absolute/path/to/node"
-args = ["/Users/eric/engineering-knowledge-graph/dist/cli/main.js", "mcp", "--stdio"]
+args = ["/Users/eric/fishbowl/dist/cli/main.js", "mcp", "--stdio"]
 enabled = true
 required = false
 startup_timeout_sec = 30
@@ -56,18 +56,18 @@ default_tools_approval_mode = "writes"
 The same configuration can be added without editing a file:
 
 ```bash
-codex mcp add engineering-knowledge-graph -- node /Users/eric/engineering-knowledge-graph/dist/cli/main.js mcp --stdio
+codex mcp add fishbowl -- node /Users/eric/fishbowl/dist/cli/main.js mcp --stdio
 ```
 
 For a Codex-compatible host that asks for a generic JSON stdio descriptor, use:
 
 ```json
 {
-  "name": "engineering-knowledge-graph",
+  "name": "fishbowl",
   "transport": "stdio",
   "command": "node",
   "args": [
-    "/Users/eric/engineering-knowledge-graph/dist/cli/main.js",
+    "/Users/eric/fishbowl/dist/cli/main.js",
     "mcp",
     "--stdio"
   ]
@@ -82,11 +82,11 @@ Add this entry to `opencode.json` or `opencode.jsonc`:
 {
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
-    "engineering-knowledge-graph": {
+    "fishbowl": {
       "type": "local",
       "command": [
         "node",
-        "/Users/eric/engineering-knowledge-graph/dist/cli/main.js",
+        "/Users/eric/fishbowl/dist/cli/main.js",
         "mcp",
         "--stdio"
       ],
@@ -98,7 +98,7 @@ Add this entry to `opencode.json` or `opencode.jsonc`:
 
 ## Verify The Connection
 
-Use the client's MCP server list to confirm that `engineering-knowledge-graph` exposes tools such as `get_preflight_guidance`, `checkpoint_work`, `finalize_work`, `report_relevance`, and `suggest_case_merges`. CLI and every MCP client share the daemon-owned database automatically. Configure this server at Codex's user level and do not add `EKG_DATA_DIR` to user or workspace MCP configuration. An explicit alternate directory is reserved for isolated tests or recovery and must never be allowed to become a second production writer.
+Use the client's MCP server list to confirm that `fishbowl` exposes tools such as `get_preflight_guidance`, `checkpoint_work`, `finalize_work`, `report_relevance`, and `suggest_case_merges`. CLI and every MCP client share the daemon-owned database automatically. Configure this server at Codex's user level and do not add `FISHBOWL_DATA_DIR` to user or workspace MCP configuration. An explicit alternate directory is reserved for isolated tests or recovery and must never be allowed to become a second production writer.
 
 The daemon RPC contract is versioned. Protocol generation 2 rejects generation
 1 descriptors so a stale installed process cannot silently receive requests
@@ -110,9 +110,9 @@ If startup fails, verify all three directly:
 
 ```bash
 node --version
-test -f /Users/eric/engineering-knowledge-graph/dist/cli/main.js
-ekg daemon doctor
-ekg daemon status
+test -f /Users/eric/fishbowl/dist/cli/main.js
+fishbowl daemon doctor
+fishbowl daemon status
 ```
 
 Do not point a client at a database reporting corruption or a newer incompatible schema. Follow the recovery procedure in [README.md](../README.md) first.

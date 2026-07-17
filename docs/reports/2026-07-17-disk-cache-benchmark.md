@@ -36,6 +36,6 @@ is more coverage than the prior 17.69 GB bounded snapshot without increasing
 the per-pass entry ceiling. Cache-hit observations remain review-only.
 
 The production rollback database is
-`~/Library/Application Support/EKG/backups/disk-cache-20260717-125644/knowledge-schema-v8.db`;
+`~/Library/Application Support/Fishbowl/backups/disk-cache-20260717-125644/knowledge-schema-v8.db`;
 its SHA-256 is
 `99a48de91185ee2a795b269c09caf59619d919cb681980b9b3ede40fb266134f`.

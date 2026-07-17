@@ -1,16 +1,16 @@
-# EKG Rust Core Migration and TDD Plan
+# Fishbowl Rust Core Migration and TDD Plan
 
 **Date:** 2026-07-16
 
 **Status:** Approved direction; executable migration plan
 
-**Branch:** `codex/ekg-efficiency-rounds`
+**Branch:** `codex/fishbowl-efficiency-rounds`
 
 **Related design:** `docs/specs/2026-07-16-rust-hierarchical-retrieval.md`
 
 ## 1. Objective
 
-Move every EKG knowledge-engine responsibility from TypeScript to Rust without
+Move every Fishbowl knowledge-engine responsibility from TypeScript to Rust without
 losing existing knowledge, project isolation, redaction, idempotency, causal
 history, promotion rules, Guardrail behavior, or local recovery.
 
@@ -222,7 +222,7 @@ One grouped `case_domains` CTE plus a scoped join reduced debug cold load by
 
 ## 8. Stage 1 — Contract ownership and parity harness
 
-**Status:** Complete on `codex/ekg-efficiency-rounds` (2026-07-16)
+**Status:** Complete on `codex/fishbowl-efficiency-rounds` (2026-07-16)
 
 **Goal:** Rust owns complete response and error contracts before it serves any
 production operation.
@@ -230,9 +230,9 @@ production operation.
 ### Files
 
 ```text
-crates/ekg-contracts/
-crates/ekg-core/src/error.rs
-crates/ekg-daemon/src/protocol.rs
+crates/fishbowl-contracts/
+crates/fishbowl-core/src/error.rs
+crates/fishbowl-daemon/src/protocol.rs
 fixtures/contracts/
 src/rust/contract-adapter.ts
 tests/contracts/
@@ -296,7 +296,7 @@ pending native binary packaging/lifecycle integration in Stage 7 (2026-07-16)
 
 ### GREEN implementation
 
-- Add `ekg-storage` read repository with prepared, scoped SQL.
+- Add `fishbowl-storage` read repository with prepared, scoped SQL.
 - Replace the prototype character tree with a compressed radix/ART-equivalent
   only if benchmark evidence shows a material improvement.
 - Return complete Case title and compact node records from Rust.
@@ -356,7 +356,7 @@ native-daemon cutover (2026-07-16)
 
 ### GREEN implementation
 
-- Move promotion, regression, Guardrail, and relevance policy into `ekg-core`.
+- Move promotion, regression, Guardrail, and relevance policy into `fishbowl-core`.
 - Load verified Guardrails into an independent deterministic routing index.
 - Add compact Case-card construction and response-size compaction in Rust.
 - Add content-free cache-hit, candidate-count, card-count, and timing metrics.
@@ -512,7 +512,7 @@ from TypeScript to Rust only after its parity suite passes.
 
 ### GREEN implementation
 
-- Add `ekg-storage` repositories and one explicit transaction boundary per
+- Add `fishbowl-storage` repositories and one explicit transaction boundary per
   application operation.
 - Port schema migrations with backup-first recovery.
 - Preserve existing IDs, timestamps, event sequence, and schema semantics.
@@ -645,7 +645,7 @@ Current progress:
 - macOS LaunchAgent, Windows HKCU Run, CLI foreground, and automatic startup
   now invoke the native binary with explicit database/token/descriptor/pid
   arguments. No environment variable or Node daemon is used. The release build
-  packages an executable arm64 binary at `dist/native/ekg-rust-core`.
+  packages an executable arm64 binary at `dist/native/fishbowl-rust-core`.
 - The same native loopback server now owns Trace Bench read routes and static
   assets: projects, bounded graph snapshots, activity, full Case detail, and
   SSE event polling. SSE honors `Last-Event-ID`, caps active streams at 32,
@@ -703,7 +703,7 @@ validated against the Rust contract schema.
 - Full migration, backup, restore, export/import, and daemon lifecycle tests
   pass.
 - Performance and retrieval metrics meet every prior phase budget.
-- Installed EKG passes a real project preflight, query, checkpoint, and
+- Installed Fishbowl passes a real project preflight, query, checkpoint, and
   Trace Bench smoke test.
 - User explicitly approves production cutover.
 
@@ -766,7 +766,7 @@ compatible. After Rust writes a newer schema, rollback means restoring the
 pre-migration backup or using an explicitly compatible reader; it never means
 letting an older TypeScript writer open a newer database.
 
-## 17. Efficiency ledger and EKG recording
+## 17. Efficiency ledger and Fishbowl recording
 
 At the end of every stage:
 
@@ -777,13 +777,13 @@ At the end of every stage:
 5. Keep the Case candidate until real installed-daemon validation and human
    approval confirm the cutover.
 
-Use EKG Case `087bb44e-24ac-4a75-a49b-3a7f74935f89` for the migration history.
+Use Fishbowl Case `087bb44e-24ac-4a75-a49b-3a7f74935f89` for the migration history.
 
 ## 18. Immediate next implementation slice
 
 Stage 1 begins with these tasks:
 
-1. Create `crates/ekg-contracts` with read DTOs and stable error codes.
+1. Create `crates/fishbowl-contracts` with read DTOs and stable error codes.
 2. Generate redacted query/preflight/get-case fixtures from the TypeScript
    contract tests.
 3. Add Rust RED tests for strict input bounds and canonical output ordering.

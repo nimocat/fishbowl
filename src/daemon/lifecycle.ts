@@ -3,7 +3,12 @@ import { spawn } from 'node:child_process'
 import { homedir } from 'node:os'
 
 import { DaemonClient, createDaemonBackend, type DaemonTimingSample } from './client.js'
-import { ensureDaemonCredentials, readDaemonDescriptor, resolveDaemonPaths } from './config.js'
+import {
+  ensureDaemonCredentials,
+  migrateLegacyDataDirectory,
+  readDaemonDescriptor,
+  resolveDaemonPaths,
+} from './config.js'
 import { defaultNativeBinary, nativeDaemonArguments } from './platform.js'
 
 export function connectInstalledDaemon(options: {
@@ -29,11 +34,13 @@ export function initializeDaemonCredentials(options: {
   home?: string
   platform?: NodeJS.Platform
 } = {}) {
-  const paths = resolveDaemonPaths({
+  const resolveOptions = {
     platform: options.platform ?? process.platform,
     home: options.home ?? homedir(),
     environment: options.environment ?? process.env,
-  })
+  }
+  migrateLegacyDataDirectory(resolveOptions)
+  const paths = resolveDaemonPaths(resolveOptions)
   return { paths, ...ensureDaemonCredentials({ paths }) }
 }
 
@@ -67,5 +74,5 @@ export async function ensureInstalledDaemon(options: {
     await new Promise((resolve) => setTimeout(resolve, 25))
     try { return await connect() } catch { /* bounded poll */ }
   }
-  throw new Error('EKG daemon did not become ready. Run `ekg daemon doctor`.')
+  throw new Error('Fishbowl daemon did not become ready. Run `fishbowl daemon doctor`.')
 }

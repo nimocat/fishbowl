@@ -36,7 +36,8 @@ export interface SnapshotEvidence { id: string; projectId: string; nodeId: strin
 export interface SnapshotFingerprint { id: string; projectId: string; problemNodeId: string; algorithm: string; value: string; createdAt: string }
 export interface SnapshotGuardrail { id: string; projectId: string; nodeId: string; enforcement: 'advise' | 'warn' | 'block'; criteria: Record<string, unknown>; createdAt: string }
 export interface SnapshotArtifact { id: string; projectId: string; nodeId: string | null; kind: string; uri: string; digest: string | null; isExternal: boolean; metadata: Record<string, unknown>; createdAt: string }
-export interface ProjectGraphSnapshot { format: 'engineering-knowledge-graph'; version: 1; exportedAt: string; project: { id: string; name: string; description: string | null; createdAt: string }; cases: SnapshotCase[]; nodes: SnapshotNode[]; edges: SnapshotEdge[]; evidence: SnapshotEvidence[]; fingerprints: SnapshotFingerprint[]; guardrails: SnapshotGuardrail[]; artifacts: SnapshotArtifact[] }
+export type ProjectGraphSnapshotFormat = 'fishbowl' | 'engineering-knowledge-graph'
+export interface ProjectGraphSnapshot { format: ProjectGraphSnapshotFormat; version: 1; exportedAt: string; project: { id: string; name: string; description: string | null; createdAt: string }; cases: SnapshotCase[]; nodes: SnapshotNode[]; edges: SnapshotEdge[]; evidence: SnapshotEvidence[]; fingerprints: SnapshotFingerprint[]; guardrails: SnapshotGuardrail[]; artifacts: SnapshotArtifact[] }
 export interface ExportProjectGraphInput { project: ProjectReference }
 export interface ImportProjectGraphInput { project: ProjectReference; archive: ProjectGraphSnapshot; operationId: string }
 export interface ImportProjectGraphResult { sourceProjectId: string; targetProjectId: string; idMap: Record<string, string>; created: { cases: number; nodes: number; edges: number; evidence: number; fingerprints: number; guardrails: number; artifacts: number } }

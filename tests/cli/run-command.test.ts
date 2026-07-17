@@ -44,7 +44,7 @@ describe('runCommand', () => {
     attempts: unknown[]
     starts: unknown[]
   } {
-    const directory = mkdtempSync(join(tmpdir(), 'ekg-run-'))
+    const directory = mkdtempSync(join(tmpdir(), 'fishbowl-run-'))
     sandboxes.push(directory)
     const records: RecordCommandResultInput[] = []
     const preflights: unknown[] = []
@@ -137,7 +137,7 @@ describe('runCommand', () => {
     expect(nonzero.result.exitCode).toBe(23)
 
     const missing = harness()
-    expect((await execute(missing.service, missing.directory, ['ekg-command-that-does-not-exist'])).result.exitCode)
+    expect((await execute(missing.service, missing.directory, ['fishbowl-command-that-does-not-exist'])).result.exitCode)
       .toBe(127)
 
     if (process.platform !== 'win32') {
@@ -164,7 +164,7 @@ describe('runCommand', () => {
 
   it('rejects a cwd outside the selected project before opening raw logs or spawning', async () => {
     const { directory, service, records, preflights } = harness()
-    const outside = mkdtempSync(join(tmpdir(), 'ekg-run-outside-'))
+    const outside = mkdtempSync(join(tmpdir(), 'fishbowl-run-outside-'))
     sandboxes.push(outside)
     let opened = false
 

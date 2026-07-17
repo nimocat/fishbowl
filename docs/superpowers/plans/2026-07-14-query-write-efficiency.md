@@ -1,8 +1,8 @@
-# EKG Query and Write Efficiency Implementation Plan
+# Fishbowl Query and Write Efficiency Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make large EKG Cases cheap to retrieve, use indexed candidate search, preserve correct cycle checks, support atomic checkpoint writes, and expose content-safe performance aggregates.
+**Goal:** Make large Fishbowl Cases cheap to retrieve, use indexed candidate search, preserve correct cycle checks, support atomic checkpoint writes, and expose content-safe performance aggregates.
 
 **Execution status (2026-07-14):** Tasks 1-7 are implemented and verified with focused red-green evidence, the complete release gate, review, and successful `s1-pro-compact` alias resolution. The final source commit is pending.
 
@@ -462,7 +462,7 @@ Run: `npm test -- tests/application/operation-metrics.test.ts tests/mcp/server.t
 
 Expected: collector and protocol aggregate tests pass with secret-sentinel absence.
 
-Commit: `feat: expose safe EKG operation metrics`
+Commit: `feat: expose safe Fishbowl operation metrics`
 
 ---
 
@@ -514,7 +514,7 @@ Invoke the `review` skill. Check project scoping, migration safety, redaction, r
 Run:
 
 ```bash
-EKG_DATA_DIR=/Users/eric/.engineering-knowledge-graph/data \
+FISHBOWL_DATA_DIR=/Users/eric/.fishbowl/data \
 node dist/cli/main.js project update \
   --project fafff939-4e7a-42da-afc7-5782dde8947a \
   --add-alias /Users/eric/yqshunjian-ios-codex/.worktrees/s1-pro-compact
@@ -523,7 +523,7 @@ node dist/cli/main.js project update \
 Then:
 
 ```bash
-EKG_DATA_DIR=/Users/eric/.engineering-knowledge-graph/data \
+FISHBOWL_DATA_DIR=/Users/eric/.fishbowl/data \
 node dist/cli/main.js project resolve \
   --root /Users/eric/yqshunjian-ios-codex/.worktrees/s1-pro-compact
 ```
@@ -534,4 +534,4 @@ Expected: project ID `fafff939-4e7a-42da-afc7-5782dde8947a` is returned and no s
 
 Stage only plan-owned files. Preserve the unrelated untracked agent-knowledge specification.
 
-Commit: `feat: improve EKG query and write efficiency`
+Commit: `feat: improve Fishbowl query and write efficiency`

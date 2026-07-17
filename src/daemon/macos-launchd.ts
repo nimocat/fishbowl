@@ -1,4 +1,4 @@
-export const MACOS_DAEMON_LABEL = 'io.ekg.daemon'
+export const MACOS_DAEMON_LABEL = 'io.fishbowl.daemon'
 
 export interface ProcessCommand { file: string; args: string[] }
 

@@ -7,7 +7,7 @@ writable connection. Corrupt and newer databases are never replaced.
 Probe a database or a consistent SQLite backup without changing production:
 
 ```bash
-cargo run -p ekg-storage --example database_probe -- /path/to/knowledge-copy.db
+cargo run -p fishbowl-storage --example database_probe -- /path/to/knowledge-copy.db
 ```
 
 The output includes schema version, `quick_check`, and project snapshot counts.
@@ -16,7 +16,7 @@ An upgrade backup is named
 nonexistent destination first:
 
 ```bash
-cargo run -p ekg-storage --example database_probe -- \
+cargo run -p fishbowl-storage --example database_probe -- \
   --restore /path/to/knowledge.db.pre-rust-v9-<timestamp>.bak \
   /path/to/recovered/knowledge.db
 ```

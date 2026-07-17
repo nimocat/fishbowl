@@ -5,8 +5,8 @@ Status: accepted
 
 ## Context
 
-Codex workspace configuration and the project EKG skill injected the legacy
-`~/.engineering-knowledge-graph/data` directory while the installed LaunchAgent
+Codex workspace configuration and the project Fishbowl skill injected the legacy
+`~/.fishbowl/data` directory while the installed LaunchAgent
 owned the macOS platform-default store. Both descriptors advertised protocol 1.
 A checkpoint carrying string `rootCause` and `solution` values reached the
 daemon, which could report only `Request shape or operation is invalid`.
@@ -14,7 +14,7 @@ daemon, which could report only `Request shape or operation is invalid`.
 ## Decision
 
 - Codex configures one user-level stdio MCP entry with an absolute Node path and
-  no `EKG_DATA_DIR`.
+  no `FISHBOWL_DATA_DIR`.
 - Normal CLI, MCP, and LaunchAgent traffic uses the platform-default store.
   Alternate data directories are explicit test/recovery boundaries only.
 - The public RPC generation is 2. Generation-1 descriptors are rejected.

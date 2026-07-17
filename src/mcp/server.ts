@@ -499,7 +499,7 @@ export function createMcpServer(
   const invoke = (toolName: string, operation: () => unknown | Promise<unknown>): Promise<CallToolResult> =>
     invokeWithMetrics(metrics, toolName, operation, options.daemonTimings)
   const server = new McpServer({
-    name: 'engineering-knowledge-graph',
+    name: 'fishbowl',
     version: '0.1.0',
   })
 
@@ -1285,7 +1285,8 @@ export function createMcpServer(
   })
   const snapshot = z
     .object({
-      format: z.literal('engineering-knowledge-graph'),
+      // Fishbowl writes the new format name but imports pre-rename archives.
+      format: z.union([z.literal('fishbowl'), z.literal('engineering-knowledge-graph')]),
       version: z.literal(1),
       exportedAt: timestamp,
       project: z.object({

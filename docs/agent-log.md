@@ -47,7 +47,7 @@
 - GREEN: moved promotion, regression, candidate aging, Guardrail all-of and
   explicit any-of semantics, verified-block trust, relevance weights/reasons,
   five-card/12KiB compaction, and revision-keyed cache metrics into Rust.
-  `ekg-storage` evaluates every Guardrail outside approximate candidate limits.
+  `fishbowl-storage` evaluates every Guardrail outside approximate candidate limits.
 - Trust gate: 10 synthetic Guardrail contexts produced 100% blocking recall and
   zero false positives; candidate block and verified warn rules never block.
 - Shadow/performance: 1,000 persistent-process Preflights matched TypeScript
@@ -67,7 +67,7 @@
 
 - RED: schema-v7 complete response tests failed because `ReadRepository` did
   not exist; Stage 0 returned only candidate Case IDs.
-- GREEN: added query-only `ekg-storage` with project ID/root/alias resolution,
+- GREEN: added query-only `fishbowl-storage` with project ID/root/alias resolution,
   complete compact node records, all current text/type/status/domain/file/
   command/fingerprint filters, stable ordering/truncation, and strict project
   isolation. The public Rust protocol now returns this complete result.
@@ -91,12 +91,12 @@
 ## 2026-07-16 - Rust Migration Stage 1 Contract Ownership
 
 - Goal: freeze complete cross-language read contracts before Rust serves any
-  production EKG operation.
-- RED: `cargo test -p ekg-contracts --test contract_fixtures` failed at compile
+  production Fishbowl operation.
+- RED: `cargo test -p fishbowl-contracts --test contract_fixtures` failed at compile
   time because Stage 0 exposed no `RequestEnvelope`, stable `ErrorCode`, result
   DTOs, or bounded `Validate` layer. The TypeScript adapter test separately
   failed because `src/rust/contract-adapter.ts` did not exist.
-- GREEN: added `ekg-contracts` with strict serde DTOs for `queryKnowledge`,
+- GREEN: added `fishbowl-contracts` with strict serde DTOs for `queryKnowledge`,
   `preflight`, and `getCase`; exact-one project references; bounded strings,
   arrays, and limits; deterministic maps; stable sanitized error codes; and
   complete Case evidence/artifact/command/event result types. Added shared
@@ -128,13 +128,13 @@
 - TDD: shared redacted JSON fixtures drive TypeScript compatibility and Rust
   RED tests. Every stage has correctness, isolation, redaction, performance,
   retrieval-quality, rollout, and rollback gates.
-- Next: create `ekg-contracts`, canonical query/preflight/get-case fixtures,
+- Next: create `fishbowl-contracts`, canonical query/preflight/get-case fixtures,
   persistent Rust request protocol, and a serialization-only TypeScript shadow
   adapter.
 
 ## 2026-07-14 CST - Query/Write Efficiency Plan Approved
 
-- Goal: Resolve the end-to-end efficiency problems observed in the `s1-pro-compact` workload while preserving existing EKG contracts and history.
+- Goal: Resolve the end-to-end efficiency problems observed in the `s1-pro-compact` workload while preserving existing Fishbowl contracts and history.
 - Evidence: The largest Case returns about 337 KiB although its SQLite read is sub-millisecond; current FTS uses `%LIKE%`; preflight scans all project nodes; CLI cold starts add about 100 ms.
 - Decisions: Use schema-v6 indexed Case history, compact default Case reads with explicit full pages, FTS candidate retrieval, indexed reachability, atomic checkpoint writes, and process-local content-safe metrics.
 - Documentation: Approved design committed as `4d92625`; implementation plan saved at `docs/superpowers/plans/2026-07-14-query-write-efficiency.md`.
@@ -177,7 +177,7 @@
 - Goal: Fix every Critical and feasible Important final-review finding without committing.
 - Completed: Added stateful argv redaction; Verification environment allowlisting; automatic failed-run Problems/Attempts; human-confirmed verified promotion; relevance-first preflight; pre-spawn cwd ownership; bounded redacted snapshot import; MCP enum/annotation/storage corrections; schema-v5 ownership triggers and private permissions; hardened raw-log retention and command-log artifacts; snapshot-safe HTTP/SSE; stale-safe browser reads and richer bounded details; clean builds; command lifecycle events; and grouped JSON test-report Problem/Attempt imports.
 - Changed files: Security, domain, application service/contracts, CLI, storage/schema, imports, MCP, HTTP/SSE, browser assets, tests, README, context, implementation plan, and handoff.
-- Decisions: `humanConfirmed=true` is required to assert a verified RootCause and a successful human Verification is required for promotion; MCP close/regression require `operationId`; direct stdio uses `<EKG_DATA_DIR>/knowledge.db`; command-log Artifacts remain local and are omitted from portable snapshots.
+- Decisions: `humanConfirmed=true` is required to assert a verified RootCause and a successful human Verification is required for promotion; MCP close/regression require `operationId`; direct stdio uses `<FISHBOWL_DATA_DIR>/knowledge.db`; command-log Artifacts remain local and are omitted from portable snapshots.
 - TDD: Findings 1-5 produced 6 expected focused failures before implementation; findings 6-10 produced 6 expected focused failures; findings 11-14 produced 6 expected focused failures; grouped import produced 1 expected failure. All focused suites passed after minimal fixes. The first full gate exposed two stale acceptance expectations and command-log export leakage; browser gating exposed nondeterministic same-timestamp project ordering. Each received a focused fix before the complete gate rerun.
 - Verification: `npm run typecheck` passed; `npm test` passed 139/139 across 21 files; `npm run test:acceptance` passed 1/1; `npm run test:browser` passed 1/1; `npm run build` passed with `dist` cleaned first; built-bin integrity returned `quick_check: ok`; built project list returned `[]`.
 - Blockers: None.
@@ -260,9 +260,9 @@
 ## 2026-07-13 22:27 CST - Task 4 CLI and Command Capture Complete
 
 - Goal: Complete the remaining Task 4 CLI and process-capture work while preserving the prior agent's `src/logs/raw-log-store.ts` implementation.
-- Completed: Added the executable `ekg` adapter; explicit parser and JSON-oriented payload flags; serve and MCP lifecycle commands; project, query, preflight, Case, import/export, activity, and integrity dispatch; exact-argv command execution; verified-block exit 78; inherited stdin and unchanged cwd; separate byte teeing; POSIX signal forwarding; exact zero/nonzero and 126/127 exit handling; bounded redacted combined excerpts; raw-log digest/path metadata; and fail-open log/knowledge recording.
+- Completed: Added the executable `fishbowl` adapter; explicit parser and JSON-oriented payload flags; serve and MCP lifecycle commands; project, query, preflight, Case, import/export, activity, and integrity dispatch; exact-argv command execution; verified-block exit 78; inherited stdin and unchanged cwd; separate byte teeing; POSIX signal forwarding; exact zero/nonzero and 126/127 exit handling; bounded redacted combined excerpts; raw-log digest/path metadata; and fail-open log/knowledge recording.
 - Changed files: `src/cli/arguments.ts`, `src/cli/main.ts`, `src/cli/run-command.ts`, `tests/cli/*`, `scripts/prepare-bin.mjs`, `package.json`, `package-lock.json`, `src/index.ts`, `CONTEXT.md`, `docs/implementation-plan.md`, `docs/agent-log.md`, `docs/handoff.md`. `src/logs/raw-log-store.ts` was not modified.
-- Decisions: CLI data defaults to `EKG_DATA_DIR` or `~/.engineering-knowledge-graph/data`, never cwd; `--data-dir` wins. Complex values are explicit JSON. Raw logs remain unredacted local files, while SQLite receives only a redacted 8 KiB excerpt and JSON path/digest metadata. Incomplete raw-log writes produce warnings and null metadata.
+- Decisions: CLI data defaults to `FISHBOWL_DATA_DIR` or `~/.fishbowl/data`, never cwd; `--data-dir` wins. Complex values are explicit JSON. Raw logs remain unredacted local files, while SQLite receives only a redacted 8 KiB excerpt and JSON path/digest metadata. Incomplete raw-log writes produce warnings and null metadata.
 - TDD: Parser/dispatch RED failed because both CLI modules were absent, then passed 5/5. Process RED failed because `run-command.ts` was absent, then passed 5/5. A focused regression RED proved incomplete raw-log metadata was recorded after a write error, then passed 6/6. Bin RED had two failures for missing package/shebang/export wiring. A final scope RED proved query JSON could override `--project`; it passed after an allowlist plus explicit-project-last dispatch.
 - Verification: Focused CLI/raw-log tests passed 17/17. Full `npm test` passed 123/123. `npm run typecheck`, `npm run build`, direct executable `dist/cli/main.js` integrity/list smoke, and `git diff --check` passed.
 - Blockers: None.
@@ -281,8 +281,8 @@
 ## 2026-07-13 22:43 CST - Task 7 And First Local Release Complete
 
 - Goal: Finish database integrity/recovery hardening, security regression coverage, operating documentation, MCP client setup, and release verification without committing.
-- Completed: Added read-only preflight for existing SQLite files, stable corrupt/newer-schema recovery errors that preserve original bytes, `ekg integrity` `quick_check` reporting and actionable backup/recovery/export guidance, and one recursive sentinel assertion over events, search projection/service results, HTTP graph/search/activity/Case responses, and export. Added `README.md` and `docs/mcp-client-configuration.md`; marked Task 7 and the first local release complete.
-- Changed files: `src/storage/database.ts`, `src/cli/main.ts`, `tests/storage/database.test.ts`, `tests/cli/main.test.ts`, `tests/acceptance/first-release.test.ts`, `README.md`, `docs/mcp-client-configuration.md`, `docs/superpowers/specs/2026-07-13-engineering-knowledge-graph-design.md`, `docs/implementation-plan.md`, `CONTEXT.md`, `docs/agent-log.md`, `docs/handoff.md`.
+- Completed: Added read-only preflight for existing SQLite files, stable corrupt/newer-schema recovery errors that preserve original bytes, `fishbowl integrity` `quick_check` reporting and actionable backup/recovery/export guidance, and one recursive sentinel assertion over events, search projection/service results, HTTP graph/search/activity/Case responses, and export. Added `README.md` and `docs/mcp-client-configuration.md`; marked Task 7 and the first local release complete.
+- Changed files: `src/storage/database.ts`, `src/cli/main.ts`, `tests/storage/database.test.ts`, `tests/cli/main.test.ts`, `tests/acceptance/first-release.test.ts`, `README.md`, `docs/mcp-client-configuration.md`, `docs/superpowers/specs/2026-07-13-fishbowl-design.md`, `docs/implementation-plan.md`, `CONTEXT.md`, `docs/agent-log.md`, `docs/handoff.md`.
 - Decisions: Existing databases must pass read-only `quick_check` and schema compatibility before any writable initialization. Recovery always works from backups/copies or a separate data directory. README is the first-release command reference because built top-level and subcommand `--help` are not implemented.
 - TDD: Focused RED produced three expected failures for missing stable recovery errors and missing `quick_check` identification. The secret sentinel assertion was already green only after traversing all required boundaries. Focused GREEN passed 8/8 across storage, CLI, and acceptance.
 - Verification: `npm run typecheck` passed; `npm test` passed 126/126 across 21 files; `npm run test:acceptance` passed 1/1; `npm run build` passed; built-bin integrity returned `ok: true` with `quick_check`; built project list returned `[]`; and the documented client workflow completed through capture, manual Case verification/close, query, preflight, import preview/apply, export, and graph import. Final diff checks are recorded in the handoff.
@@ -290,7 +290,7 @@
 - Next: Add CLI help if desired, or integrate the branch without changing the local-only first-release boundary.
 ## 2026-07-14 09:48 CST - Query/Write Compatibility Refactor Implemented
 
-- Goal: Resolve the observed `s1-pro-compact` EKG query/write efficiency risks without breaking existing callers or moving away from local SQLite.
+- Goal: Resolve the observed `s1-pro-compact` Fishbowl query/write efficiency risks without breaking existing callers or moving away from local SQLite.
 - Completed: Added transactional schema-v6 migration with explicit Case event ownership and adjacency indexes; compact/summary/full Case projections and indexed history cursors; project-scoped FTS5 query/preflight candidates; recursive Case-local cycle detection; atomic idempotent checkpoints; bounded content-free MCP operation metrics; and explicit imported-event Case ownership.
 - TDD: Every behavior slice was introduced with a focused failing test. Added deterministic response-size and SQLite query-plan regression coverage.
 - Review fixes: Added event Case/project ownership enforcement, explicit Case IDs for all Case-scoped events, explicit project scope in count/reachability SQL, bounded preflight fallback with direct fingerprint candidates, service-level checkpoint kind validation, minimized batch error details, and safe-integer metric clamping.
@@ -300,7 +300,7 @@
 
 ## 2026-07-15 20:20 CST - Persistent Daemon, Relevance, and Checkpoint Optimization Implemented
 
-- Goal: Convert EKG from per-command SQLite startup into a reusable macOS/Windows engineering-memory service, while sharply reducing Preflight noise and checkpoint cost.
+- Goal: Convert Fishbowl from per-command SQLite startup into a reusable macOS/Windows engineering-memory service, while sharply reducing Preflight noise and checkpoint cost.
 - Completed: Added authenticated versioned loopback RPC with bounded idempotent replay; CLI/MCP daemon proxying; automatic startup; macOS LaunchAgent and Windows HKCU Run installation; daemon-owned live Trace Bench; Case-level explainable Preflight cards capped at five and 12 KiB; project-revision LRU caching; concise transactional `checkpoint_work`; candidate-age penalties; digest-only relevance feedback; and explicit reviewed Case merge/supersession.
 - TDD: Each slice began with missing-module or missing-method RED tests. Focused GREEN covers daemon auth/protocol/client retry, remote CLI/MCP sharing, ranking/compaction/cache performance, checkpoint replay/capture policy, platform registration commands, schema-v7 migration, relevance feedback, and non-automatic merge proposals.
 - Privacy: RPC request/response bodies and query text are not persisted. Feedback stores only a caller-computed SHA-256 digest and Boolean. Tokens/descriptors are owner-only. Raw-log policy is unchanged.
@@ -310,18 +310,18 @@
 
 ## 2026-07-15 20:33 CST - npm Symlink CLI Entry Fixed And Daemon Installed
 
-- Goal: Resolve `zsh: command not found: ekg` and complete the real macOS daemon startup.
-- Root cause: npm linked `ekg` under the Hermes prefix, which was outside the active PATH. After exposing it through `~/.local/bin`, Node resolved the symlink to the real module while `process.argv[1]` retained the symlink path; the old literal-URL direct-execution check therefore treated the executable as an import and exited silently.
+- Goal: Resolve `zsh: command not found: fishbowl` and complete the real macOS daemon startup.
+- Root cause: npm linked `fishbowl` under the Hermes prefix, which was outside the active PATH. After exposing it through `~/.local/bin`, Node resolved the symlink to the real module while `process.argv[1]` retained the symlink path; the old literal-URL direct-execution check therefore treated the executable as an import and exited silently.
 - Fix: Added a realpath-aware direct-execution helper shared by CLI and direct MCP startup, plus an npm-style symlink regression test. Linked the existing npm binary into the already-PATH-scoped `~/.local/bin`.
-- Verification: Focused regression passed 3/3; typecheck and build passed; the actual `ekg daemon install` registered `io.ekg.daemon`; `launchctl` reports it running; `ekg daemon status` reports PID 74600 and live Trace Bench URL `http://127.0.0.1:58898`.
-- Privacy/data: Existing EKG data was preserved; the install modified only the current-user LaunchAgent and command symlink.
+- Verification: Focused regression passed 3/3; typecheck and build passed; the actual `fishbowl daemon install` registered `io.fishbowl.daemon`; `launchctl` reports it running; `fishbowl daemon status` reports PID 74600 and live Trace Bench URL `http://127.0.0.1:58898`.
+- Privacy/data: Existing Fishbowl data was preserved; the install modified only the current-user LaunchAgent and command symlink.
 
 ## 2026-07-15 20:40 CST - Legacy macOS Database Migrated
 
 - Symptom: Trace Bench loaded normally but the project selector was empty.
-- Root cause evidence: daemon CLI and `/api/v1/projects` both returned `[]`; the new macOS default database under `~/Library/Application Support/EKG` was 4 KiB and empty, while the legacy `~/.engineering-knowledge-graph/data/knowledge.db` was about 2.9 MB and contained `yqshunjian-ios-codex`. The default-directory migration had been omitted.
+- Root cause evidence: daemon CLI and `/api/v1/projects` both returned `[]`; the new macOS default database under `~/Library/Application Support/Fishbowl` was 4 KiB and empty, while the legacy `~/.fishbowl/data/knowledge.db` was about 2.9 MB and contained `yqshunjian-ios-codex`. The default-directory migration had been omitted.
 - Fix: Added startup migration that runs only for the platform default destination, only when the legacy database contains projects, and only when the destination has none. SQLite backup creates a consistent temporary database; an existing empty destination is renamed to a timestamped backup before atomic replacement. Populated destinations and explicit custom data directories are never overwritten.
-- Verification: Migration tests pass for both empty and populated destinations. The real LaunchAgent restart migrated the project and preserved `/Users/eric/Library/Application Support/EKG/knowledge.db.pre-legacy-migration-1784119186695.bak`. CLI and the new Trace Bench API both return `yqshunjian-ios-codex`.
+- Verification: Migration tests pass for both empty and populated destinations. The real LaunchAgent restart migrated the project and preserved `/Users/eric/Library/Application Support/Fishbowl/knowledge.db.pre-legacy-migration-1784119186695.bak`. CLI and the new Trace Bench API both return `yqshunjian-ios-codex`.
 
 ## 2026-07-15 22:55 CST - Precise Finalized Delivery Capture Implemented
 
@@ -332,7 +332,7 @@
 - Verification: Final release-gate results are recorded in `docs/handoff.md`.
 # 2026-07-16 - Rust Hierarchical Retrieval Round 1
 
-- Goal: begin a paper-informed tree retrieval migration and move the EKG core
+- Goal: begin a paper-informed tree retrieval migration and move the Fishbowl core
   from TypeScript to Rust while retaining the existing database and protocol.
 - Research: RAPTOR, GraphRAG, HippoRAG, HNSW, ColBERTv2, LightRAG, Adaptive
   Radix Tree, and deterministic k-core GraphRAG hierarchy work informed a
@@ -342,7 +342,7 @@
   Guardrail-trigger experiments. The first Rust SQLite benchmark also failed
   its cold-start gate at 10,010.541ms because domain extraction used a
   correlated subquery per node.
-- GREEN: added `ekg-core` and `ekg-daemon`; native tests cover Chinese routing,
+- GREEN: added `fishbowl-core` and `fishbowl-daemon`; native tests cover Chinese routing,
   project/domain isolation, any/all Guardrail semantics, existing-table SQLite
   reads, revision cache reuse, and 10,000-Case bounds. A grouped CTE reduced
   debug cold load by 88.54% to 1,147.123ms.
@@ -351,7 +351,7 @@
 - Boundary: this is a read-only migration slice and is not yet connected to
   the installed MCP daemon. TypeScript remains the active engine until Rust
   returns the complete bounded query/preflight contract.
-- EKG Case: `087bb44e-24ac-4a75-a49b-3a7f74935f89`.
+- Fishbowl Case: `087bb44e-24ac-4a75-a49b-3a7f74935f89`.
 
 ## 2026-07-16 - Rust Migration Stage 4
 
@@ -463,7 +463,7 @@
 
 ## 2026-07-16 - Rust Migration Stage 7 Native Transport
 
-- RED: native HTTP tests initially failed because `ekg_daemon::http` did not
+- RED: native HTTP tests initially failed because `fishbowl_daemon::http` did not
   exist. A preceding Cargo-cache permission failure was classified separately
   as environment setup rather than product evidence.
 - GREEN: Rust now owns a bounded Axum/Tokio transport seam with an IPv4
@@ -499,7 +499,7 @@
   replay, and creates no duplicate Project. A follow-up assertion correctly
   compares persisted results rather than transport request IDs.
 - Lifecycle GREEN: launchd, Windows HKCU Run, CLI foreground, and on-demand
-  startup execute `ekg-rust-core` directly with explicit path arguments and no
+  startup execute `fishbowl-rust-core` directly with explicit path arguments and no
   environment configuration. `npm run build` produced an executable arm64
   native binary in `dist/native`.
 - Browser/SSE RED/GREEN: `/api/v1/projects` initially returned 404 from the
@@ -563,13 +563,13 @@
   backups are under `backups/native-cutover-20260717-011816`; all 18 business
   tables passed strict-superset containment, the full backup hash became the
   platform-default database hash, and rollback branch
-  `rollback/ekg-pre-rust-20260717-011816` preserves pre-cutover `a6d8fbd`.
+  `rollback/fishbowl-pre-rust-20260717-011816` preserves pre-cutover `a6d8fbd`.
 - Installed-data RED/GREEN 1: Trace Bench full Case returned HTTP 500 because
   an absent history cursor bound `u64::MAX` into SQLite's signed INTEGER.
   A focused test reproduced `ToSqlConversionFailure`; the read path now caps
   absent or oversized cursors at `i64::MAX`. The installed Case endpoint then
   returned 200 with five bounded history records.
-- Installed-data RED/GREEN 2: `ekg integrity` remained pending while the live
+- Installed-data RED/GREEN 2: `fishbowl integrity` remained pending while the live
   daemon owned the production database because integrity reopened it through
   the writable schema manager. Integrity now opens every existing database
   read-only with a bounded wait and preserves first-run initialization only
@@ -587,13 +587,13 @@
   user confirms the installed experience, as required by the trust policy.
 - Retrieval P0 production cutover completed after explicit user authorization.
   Production `main` fast-forwarded from `3fc060d` to `48692d8`; rollback branch
-  `rollback/ekg-pre-retrieval-p0-20260717-024546` and quiesced dual-database
+  `rollback/fishbowl-pre-retrieval-p0-20260717-024546` and quiesced dual-database
   backups preserve recovery. The populated platform-default database was a
   strict superset of the legacy database across all 18 non-rebuildable tables,
   so no database replacement or schema migration occurred.
 - Installed retrieval acceptance preserved exact lookup and changed the prior
   zero-result architectural-synonym query into five bounded hybrid results.
-  Replaying operation `ekg-retrieval-p0-production-cutover-20260717-v1` did not
+  Replaying operation `fishbowl-retrieval-p0-production-cutover-20260717-v1` did not
   increase the first write's 1,327 event / 467 node counts. Schema v7 and
   `quick_check=ok` remain intact.
 - Final production process and performance acceptance found one packaged Rust
@@ -629,7 +629,7 @@
 - Verification so far: focused disk tests 4/4, database migration tests 5/5,
   native dispatch 1/1, TypeScript typecheck, and production build passed.
 - Production: main fast-forwarded to `46a996b`, rollback branch
-  `rollback/ekg-pre-disk-cache-20260717-125644` and a quiesced schema-v8 backup
+  `rollback/fishbowl-pre-disk-cache-20260717-125644` and a quiesced schema-v8 backup
   were created, then the LaunchAgent was reinstalled on schema v9. Repeated hot
   start/finish measured 0.55/0.54 seconds with 22/22 hits and zero byte delta.
   Installed `quick_check=ok`; 83 Cases and 480 nodes were preserved.
@@ -641,7 +641,7 @@
   structured objects. A minimal checkpoint succeeded, excluding SQLite and the
   checkpoint operation itself as causes.
 - Found two active stores selected by configuration: the installed macOS
-  platform-default store and a workspace-injected legacy `EKG_DATA_DIR`.
+  platform-default store and a workspace-injected legacy `FISHBOWL_DATA_DIR`.
 - Added RED/GREEN CLI coverage for local checkpoint validation and daemon
   configuration coverage that retires protocol generation 1. Protocol constants
   and contract fixtures now use generation 2.

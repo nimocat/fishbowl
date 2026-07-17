@@ -6,21 +6,21 @@ import { describe, expect, it } from 'vitest'
 import { defaultDataDirectory, parseArguments } from '../../src/cli/arguments.js'
 
 describe('CLI arguments', () => {
-  it('uses EKG_DATA_DIR or a user-local directory rather than cwd', () => {
-    expect(defaultDataDirectory({ EKG_DATA_DIR: '/var/ekg' }, '/home/test')).toBe('/var/ekg')
+  it('uses FISHBOWL_DATA_DIR or a user-local directory rather than cwd', () => {
+    expect(defaultDataDirectory({ FISHBOWL_DATA_DIR: '/var/fishbowl' }, '/home/test')).toBe('/var/fishbowl')
     expect(defaultDataDirectory({}, '/home/test')).toBe(
       process.platform === 'darwin'
-        ? '/home/test/Library/Application Support/EKG'
+        ? '/home/test/Library/Application Support/Fishbowl'
         : process.platform === 'win32'
-          ? '/home/test/AppData/Local/EKG'
-          : '/home/test/.local/share/ekg',
+          ? '/home/test/AppData/Local/Fishbowl'
+          : '/home/test/.local/share/fishbowl',
     )
     expect(defaultDataDirectory()).toBe(
       process.platform === 'darwin'
-        ? join(homedir(), 'Library', 'Application Support', 'EKG')
+        ? join(homedir(), 'Library', 'Application Support', 'Fishbowl')
         : process.platform === 'win32'
-          ? join(process.env.LOCALAPPDATA ?? join(homedir(), 'AppData', 'Local'), 'EKG')
-          : join(process.env.XDG_DATA_HOME ?? join(homedir(), '.local', 'share'), 'ekg'),
+          ? join(process.env.LOCALAPPDATA ?? join(homedir(), 'AppData', 'Local'), 'Fishbowl')
+          : join(process.env.XDG_DATA_HOME ?? join(homedir(), '.local', 'share'), 'fishbowl'),
     )
   })
 
@@ -28,7 +28,7 @@ describe('CLI arguments', () => {
     expect(
       parseArguments([
         '--data-dir',
-        '/tmp/ekg',
+        '/tmp/fishbowl',
         'run',
         '--project',
         'project-a',
@@ -41,7 +41,7 @@ describe('CLI arguments', () => {
         '--literal=$HOME',
       ]),
     ).toEqual({
-      dataDirectory: '/tmp/ekg',
+      dataDirectory: '/tmp/fishbowl',
       embedded: true,
       command: {
         kind: 'run',

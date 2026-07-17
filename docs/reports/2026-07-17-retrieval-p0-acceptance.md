@@ -1,4 +1,4 @@
-# EKG Retrieval P0 Acceptance
+# Fishbowl Retrieval P0 Acceptance
 
 ## Scope
 
@@ -88,7 +88,7 @@ retrieval.
 The user explicitly authorized the production installation switch. Production
 `main` was fast-forwarded from `3fc060d` to `48692d8`; the pre-existing untracked
 design document was preserved. Rollback branch
-`rollback/ekg-pre-retrieval-p0-20260717-024546` and quiesced SQLite backups under
+`rollback/fishbowl-pre-retrieval-p0-20260717-024546` and quiesced SQLite backups under
 `backups/retrieval-p0-cutover-20260717-024546` preserve the pre-cutover code and
 both databases. Each backup passed `quick_check` and has a recorded SHA-256.
 

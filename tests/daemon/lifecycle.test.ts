@@ -38,13 +38,13 @@ describe('installed daemon lifecycle', () => {
     try {
       const address = server.address()
       if (!address || typeof address === 'string') throw new Error('missing listener')
-      const sandbox = mkdtempSync(join(tmpdir(), 'ekg-lifecycle-'))
+      const sandbox = mkdtempSync(join(tmpdir(), 'fishbowl-lifecycle-'))
       sandboxes.push(sandbox)
       const dataDirectory = join(sandbox, 'data')
       const paths = resolveDaemonPaths({
         platform: process.platform,
         home: sandbox,
-        environment: { EKG_DATA_DIR: dataDirectory },
+        environment: { FISHBOWL_DATA_DIR: dataDirectory },
       })
       ensureDaemonCredentials({ paths })
       writeFileSync(paths.tokenFile, token)
@@ -58,7 +58,7 @@ describe('installed daemon lifecycle', () => {
         startedAt: new Date().toISOString(),
       })
       const installed = await ensureInstalledDaemon({
-        environment: { EKG_DATA_DIR: dataDirectory },
+        environment: { FISHBOWL_DATA_DIR: dataDirectory },
         home: sandbox,
         platform: process.platform,
       })

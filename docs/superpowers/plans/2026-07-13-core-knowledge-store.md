@@ -39,7 +39,7 @@
 
 ```json
 {
-  "name": "engineering-knowledge-graph",
+  "name": "fishbowl",
   "private": true,
   "type": "module",
   "scripts": {
@@ -238,7 +238,7 @@ Expected: PASS.
 **Files:**
 - Create: `src/index.ts`
 - Create: `tests/integration/core-store.test.ts`
-- Modify: `docs/superpowers/specs/2026-07-13-engineering-knowledge-graph-design.md`
+- Modify: `docs/superpowers/specs/2026-07-13-fishbowl-design.md`
 
 **Interfaces:**
 - Consumes and re-exports the supported database, registry, journal, and Case graph interfaces.

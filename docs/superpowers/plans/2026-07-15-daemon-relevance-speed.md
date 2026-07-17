@@ -1,8 +1,8 @@
-# EKG Daemon, Relevance, and Checkpoint Efficiency Implementation Plan
+# Fishbowl Daemon, Relevance, and Checkpoint Efficiency Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make EKG fast and relevant in daily agent workflows by routing CLI/MCP through a persistent cross-platform daemon, returning bounded Case-level Preflight cards, and providing an idempotent concise checkpoint operation.
+**Goal:** Make Fishbowl fast and relevant in daily agent workflows by routing CLI/MCP through a persistent cross-platform daemon, returning bounded Case-level Preflight cards, and providing an idempotent concise checkpoint operation.
 
 **Architecture:** A loopback-only daemon becomes the normal SQLite owner. Existing CLI and MCP adapters call a versioned authenticated local RPC protocol, while explicit embedded mode remains for tests and recovery. Query changes rank Cases through exact and FTS signals, compact results to a 12 KiB budget, and use project revisions for cache invalidation; concise checkpoint writes reuse existing graph rules transactionally.
 
@@ -83,7 +83,7 @@ const paths = resolveDaemonPaths({
   home: '/Users/tester',
   environment: {},
 })
-expect(paths.dataDirectory).toBe('/Users/tester/Library/Application Support/EKG')
+expect(paths.dataDirectory).toBe('/Users/tester/Library/Application Support/Fishbowl')
 
 const credentials = ensureDaemonCredentials({ paths, randomBytes: () => Buffer.alloc(32, 7) })
 expect(credentials.token).toMatch(/^[a-f0-9]{64}$/)
@@ -122,7 +122,7 @@ export interface DaemonDescriptor {
 }
 ```
 
-Use `writeFileSync(temp, body, { mode: 0o600, flag: 'wx' })`, `renameSync`, and `chmodSync` on POSIX. Honor `EKG_DATA_DIR` before platform defaults. On Windows use `%LOCALAPPDATA%\\EKG` and rely on the current-user directory boundary while keeping files non-shared.
+Use `writeFileSync(temp, body, { mode: 0o600, flag: 'wx' })`, `renameSync`, and `chmodSync` on POSIX. Honor `FISHBOWL_DATA_DIR` before platform defaults. On Windows use `%LOCALAPPDATA%\\Fishbowl` and rely on the current-user directory boundary while keeping files non-shared.
 
 - [ ] **Step 4: Write failing daemon protocol/auth tests**
 
@@ -191,7 +191,7 @@ Expected: PASS.
 
 ```bash
 git add src/daemon src/index.ts tests/daemon
-git commit -m "feat: add authenticated local EKG daemon"
+git commit -m "feat: add authenticated local Fishbowl daemon"
 ```
 
 ---
@@ -231,7 +231,7 @@ expect(result.nodeId).toBe(firstCommittedNodeId)
 expect(countProblemNodes(database)).toBe(1)
 ```
 
-Assert connect failure invokes `startInstalledService` once, waits no longer than the injected timeout, retries once, and then returns `DAEMON_UNAVAILABLE` with `ekg doctor` guidance.
+Assert connect failure invokes `startInstalledService` once, waits no longer than the injected timeout, retries once, and then returns `DAEMON_UNAVAILABLE` with `fishbowl doctor` guidance.
 
 - [ ] **Step 2: Run client RED**
 
@@ -259,7 +259,7 @@ export type AwaitableKnowledgeBackend = {
 
 Assert normal CLI calls a fake daemon and never calls injected `openDatabase`; `--embedded --data-dir ...` opens the database. Assert stdio startup constructs a daemon client and no longer calls `openDatabase`.
 
-For `ekg run`, use an awaitable fake backend and assert preflight occurs before child spawn and command result is recorded after completion.
+For `fishbowl run`, use an awaitable fake backend and assert preflight occurs before child spawn and command result is recorded after completion.
 
 - [ ] **Step 5: Run adapter RED**
 
@@ -287,7 +287,7 @@ Expected: PASS.
 
 ```bash
 git add src/application/backend.ts src/daemon/client.ts src/daemon/lifecycle.ts src/cli src/mcp tests/daemon tests/cli tests/mcp tests/acceptance/daemon-workflow.test.ts
-git commit -m "feat: route CLI and MCP through EKG daemon"
+git commit -m "feat: route CLI and MCP through Fishbowl daemon"
 ```
 
 ---
@@ -418,7 +418,7 @@ git commit -m "perf: rank compact Preflight knowledge cards"
 **Interfaces:**
 - Produces `CheckpointWorkInput` and `CheckpointWorkResult`.
 - Produces `KnowledgeService.checkpointWork(input)`.
-- Produces MCP tool `checkpoint_work` and CLI `ekg checkpoint`.
+- Produces MCP tool `checkpoint_work` and CLI `fishbowl checkpoint`.
 
 - [ ] **Step 1: Write minimal failure checkpoint RED test**
 
@@ -479,7 +479,7 @@ Use existing `recordProblem`, `recordAttempt`, `recordRootCause`, `recordSolutio
 MCP schema requires the four minimal fields plus project and operation ID. CLI accepts concise flags:
 
 ```text
-ekg checkpoint --project-root <path> --task <text> --outcome failed --summary <text>
+fishbowl checkpoint --project-root <path> --task <text> --outcome failed --summary <text>
 ```
 
 It also accepts `--data-json` for optional structured fields, but minimal usage does not require JSON. Ensure proxy-assigned request ID and application operation ID are distinct and both stable across retry.
@@ -592,7 +592,7 @@ Assert a plist with `Label`, `ProgramArguments` array, `RunAtLoad=true`, bounded
 ```ts
 expect(manager.installCommands()).toEqual([
   { command: '/bin/launchctl', args: ['bootstrap', `gui/${uid}`, plistPath] },
-  { command: '/bin/launchctl', args: ['kickstart', '-k', `gui/${uid}/io.ekg.daemon`] },
+  { command: '/bin/launchctl', args: ['kickstart', '-k', `gui/${uid}/io.fishbowl.daemon`] },
 ])
 ```
 
@@ -634,7 +634,7 @@ Never use `{ shell: true }`. Validate every generated path before writing config
 
 - [ ] **Step 5: Add CLI lifecycle and doctor**
 
-Parse and dispatch `ekg daemon install|start|stop|restart|status|uninstall` and `ekg doctor`. Doctor returns bounded JSON with component statuses and timings and never returns the token value. It uses explicit checks; it does not mutate configuration except when the user chose install/start/restart.
+Parse and dispatch `fishbowl daemon install|start|stop|restart|status|uninstall` and `fishbowl doctor`. Doctor returns bounded JSON with component statuses and timings and never returns the token value. It uses explicit checks; it does not mutate configuration except when the user chose install/start/restart.
 
 - [ ] **Step 6: Add cross-platform CI**
 
@@ -650,7 +650,7 @@ Expected: PASS. Verify workflow YAML with the repository's chosen YAML parser or
 
 ```bash
 git add src/daemon src/cli .github/workflows/cross-platform-daemon.yml tests/daemon tests/cli/main.test.ts
-git commit -m "feat: install EKG daemon on macOS and Windows"
+git commit -m "feat: install Fishbowl daemon on macOS and Windows"
 ```
 
 ---
@@ -701,10 +701,10 @@ Create a copy of a schema-v6 fixture with the large S1-shaped Case, start the da
 README must lead with:
 
 ```text
-npm install -g engineering-knowledge-graph
-ekg daemon install
-ekg doctor
-ekg mcp --stdio
+npm install -g fishbowl
+fishbowl daemon install
+fishbowl doctor
+fishbowl mcp --stdio
 ```
 
 Document macOS/Windows data locations, service lifecycle, explicit `--embedded`, compact Preflight, `checkpoint_work`, upgrade backup, token recovery, uninstall data preservation, and exact MCP configuration. Record the daemon/Case-ranking decision in the ADR and update the project handoff/log/context files required by `AGENTS.md`.
@@ -739,7 +739,7 @@ Expected: every command passes. Record test counts and measured p50/p95/maximum 
 
 ```bash
 git add src/http src/web tests README.md docs CONTEXT.md
-git commit -m "docs: complete EKG daemon efficiency release"
+git commit -m "docs: complete Fishbowl daemon efficiency release"
 ```
 
 ---

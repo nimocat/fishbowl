@@ -2,8 +2,8 @@ import { spawnSync } from 'node:child_process'
 import { chmodSync, copyFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 
-const executable = process.platform === 'win32' ? 'ekg-rust-core.exe' : 'ekg-rust-core'
-const result = spawnSync('cargo', ['build', '--release', '-p', 'ekg-daemon', '--bin', 'ekg-rust-core'], {
+const executable = process.platform === 'win32' ? 'fishbowl-rust-core.exe' : 'fishbowl-rust-core'
+const result = spawnSync('cargo', ['build', '--release', '-p', 'fishbowl-daemon', '--bin', 'fishbowl-rust-core'], {
   stdio: 'inherit',
   shell: false,
 })

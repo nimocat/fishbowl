@@ -1,12 +1,12 @@
-# EKG Daemon, Relevance, and Checkpoint Efficiency Design
+# Fishbowl Daemon, Relevance, and Checkpoint Efficiency Design
 
 **Date:** 2026-07-15  
 **Status:** Proposed — awaiting written review  
-**Target:** `/Users/eric/engineering-knowledge-graph`
+**Target:** `/Users/eric/fishbowl`
 
 ## 1. Problem
 
-EKG already improves long-term engineering memory, prevents repeated failures, and preserves decisions across long-running work. Its current net value is positive, but daily interaction remains slower and noisier than it should be:
+Fishbowl already improves long-term engineering memory, prevents repeated failures, and preserves decisions across long-running work. Its current net value is positive, but daily interaction remains slower and noisier than it should be:
 
 - Agents report 5–10 second perceived CLI/query operations in fallback workflows.
 - Permission approvals can time out and force write retries.
@@ -33,13 +33,13 @@ Direct measurement against a copy of the current 2.9 MiB database showed that em
 
 ## 3. Non-goals
 
-- Rewriting EKG in a native language or distributing a signed standalone binary in this release.
+- Rewriting Fishbowl in a native language or distributing a signed standalone binary in this release.
 - Adding a cloud service, remote database, multi-user access, or internet listener.
 - Automatically trusting a RootCause inferred from one successful command.
 - Automatically merging Cases based only on text similarity.
 - Deleting historical Attempts, candidates, regressions, or superseded knowledge.
 - Modifying client project repositories or requiring administrator privileges.
-- Guaranteeing latency introduced by an MCP host, operating-system approval UI, or another external process. EKG will remove its need for repeated filesystem approvals and separately measure its own latency.
+- Guaranteeing latency introduced by an MCP host, operating-system approval UI, or another external process. Fishbowl will remove its need for repeated filesystem approvals and separately measure its own latency.
 
 ## 4. Architecture
 
@@ -48,7 +48,7 @@ flowchart LR
     A["Agent / MCP host"] --> B["stdio MCP proxy"]
     C["CLI"] --> D["daemon client"]
     B --> D
-    D --> E["EKG daemon · loopback only"]
+    D --> E["Fishbowl daemon · loopback only"]
     E --> F["SQLite / FTS"]
     E --> G["raw logs and artifacts"]
     E --> H["Trace Bench web app"]
@@ -66,7 +66,7 @@ The CLI and stdio MCP process become lightweight clients. The stdio process reta
 
 Use versioned loopback HTTP with JSON request/response bodies and SSE for graph updates. The daemon binds only to `127.0.0.1` or `::1`; remote binding is not configurable in this release.
 
-The daemon install creates a random bearer token and a local connection descriptor containing protocol version, selected port, daemon version, and token reference. The descriptor and token live in the user EKG configuration directory with owner-only permissions or the closest Windows ACL equivalent.
+The daemon install creates a random bearer token and a local connection descriptor containing protocol version, selected port, daemon version, and token reference. The descriptor and token live in the user Fishbowl configuration directory with owner-only permissions or the closest Windows ACL equivalent.
 
 The Trace Bench browser receives a one-time launch token and exchanges it for an HttpOnly, SameSite local session cookie. Long-lived bearer tokens do not appear in browser URLs.
 
@@ -76,29 +76,29 @@ Direct database operation remains available only through an explicit `--embedded
 
 ### 4.4 Platform data locations
 
-- macOS configuration and data: `~/Library/Application Support/EKG`.
-- Windows configuration and data: `%LOCALAPPDATA%\EKG`.
-- `EKG_DATA_DIR` remains an explicit override for compatibility and test isolation.
+- macOS configuration and data: `~/Library/Application Support/Fishbowl`.
+- Windows configuration and data: `%LOCALAPPDATA%\Fishbowl`.
+- `FISHBOWL_DATA_DIR` remains an explicit override for compatibility and test isolation.
 
-Existing installations using `~/.engineering-knowledge-graph/data` are discovered and migrated only after an explicit install/upgrade command confirms the source and target paths. Migration does not delete the source.
+Existing installations using `~/.fishbowl/data` are discovered and migrated only after an explicit install/upgrade command confirms the source and target paths. Migration does not delete the source.
 
 ## 5. Installation and Service Lifecycle
 
 The npm package requires Node.js 22 and provides:
 
 ```text
-ekg daemon install
-ekg daemon start
-ekg daemon stop
-ekg daemon restart
-ekg daemon status
-ekg daemon uninstall
-ekg doctor
+fishbowl daemon install
+fishbowl daemon start
+fishbowl daemon stop
+fishbowl daemon restart
+fishbowl daemon status
+fishbowl daemon uninstall
+fishbowl doctor
 ```
 
 ### 5.1 macOS
 
-Install a per-user `launchd` agent. It starts at login, restarts after unexpected exit with bounded backoff, inherits only an allowlisted environment, and writes operational diagnostics to the EKG data directory. Installation and removal do not require administrator privileges.
+Install a per-user `launchd` agent. It starts at login, restarts after unexpected exit with bounded backoff, inherits only an allowlisted environment, and writes operational diagnostics to the Fishbowl data directory. Installation and removal do not require administrator privileges.
 
 ### 5.2 Windows
 
@@ -106,7 +106,7 @@ Install a current-user `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run`
 
 ### 5.3 Health and updates
 
-`ekg doctor` checks:
+`fishbowl doctor` checks:
 
 - Node and package versions.
 - Platform service registration and process health.
@@ -254,7 +254,7 @@ The service resolves the project/worktree, matches or creates a Case, links the 
 
 The CLI and MCP proxy assign one stable idempotency key per incoming operation and reuse it across one bounded connection retry. The daemon stores the result keyed by project and operation ID. A write that committed before a lost response returns the original result when retried.
 
-When the daemon is unavailable, the client asks the installed platform service to start once, waits for a bounded health window, and retries once. It then fails quickly with `ekg doctor` guidance. It does not enter embedded mode automatically.
+When the daemon is unavailable, the client asks the installed platform service to start once, waits for a bounded health window, and retries once. It then fails quickly with `fishbowl doctor` guidance. It does not enter embedded mode automatically.
 
 The existing low-level write tools and `record_checkpoint` remain compatible for precise editing and recovery.
 
@@ -356,7 +356,7 @@ Each slice is implemented test-first and preserves current project isolation, re
 
 ## 13. Acceptance Criteria
 
-- macOS and Windows users can install, start, diagnose, and uninstall EKG without administrator privileges.
+- macOS and Windows users can install, start, diagnose, and uninstall Fishbowl without administrator privileges.
 - The daemon is the only normal SQLite writer.
 - Existing MCP tool names and current callers remain compatible.
 - MCP and CLI do not silently enter embedded write mode.

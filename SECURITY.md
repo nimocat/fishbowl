@@ -12,4 +12,4 @@ Do not send credentials, personal data, unredacted command logs, or database fil
 
 ## Security boundaries
 
-EKG is local-first and single-user. Its HTTP interface binds only to loopback, but raw command logs can contain sensitive output. Keep the EKG data directory private and do not expose its database, logs, or MCP process to untrusted users.
+Fishbowl is local-first and single-user. Its HTTP interface binds only to loopback, but raw command logs can contain sensitive output. Keep the Fishbowl data directory private and do not expose its database, logs, or MCP process to untrusted users.

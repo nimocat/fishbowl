@@ -5,7 +5,7 @@
 
 ## Decision
 
-EKG will move all durable knowledge, retrieval, ranking, graph traversal,
+Fishbowl will move all durable knowledge, retrieval, ranking, graph traversal,
 Guardrail evaluation, transactions, redaction enforcement, and operational
 metrics into Rust. TypeScript remains only for MCP protocol adaptation, HTTP
 presentation, and the Trace Bench browser UI until those adapters can call the
@@ -59,10 +59,10 @@ cannot be pruned by tree descent or vector recall.
 The target workspace is:
 
 ```text
-crates/ekg-core       domain, policy, hierarchy, ranking, redaction contracts
-crates/ekg-storage    SQLite schema, migrations, transactions, indexes
-crates/ekg-retrieval  ART, hierarchy summaries, PPR, optional HNSW
-crates/ekg-daemon     authenticated loopback RPC and process metrics
+crates/fishbowl-core       domain, policy, hierarchy, ranking, redaction contracts
+crates/fishbowl-storage    SQLite schema, migrations, transactions, indexes
+crates/fishbowl-retrieval  ART, hierarchy summaries, PPR, optional HNSW
+crates/fishbowl-daemon     authenticated loopback RPC and process metrics
 src/mcp               temporary TypeScript MCP adapter
 src/web               TypeScript/JavaScript presentation only
 ```

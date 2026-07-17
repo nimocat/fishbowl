@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest'
 import { RawLogStore } from '../../src/logs/raw-log-store.js'
 
 function tempDirectory(): string {
-  return mkdtempSync(join(tmpdir(), 'ekg-raw-logs-'))
+  return mkdtempSync(join(tmpdir(), 'fishbowl-raw-logs-'))
 }
 
 describe('RawLogStore', () => {

@@ -1,6 +1,6 @@
 # Contributing
 
-Thank you for improving Engineering Knowledge Graph (EKG).
+Thank you for improving Fishbowl (Fishbowl).
 
 ## Development setup
 
@@ -26,4 +26,4 @@ Thank you for improving Engineering Knowledge Graph (EKG).
 
 ## Reporting bugs
 
-Open a GitHub issue with the EKG version, operating system, command invoked, expected behavior, and a redacted error excerpt. Do not attach raw logs unless you have reviewed them for secrets.
+Open a GitHub issue with the Fishbowl version, operating system, command invoked, expected behavior, and a redacted error excerpt. Do not attach raw logs unless you have reviewed them for secrets.

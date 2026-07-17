@@ -1,4 +1,4 @@
-# EKG Precise Schemas and Finalize Work Implementation Plan
+# Fishbowl Precise Schemas and Finalize Work Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- EKG records Git facts but never executes `git commit`, `git merge`, `git push`, tests, builds, or device validation.
+- Fishbowl records Git facts but never executes `git commit`, `git merge`, `git push`, tests, builds, or device validation.
 - Every read and mutation remains explicitly project scoped.
 - No raw diff, raw log, environment value, request body, or response body may be persisted.
 - `operationId` makes the entire finalize operation retry-safe and idempotent.

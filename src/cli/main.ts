@@ -77,13 +77,11 @@ async function dispatch(service: AwaitableKnowledgeBackend, command: CliCommand)
 }
 
 async function runNativeIntegrity(
-  dataDirectory: string,
+  environment: Record<string, string | undefined>,
   stdout: OutputStream,
   stderr: OutputStream,
 ): Promise<number> {
-  const initialized = initializeDaemonCredentials({
-    environment: { ...process.env, EKG_DATA_DIR: dataDirectory },
-  })
+  const initialized = initializeDaemonCredentials({ environment })
   const child = spawn(defaultNativeBinary(), [
     'integrity', '--database', initialized.paths.databasePath,
   ], { stdio: ['ignore', 'pipe', 'pipe'] })
@@ -100,10 +98,13 @@ export async function runCli(argv: string[], dependencies: CliDependencies = {})
   const stderr = dependencies.stderr ?? process.stderr
   try {
     const parsed = parseArguments(argv)
+    const daemonEnvironment = parsed.embedded
+      ? { ...process.env, FISHBOWL_DATA_DIR: parsed.dataDirectory }
+      : process.env
     if (parsed.command.kind === 'daemon') {
-      const initialized = initializeDaemonCredentials({ environment: { ...process.env, EKG_DATA_DIR: parsed.dataDirectory } })
+      const initialized = initializeDaemonCredentials({ environment: daemonEnvironment })
       if (parsed.command.action === 'install') {
-        printJson(stdout, installCurrentUserDaemon())
+        printJson(stdout, installCurrentUserDaemon({ paths: initialized.paths }))
         return 0
       }
       if (parsed.command.action === 'uninstall') {
@@ -121,7 +122,7 @@ export async function runCli(argv: string[], dependencies: CliDependencies = {})
       }
       let descriptor
       try { descriptor = readDaemonDescriptor({ paths: initialized.paths }) } catch {
-        printJson(stdout, { running: false, guidance: 'Run `ekg daemon install` or any normal EKG command.' })
+        printJson(stdout, { running: false, guidance: 'Run `fishbowl daemon install` or any normal Fishbowl command.' })
         return parsed.command.action === 'doctor' ? 1 : 0
       }
       const running = (() => {
@@ -142,14 +143,17 @@ export async function runCli(argv: string[], dependencies: CliDependencies = {})
       return running || parsed.command.action === 'stop' ? 0 : 1
     }
     if (parsed.command.kind === 'mcp-stdio') {
-      await runStdioServer({ backend: dependencies.backend, dataDirectory: parsed.dataDirectory })
+      await runStdioServer({
+        backend: dependencies.backend,
+        dataDirectory: parsed.embedded ? parsed.dataDirectory : undefined,
+      })
       return 0
     }
     if (parsed.command.kind === 'integrity') {
-      return await runNativeIntegrity(parsed.dataDirectory, stdout, stderr)
+      return await runNativeIntegrity(daemonEnvironment, stdout, stderr)
     }
     const installed = dependencies.backend ? undefined : await ensureInstalledDaemon({
-      environment: { ...process.env, EKG_DATA_DIR: parsed.dataDirectory },
+      environment: daemonEnvironment,
       detached: dependencies.daemonDetached,
     })
     if (parsed.command.kind === 'serve') {

@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/ekg-contracts", "crates/ekg-core", "crates/ekg-daemon", "crates/ekg-storage"]
+members = ["crates/fishbowl-contracts", "crates/fishbowl-core", "crates/fishbowl-daemon", "crates/fishbowl-storage"]
 resolver = "2"
 
 [workspace.package]

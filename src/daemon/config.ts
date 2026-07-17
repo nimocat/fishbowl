@@ -3,11 +3,11 @@ import {
   chmodSync,
   existsSync,
   mkdirSync,
-  readFileSync,
   renameSync,
+  readFileSync,
   writeFileSync,
 } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 
 export const DAEMON_PROTOCOL_VERSION = 2 as const
 
@@ -38,13 +38,13 @@ export interface ResolveDaemonPathsOptions {
 }
 
 export function resolveDaemonPaths(options: ResolveDaemonPathsOptions): DaemonPaths {
-  const override = options.environment.EKG_DATA_DIR?.trim()
+  const override = options.environment.FISHBOWL_DATA_DIR?.trim()
   const dataDirectory = override || (
     options.platform === 'darwin'
-      ? join(options.home, 'Library', 'Application Support', 'EKG')
+      ? join(options.home, 'Library', 'Application Support', 'Fishbowl')
       : options.platform === 'win32'
-        ? join(options.environment.LOCALAPPDATA || join(options.home, 'AppData', 'Local'), 'EKG')
-        : join(options.environment.XDG_DATA_HOME || join(options.home, '.local', 'share'), 'ekg')
+        ? join(options.environment.LOCALAPPDATA || join(options.home, 'AppData', 'Local'), 'Fishbowl')
+        : join(options.environment.XDG_DATA_HOME || join(options.home, '.local', 'share'), 'fishbowl')
   )
   return {
     dataDirectory,
@@ -54,6 +54,27 @@ export function resolveDaemonPaths(options: ResolveDaemonPathsOptions): DaemonPa
     pidFile: join(dataDirectory, 'daemon.pid'),
     logFile: join(dataDirectory, 'daemon.log'),
   }
+}
+
+/**
+ * Moves the former product store to Fishbowl's branded location before a new
+ * credential or descriptor is created. Renaming a sibling directory is atomic
+ * on supported local filesystems, so the database, WAL sidecars, and raw logs
+ * remain a single consistent store. Explicit Fishbowl data directories are
+ * never migrated or overwritten.
+ */
+export function migrateLegacyDataDirectory(options: ResolveDaemonPathsOptions): { migrated: boolean; source?: string } {
+  if (options.environment.FISHBOWL_DATA_DIR?.trim()) return { migrated: false }
+
+  const destination = resolveDaemonPaths(options).dataDirectory
+  if (existsSync(destination)) return { migrated: false }
+
+  const source = legacyDataDirectory(options)
+  if (source === destination || !existsSync(join(source, 'knowledge.db'))) return { migrated: false }
+
+  mkdirSync(dirname(destination), { recursive: true, mode: 0o700 })
+  renameSync(source, destination)
+  return { migrated: true, source }
 }
 
 export function ensureDaemonCredentials(options: {
@@ -102,7 +123,7 @@ export function readDaemonDescriptor(options: { paths: DaemonPaths }): DaemonDes
     !Number.isInteger(value.pid) || (value.pid ?? 0) < 1 ||
     typeof value.startedAt !== 'string' || !value.startedAt
   ) {
-    throw new Error('Invalid EKG daemon descriptor')
+    throw new Error('Invalid Fishbowl daemon descriptor')
   }
   return value as DaemonDescriptor
 }
@@ -110,4 +131,14 @@ export function readDaemonDescriptor(options: { paths: DaemonPaths }): DaemonDes
 function ensurePrivateDirectory(path: string): void {
   mkdirSync(path, { recursive: true, mode: 0o700 })
   if (process.platform !== 'win32') chmodSync(path, 0o700)
+}
+
+function legacyDataDirectory(options: ResolveDaemonPathsOptions): string {
+  if (options.platform === 'darwin') {
+    return join(options.home, 'Library', 'Application Support', 'EKG')
+  }
+  if (options.platform === 'win32') {
+    return join(options.environment.LOCALAPPDATA || join(options.home, 'AppData', 'Local'), 'EKG')
+  }
+  return join(options.environment.XDG_DATA_HOME || join(options.home, '.local', 'share'), 'ekg')
 }

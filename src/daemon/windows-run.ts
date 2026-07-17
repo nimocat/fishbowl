@@ -1,5 +1,6 @@
 export const WINDOWS_RUN_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run'
-export const WINDOWS_RUN_VALUE = 'EngineeringKnowledgeGraph'
+export const WINDOWS_RUN_VALUE = 'Fishbowl'
+export const LEGACY_WINDOWS_RUN_VALUE = 'EngineeringKnowledgeGraph'
 
 function quote(value: string): string {
   return `"${value.replaceAll('"', '\\"')}"`
@@ -15,4 +16,8 @@ export function windowsRunRegistrationArgs(command: string): string[] {
 
 export function windowsRunRemovalArgs(): string[] {
   return ['delete', WINDOWS_RUN_KEY, '/v', WINDOWS_RUN_VALUE, '/f']
+}
+
+export function legacyWindowsRunRemovalArgs(): string[] {
+  return ['delete', WINDOWS_RUN_KEY, '/v', LEGACY_WINDOWS_RUN_VALUE, '/f']
 }

@@ -23,7 +23,7 @@ export async function runStdioServer(
 ): Promise<StdioServerHandle> {
   const daemonTimings = new DaemonTimingLedger()
   const service = options.backend ?? (await ensureInstalledDaemon({
-    environment: options.dataDirectory ? { ...process.env, EKG_DATA_DIR: options.dataDirectory } : process.env,
+    environment: options.dataDirectory ? { ...process.env, FISHBOWL_DATA_DIR: options.dataDirectory } : process.env,
     observeTiming: (sample) => daemonTimings.record(sample),
   })).backend
   const server = createMcpServer(service, {

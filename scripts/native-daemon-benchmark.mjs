@@ -6,14 +6,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { performance } from 'node:perf_hooks'
 
-const root = mkdtempSync(join(tmpdir(), 'ekg-native-bench-'))
+const root = mkdtempSync(join(tmpdir(), 'fishbowl-native-bench-'))
 const projectRoot = join(root, 'project')
 mkdirSync(projectRoot)
 const token = 'native-benchmark-token'
 const tokenFile = join(root, 'daemon.token')
 const descriptorFile = join(root, 'daemon.json')
 writeFileSync(tokenFile, token, { mode: 0o600 })
-const executable = join('dist', 'native', process.platform === 'win32' ? 'ekg-rust-core.exe' : 'ekg-rust-core')
+const executable = join('dist', 'native', process.platform === 'win32' ? 'fishbowl-rust-core.exe' : 'fishbowl-rust-core')
 const child = spawn(executable, [
   'daemon', '--database', join(root, 'knowledge.db'), '--token-file', tokenFile,
   '--descriptor', descriptorFile, '--pid-file', join(root, 'daemon.pid'), '--port', '0',

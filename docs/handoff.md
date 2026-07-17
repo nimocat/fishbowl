@@ -2,18 +2,18 @@
 
 ## Task Disk Ledger Follow-up (2026-07-17)
 
-Branch `codex/ekg-disk-ledger` is merged and installed at schema v8. The implementation records start/final byte snapshots for allowlisted regenerable directories, computes path-level growth, marks overlapping sessions shared, and exposes read-only cleanup candidates without deletion. Rust Debug/Release, migration, native HTTP, TypeScript, MCP/CLI, production-copy, and installed tests pass. The installed YQSK finish scan reached its 250,000-entry cap and returned in 6.73 seconds; disk lifecycle RPCs therefore use a bounded 15-second client deadline, readiness uses a disposable 250 ms probe rather than leaking that deadline into the operational client, and daemon dispatch runs on Tokio's blocking pool so metadata traversal cannot starve loopback health or unrelated reads. Future work should add a persistent metadata cache or platform-optimized traversal before expanding the allowlist.
+Branch `codex/fishbowl-disk-ledger` is merged and installed at schema v8. The implementation records start/final byte snapshots for allowlisted regenerable directories, computes path-level growth, marks overlapping sessions shared, and exposes read-only cleanup candidates without deletion. Rust Debug/Release, migration, native HTTP, TypeScript, MCP/CLI, production-copy, and installed tests pass. The installed YQSK finish scan reached its 250,000-entry cap and returned in 6.73 seconds; disk lifecycle RPCs therefore use a bounded 15-second client deadline, readiness uses a disposable 250 ms probe rather than leaking that deadline into the operational client, and daemon dispatch runs on Tokio's blocking pool so metadata traversal cannot starve loopback health or unrelated reads. Future work should add a persistent metadata cache or platform-optimized traversal before expanding the allowlist.
 
 ## Current Objective
 
-Migrate EKG's knowledge engine to Rust and introduce deterministic hierarchical
+Migrate Fishbowl's knowledge engine to Rust and introduce deterministic hierarchical
 retrieval. The active design is
 `docs/specs/2026-07-16-rust-hierarchical-retrieval.md`.
 
 ## Authoritative Current Status (2026-07-16)
 
 Stages 0 through 8 are implemented and offline-accepted on
-`codex/ekg-efficiency-rounds`. Rust is the only persistence, migration,
+`codex/fishbowl-efficiency-rounds`. Rust is the only persistence, migration,
 recovery, retrieval, ranking, graph, policy, import/export, redaction, HTTP,
 and daemon core. TypeScript is limited to protocol DTOs and MCP/CLI/browser
 adaptation; `better-sqlite3` and the old Node daemon/core have been removed.
@@ -37,9 +37,9 @@ than stopping only one PID.
 
 ## Rust Migration Status
 
-Stages 0-1 are implemented on `codex/ekg-efficiency-rounds`. `ekg-core` provides a
+Stages 0-1 are implemented on `codex/fishbowl-efficiency-rounds`. `fishbowl-core` provides a
 project/domain Unicode prefix tree with Han bigram routing and explicit
-Guardrail all-of/any-of semantics. `ekg-daemon` reads the existing core SQLite
+Guardrail all-of/any-of semantics. `fishbowl-daemon` reads the existing core SQLite
 tables in query-only mode, builds one cached tree per project, and invalidates
 it using the project event revision.
 
@@ -49,7 +49,7 @@ debug cold load to 1,147.123ms (88.54%). The release result is 177.349ms cold,
 6.292µs warm p50, and 7.625µs warm p95. Pure release tree lookup is 1.417µs
 p95. These numbers exclude MCP transport and full response construction.
 
-`ekg-contracts` now owns strict protocol-v1 DTOs and complete public result
+`fishbowl-contracts` now owns strict protocol-v1 DTOs and complete public result
 shapes for `queryKnowledge`, `preflight`, and `getCase`. Shared synthetic JSON
 fixtures replay canonically in Rust and TypeScript. The Rust protocol keeps a
 bounded request-ID cache, rejects changed-input reuse, emits sanitized stable
@@ -60,7 +60,7 @@ The Rust query path is still not wired into the installed daemon. Do not
 duplicate retrieval or Guardrail policy in TypeScript while the remaining Rust
 stages and installed lifecycle are completed.
 
-Stage 2 now has a query-only `ekg-storage` repository that resolves project IDs
+Stage 2 now has a query-only `fishbowl-storage` repository that resolves project IDs
 and canonical aliases, composes every current query filter, returns complete
 Case/node records, preserves deterministic truncation/order, and does not
 mutate schema-v7. A real persistent Rust process matched the TypeScript service
@@ -74,9 +74,9 @@ production at a developer `target/release` path or require an environment
 variable. Package and supervise the binary first, then close the Stage 2
 cutover gate.
 
-Stage 3 Rust policy and Preflight are complete. `ekg-core` owns promotion,
+Stage 3 Rust policy and Preflight are complete. `fishbowl-core` owns promotion,
 regression, staleness, Guardrail all/any evaluation, trusted blocking,
-explainable ranking, and response compaction. `ekg-storage` evaluates every
+explainable ranking, and response compaction. `fishbowl-storage` evaluates every
 project Guardrail independently of FTS candidate limits and caches by project
 event revision with content-free metrics. The 10-case Guardrail golden set has
 100% block recall and zero false positives. A real persistent process matched
@@ -151,9 +151,9 @@ production routing changes.
 
 Final verification passed: typecheck; 195/195 Vitest across 37 files; 3/3 acceptance tests; production build; and `git diff --check`. The new acceptance journey uses two MCP clients through a real temporary authenticated daemon and verifies ordered Attempts, graph linkage, commit/merge facts, project isolation, bounded reads, and idempotent replay. Static inspection found no Git or subprocess execution in the `finalize_work` application/MCP path.
 
-Post-merge installation exposed and fixed npm symlink execution: direct CLI/MCP detection now compares real paths, with a regression test. The current-user macOS LaunchAgent is installed and running; `ekg daemon status` is the authoritative way to retrieve its current dynamic Trace Bench URL.
+Post-merge installation exposed and fixed npm symlink execution: direct CLI/MCP detection now compares real paths, with a regression test. The current-user macOS LaunchAgent is installed and running; `fishbowl daemon status` is the authoritative way to retrieve its current dynamic Trace Bench URL.
 
-The first real daemon startup also exposed the legacy default-directory migration gap. Startup now migrates a populated `~/.engineering-knowledge-graph/data/knowledge.db` into an empty platform-default store using SQLite backup and a destination backup, but never overwrites populated or explicitly selected stores. The installed database now exposes the existing `yqshunjian-ios-codex` project.
+The first real daemon startup also exposed the legacy default-directory migration gap. Startup now migrates a populated `~/.fishbowl/data/knowledge.db` into an empty platform-default store using SQLite backup and a destination backup, but never overwrites populated or explicitly selected stores. The installed database now exposes the existing `yqshunjian-ios-codex` project.
 
 ## Daemon/Relevance Disposition
 
@@ -175,7 +175,7 @@ The first real daemon startup also exposed the legacy default-directory migratio
 
 ## Runtime Alias Verification
 
-`/Users/eric/yqshunjian-ios-codex/.worktrees/s1-pro-compact` is registered in the configured user-local EKG database and resolves to project `fafff939-4e7a-42da-afc7-5782dde8947a`; no duplicate project was created.
+`/Users/eric/yqshunjian-ios-codex/.worktrees/s1-pro-compact` is registered in the configured user-local Fishbowl database and resolves to project `fafff939-4e7a-42da-afc7-5782dde8947a`; no duplicate project was created.
 
 ## Final Path-Boundary Disposition
 
@@ -197,7 +197,7 @@ The first real daemon startup also exposed the legacy default-directory migratio
 
 1. Stateful argv redaction: Added shared `redactArgv`; applied to Attempts, Verifications/evidence, command runs/events, snapshots/imports, indexing, and failed-run capture.
 2. Environment allowlist: Verification accepts only `os`, `toolVersion`, `architecture`, `scheme`, `destination`, and `configuration`; arbitrary keys are rejected before persistence.
-3. Failed `ekg run`: Nonzero/signal outcomes preserve the command result, reuse/create a fingerprinted candidate Problem, and append an unclassified failed Attempt using stable source keys.
+3. Failed `fishbowl run`: Nonzero/signal outcomes preserve the command result, reuse/create a fingerprinted candidate Problem, and append an unclassified failed Attempt using stable source keys.
 4. Promotion: Requires an evidenced verified RootCause, automation/exception, explicit successful human `humanConfirmed` evidence, applicability, limitations, and successful-Attempt decisive difference. Verified RootCause assertion requires `humanConfirmed`; regression rejects non-verified Solutions.
 5. Preflight: Scores task/argv/files/fingerprint terms, promotes matching Cases, ranks by relevance, then applies limits; unrelated Cases are excluded.
 6. Run cwd: Canonical root/alias membership is validated before preflight, log creation, or spawn.
@@ -257,7 +257,7 @@ The generic daemon error was not database corruption. The failing checkpoint
 sent obsolete string RootCause/Solution fields, and workspace configuration
 also selected a separate legacy data directory. Protocol generation 2 and
 field-specific CLI validation are implemented with focused RED/GREEN coverage.
-Codex user/workspace configuration now contains no `EKG_DATA_DIR`; normal
+Codex user/workspace configuration now contains no `FISHBOWL_DATA_DIR`; normal
 traffic targets the platform-default installed daemon. Production acceptance
 is complete: hashed backups retain both inputs, the HarmonyOS project and raw
 logs were migrated, SQLite quick/foreign-key checks passed, one protocol-v2

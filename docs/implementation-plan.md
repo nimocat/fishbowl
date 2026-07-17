@@ -25,7 +25,7 @@ Completed in the first slice:
 - 10,000-Case cold/warm performance gates;
 - removal of an O(n²) correlated domain lookup from the Rust loading path.
 
-Stage 1 adds an independent `ekg-contracts` crate, strict versioned DTOs for
+Stage 1 adds an independent `fishbowl-contracts` crate, strict versioned DTOs for
 `queryKnowledge`, `preflight`, and `getCase`, shared redacted JSON fixtures, a
 serialization-only TypeScript adapter, stable sanitized errors, and bounded
 request-ID replay. Release replay p95 is 3µs excluding process startup. No
@@ -37,7 +37,7 @@ graph diffusion, and transactional write migration. The TypeScript application
 and storage core cannot be removed until parity, migration, recovery, and
 release gates pass.
 
-Stage 2 core and shadow validation are now complete: `ekg-storage` constructs
+Stage 2 core and shadow validation are now complete: `fishbowl-storage` constructs
 complete project-scoped schema-v7 query results, 1,000 persistent-process
 queries match TypeScript with zero mismatches, bilingual Recall@5 is 100%, and
 the 10,000-Case complete-response p95 is 0.053ms. Installed cutover is held for
@@ -47,7 +47,7 @@ variable dependency will be introduced as a shortcut.
 Stage 3 is complete in Rust. Promotion/regression policy, candidate staleness,
 all-of/explicit-any-of Guardrails, verified-block trust, explainable relevance
 weights, compact Case cards, 12KiB response bounding, and revisioned content-free
-cache metrics now live in `ekg-core`/`ekg-storage`. A 1,000-request Preflight
+cache metrics now live in `fishbowl-core`/`fishbowl-storage`. A 1,000-request Preflight
 shadow run has zero mismatches and p95 0.113ms; blocking recall is 100% with no
 false positives in the Guardrail golden set.
 
@@ -130,7 +130,7 @@ The seven compatibility-focused TDD tasks are complete: schema-v6 indexed Case h
 
 **Files:** `src/cli/main.ts`, `src/cli/arguments.ts`, `src/cli/run-command.ts`, `src/logs/raw-log-store.ts`, `tests/cli/*.test.ts`, `tests/logs/*.test.ts`, `package.json`
 
-**Produces:** `ekg serve`, project/query/preflight/run/case/import/export commands; raw-log SHA-256, mode `0600`, age and size retention; child argv/output/exit preservation; exit `78` for verified guardrail blocks.
+**Produces:** `fishbowl serve`, project/query/preflight/run/case/import/export commands; raw-log SHA-256, mode `0600`, age and size retention; child argv/output/exit preservation; exit `78` for verified guardrail blocks.
 
 **TDD gate:** helper subprocess proves exact argv, stdout/stderr, zero/nonzero exits, fail-open recording, and block-before-spawn behavior.
 

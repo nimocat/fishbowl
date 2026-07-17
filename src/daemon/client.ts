@@ -51,7 +51,7 @@ export class DaemonTimingLedger {
 export class DaemonClient {
   constructor(private readonly options: DaemonClientOptions) {
     if (options.descriptor.protocolVersion !== DAEMON_PROTOCOL_VERSION) {
-      throw new DaemonClientError('PROTOCOL_MISMATCH', 'EKG daemon protocol mismatch; reinstall or restart EKG')
+      throw new DaemonClientError('PROTOCOL_MISMATCH', 'Fishbowl daemon protocol mismatch; reinstall or restart Fishbowl')
     }
   }
 
@@ -78,7 +78,7 @@ export class DaemonClient {
     }
     throw new DaemonClientError(
       'DAEMON_UNAVAILABLE',
-      'EKG daemon is unavailable after one retry. Run `ekg doctor` for diagnostics.',
+      'Fishbowl daemon is unavailable after one retry. Run `fishbowl doctor` for diagnostics.',
     )
   }
 
@@ -124,12 +124,12 @@ export class DaemonClient {
             }
             resolve(payload.result as T)
           } catch {
-            reject(new DaemonClientError('INVALID_RESPONSE', 'EKG daemon returned an invalid response'))
+            reject(new DaemonClientError('INVALID_RESPONSE', 'Fishbowl daemon returned an invalid response'))
           }
         })
       })
       outgoing.once('timeout', () => outgoing.destroy(new Error('request timeout')))
-      outgoing.once('error', () => reject(new DaemonClientError('DAEMON_UNAVAILABLE', 'EKG daemon connection failed')))
+      outgoing.once('error', () => reject(new DaemonClientError('DAEMON_UNAVAILABLE', 'Fishbowl daemon connection failed')))
       outgoing.end(body)
     })
   }

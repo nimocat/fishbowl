@@ -1,11 +1,11 @@
-# EKG Precise Schemas and Finalize Work Design
+# Fishbowl Precise Schemas and Finalize Work Design
 
 **Date:** 2026-07-15
 **Status:** Approved design
 
 ## Goal
 
-Reduce Agent write friction by publishing precise MCP schemas and adding one transactional, idempotent `finalize_work` operation for recording an already completed delivery. EKG records Git and verification facts but never executes Git commands.
+Reduce Agent write friction by publishing precise MCP schemas and adding one transactional, idempotent `finalize_work` operation for recording an already completed delivery. Fishbowl records Git and verification facts but never executes Git commands.
 
 ## Scope
 
@@ -123,7 +123,7 @@ The top-level result is stored under operation kind `finalize_work`. A retry ret
 6. Store commit and merge facts as bounded local Artifact nodes and Artifact records linked to the Case. They contain identifiers, branch names, status, and summaries only.
 7. Return the final promotion status from existing policy evaluation.
 
-Git facts are evidence references, not proof that commands actually ran. EKG preserves caller assertions as structured, reviewable records.
+Git facts are evidence references, not proof that commands actually ran. Fishbowl preserves caller assertions as structured, reviewable records.
 
 ## MCP and Daemon Surface
 
@@ -163,4 +163,4 @@ TDD coverage will prove:
 - An Agent can record a completed commit, verification, and merge workflow with one MCP call.
 - The published tool schema accurately communicates every nested element type before invocation.
 - A valid finalize call is atomic, idempotent, project-scoped, bounded, and redacted.
-- EKG records delivery facts without executing Git or expanding its repository permissions.
+- Fishbowl records delivery facts without executing Git or expanding its repository permissions.

@@ -6,10 +6,10 @@
     { "caseId": "video-metal", "domain": "media", "text": "VideoToolbox CVPixelBuffer Metal texture ring 视频硬件解码并行纹理环" },
     { "caseId": "coreml-device", "domain": "ml", "text": "CoreML physical device ANE GPU inference prohibits slow CPU fallback 真机推理" },
     { "caseId": "export-progress", "domain": "ui", "text": "export progress text local update avoids flashing 导出进度文字局部刷新" },
-    { "caseId": "daemon-replay", "domain": "ekg", "text": "persistent daemon request id replay stable protocol 常驻守护进程请求重放" },
-    { "caseId": "tree-retrieval", "domain": "ekg", "text": "hierarchical tree retrieval bounded graph diffusion 树形分层检索有界图扩散" },
+    { "caseId": "daemon-replay", "domain": "fishbowl", "text": "persistent daemon request id replay stable protocol 常驻守护进程请求重放" },
+    { "caseId": "tree-retrieval", "domain": "fishbowl", "text": "hierarchical tree retrieval bounded graph diffusion 树形分层检索有界图扩散" },
     { "caseId": "project-isolation", "domain": "security", "text": "explicit project scope prevents cross project contamination 项目隔离" },
-    { "caseId": "rust-contract", "domain": "ekg", "text": "strict Rust contract rejects unknown fields and unbounded arrays 严格契约边界" }
+    { "caseId": "rust-contract", "domain": "fishbowl", "text": "strict Rust contract rejects unknown fields and unbounded arrays 严格契约边界" }
   ],
   "queries": [
     { "text": "camera session bind", "expectedCaseId": "camera-session" },

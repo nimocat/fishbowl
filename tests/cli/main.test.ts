@@ -10,7 +10,7 @@ describe('CLI command dispatch', () => {
   const sandboxes: string[] = []
 
   function sandbox(): { data: string; project: string } {
-    const root = mkdtempSync(join(tmpdir(), 'ekg-cli-'))
+    const root = mkdtempSync(join(tmpdir(), 'fishbowl-cli-'))
     sandboxes.push(root)
     const project = join(root, 'project')
     mkdirSync(project)
@@ -97,7 +97,7 @@ describe('CLI command dispatch', () => {
       '--data-dir', data, 'export', '--project', projectId, '--output', archivePath,
     ])).code).toBe(0)
     expect(JSON.parse(readFileSync(archivePath, 'utf8'))).toMatchObject({
-      format: 'engineering-knowledge-graph',
+      format: 'fishbowl',
     })
 
     const target = join(project, 'target')

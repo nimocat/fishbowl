@@ -1,8 +1,8 @@
-# EKG Query and Write Efficiency Design
+# Fishbowl Query and Write Efficiency Design
 
 **Date:** 2026-07-14  
 **Status:** Approved for implementation  
-**Target:** `/Users/eric/engineering-knowledge-graph`
+**Target:** `/Users/eric/fishbowl`
 
 ## 1. Problem
 

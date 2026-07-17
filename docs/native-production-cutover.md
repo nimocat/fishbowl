@@ -1,8 +1,8 @@
-# Native Rust EKG Production Cutover Runbook
+# Native Rust Fishbowl Production Cutover Runbook
 
 ## Scope and authorization
 
-This runbook changes the current-user EKG installation and its active writer.
+This runbook changes the current-user Fishbowl installation and its active writer.
 Do not execute the production steps until the user explicitly approves the
 cutover. Dry-run checks and isolated database copies do not grant that
 approval.
@@ -10,15 +10,15 @@ approval.
 Candidate source:
 
 ```text
-/Users/eric/yqshunjian-ios-codex/.worktrees/ekg-efficiency-rounds
-branch: codex/ekg-efficiency-rounds
+/Users/eric/yqshunjian-ios-codex/.worktrees/fishbowl-efficiency-rounds
+branch: codex/fishbowl-efficiency-rounds
 minimum accepted commit: f913f0d
 ```
 
 Installed source:
 
 ```text
-/Users/eric/engineering-knowledge-graph
+/Users/eric/fishbowl
 branch: main
 pre-cutover commit: a6d8fbd
 ```
@@ -31,13 +31,13 @@ files in the installed source tree.
 The complete source database is:
 
 ```text
-/Users/eric/.engineering-knowledge-graph/data/knowledge.db
+/Users/eric/.fishbowl/data/knowledge.db
 ```
 
 The current platform-default database is:
 
 ```text
-/Users/eric/Library/Application Support/EKG/knowledge.db
+/Users/eric/Library/Application Support/Fishbowl/knowledge.db
 ```
 
 The source database has 1,262 events, 80 Cases, and 442 nodes. The current
@@ -74,15 +74,15 @@ Use one timestamp for every artifact.
 
 1. Create a rollback branch at the pre-cutover `main` commit. Do not reset or
    rewrite `main`.
-2. Boot out `io.ekg.daemon`, terminate any remaining EKG daemon process whose
-   executable resolves to the installed EKG package, and wait until `lsof`
+2. Boot out `io.fishbowl.daemon`, terminate any remaining Fishbowl daemon process whose
+   executable resolves to the installed Fishbowl package, and wait until `lsof`
    reports no holder of either database.
 3. Run WAL checkpoints where possible, then create SQLite `.backup` files for
    both the default and source databases in a private timestamped backup
    directory. Hash both backups and set directory/file permissions to 0700/0600.
 4. Re-run the strict-superset audit against the quiesced backups. Abort if any
    default business row is absent from the source backup.
-5. Fast-forward installed `main` to `codex/ekg-efficiency-rounds`; run clean
+5. Fast-forward installed `main` to `codex/fishbowl-efficiency-rounds`; run clean
    dependency installation and `npm run build`. Confirm the packaged native
    binary is executable and the architecture boundary remains green.
 6. Restore the complete source backup to a new staged database path under the
@@ -91,8 +91,8 @@ Use one timestamp for every artifact.
 7. Move the old default database and any WAL/SHM files into the timestamped
    backup directory, then atomically rename the staged database to
    `knowledge.db` and enforce mode 0600.
-8. Run `ekg daemon install` from the new built CLI. Inspect the plist and require
-   `ProgramArguments[0]` to be the packaged `dist/native/ekg-rust-core`, not
+8. Run `fishbowl daemon install` from the new built CLI. Inspect the plist and require
+   `ProgramArguments[0]` to be the packaged `dist/native/fishbowl-rust-core`, not
    Node, a worktree `target/` path, or an environment-dependent wrapper.
 9. Require one native daemon process, one descriptor PID, one loopback listener,
    and a descriptor whose PID matches the listener owner.
@@ -117,7 +117,7 @@ Against the real installed CLI and default data directory:
 7. Fixed native benchmark remains within the committed budgets.
 8. No Node daemon holds the database, and no TypeScript SQLite dependency is
    present in the installed package.
-9. The test suite leaves no `ekg-rust-core daemon` process whose database is
+9. The test suite leaves no `fishbowl-rust-core daemon` process whose database is
    under a temporary test directory. Production process correctness does not
    excuse leaked test daemons.
 
@@ -129,11 +129,11 @@ project goal complete.
 
 The user explicitly authorized the cutover. The production installation is now
 native Rust at commit `1df7bdb`; rollback branch
-`rollback/ekg-pre-rust-20260717-011816` preserves `a6d8fbd`. Quiesced source and
+`rollback/fishbowl-pre-rust-20260717-011816` preserves `a6d8fbd`. Quiesced source and
 default backups, hashes, and the prior descriptor/PID files are retained under:
 
 ```text
-/Users/eric/Library/Application Support/EKG/backups/native-cutover-20260717-011816
+/Users/eric/Library/Application Support/Fishbowl/backups/native-cutover-20260717-011816
 ```
 
 The strict 18-table containment audit passed before the atomic rename. The
@@ -142,9 +142,9 @@ the event count on the second request. Two production-only acceptance defects
 were fixed before completion: unsigned full-Case history cursor overflow and a
 writable online integrity reopen. Final installed results are:
 
-- one packaged `ekg-rust-core` LaunchAgent owns the default database and IPv4
+- one packaged `fishbowl-rust-core` LaunchAgent owns the default database and IPv4
   loopback listener; there is no Node or temporary test daemon;
-- `ekg integrity` returns `quick_check: ok` while that daemon remains online;
+- `fishbowl integrity` returns `quick_check: ok` while that daemon remains online;
 - projects, graph, full Case/history, activity, static assets, and SSE pass;
   cross-origin/invalid-Host reads return 403 and unauthenticated RPC returns 401;
 - database counts are 1,280 events, 81 Cases, and 448 nodes;
@@ -168,7 +168,7 @@ pending the user's post-install human confirmation.
    Do not reset `main` or delete the Rust branch.
 5. Verify old CLI project list, query, checkpoint replay, and Trace Bench on the
    restored database.
-6. Record the failed cutover Attempt and retained artifact digests in EKG before
+6. Record the failed cutover Attempt and retained artifact digests in Fishbowl before
    any second cutover attempt.
 
 Rollback never points the old writer at a database after an unreviewed schema
