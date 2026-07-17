@@ -49,8 +49,9 @@ export async function ensureInstalledDaemon(options: {
   const initialized = initializeDaemonCredentials(options)
   const connect = async () => {
     const descriptor = readDaemonDescriptor({ paths: initialized.paths })
-    const client = new DaemonClient({ descriptor, token: initialized.token, timeoutMs: 250, observeTiming: options.observeTiming })
-    await client.call('listProjects', {})
+    const probe = new DaemonClient({ descriptor, token: initialized.token, timeoutMs: 250, observeTiming: options.observeTiming })
+    await probe.call('listProjects', {})
+    const client = new DaemonClient({ descriptor, token: initialized.token, observeTiming: options.observeTiming })
     return { paths: initialized.paths, descriptor, client, backend: createDaemonBackend(client) }
   }
   try { return await connect() } catch { /* start once below */ }

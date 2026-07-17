@@ -9,6 +9,7 @@
 - Performance: a release scan of the real YQSK checkout reached the 250,000-entry bound in 3.503 seconds across 15 tracked roots. This is bounded but remains the next optimization target.
 - Installed acceptance found the ordinary 1.5-second RPC deadline was shorter than a bounded cold scan: the daemon completed and persisted the start observation after the CLI reported unavailable. The client now grants only start/finish disk operations a 15-second default while preserving explicit caller timeouts and the 1.5-second default for all other RPCs.
 - A second installed attempt proved the deadline alone was insufficient: synchronous metadata traversal occupied the Tokio request worker, so the CLI lost availability even though SQLite committed. RPC dispatch now runs on Tokio's bounded blocking pool; a one-worker regression test proves a 250 ms sustained dispatch cannot delay `/health` beyond 100 ms.
+- Final root cause: `ensureInstalledDaemon` returned the same client created for its 250 ms readiness probe, so that explicit override defeated the new operation-aware deadline. Readiness now uses a disposable 250 ms probe and returns a fresh operational client. A real delayed-HTTP lifecycle test fails under the old wiring and passes a 400 ms disk operation after the fix.
 
 ## 2026-07-17 - Retrieval P0 Candidate Routing, K-shell, and Bounded PPR
 
