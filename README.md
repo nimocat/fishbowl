@@ -1,6 +1,107 @@
 # Engineering Knowledge Graph
 
-Engineering Knowledge Graph (EKG) is a local-first store for engineering failures, attempts, evidenced root causes, solutions, verification, and regressions. It provides a CLI, a stdio MCP server, and the loopback-only Trace Bench browser. Registered client repositories are not modified by default.
+**Local-first engineering memory for humans and coding agents.**
+
+Engineering Knowledge Graph (EKG) turns debugging history, failed approaches, evidence, verified fixes, and regressions into a queryable local graph. It provides a CLI, a stdio MCP server, and a loopback-only Trace Bench browser. Registered client repositories are not modified by default.
+
+> EKG is deliberately local-first: no account, cloud sync, telemetry, or hosted service is required.
+
+## Why EKG
+
+Engineering work often repeats the same investigations because the decisive context lives in terminal scrollback, chat sessions, and people’s memory. EKG retains the useful engineering record without treating every note as fact.
+
+- **Preserve failed attempts** so agents and teammates do not repeat them.
+- **Separate evidence from conclusions**: attempts, root causes, solutions, and verification have distinct graph types.
+- **Keep control local** with SQLite storage, loopback-only browser access, and a stdio MCP bridge.
+- **Carry knowledge across worktrees** using canonical project roots and worktree aliases.
+- **Keep records reviewable** through append-only project events, bounded redacted graph text, and explicit verification states.
+
+## What It Includes
+
+| Component | Purpose |
+| --- | --- |
+| `ekg` CLI | Register projects, query context, record cases, import/export graphs, and inspect integrity. |
+| Persistent daemon | Reuses one authenticated local process, SQLite connection, prepared state, and Trace Bench server. |
+| MCP stdio server | Lets compatible coding agents query and checkpoint engineering knowledge. |
+| Trace Bench | Read-only local browser for inspecting project knowledge and event activity. |
+| Disk observations | Bounded metadata-only tracking of regenerable build artifacts; no automatic deletion. |
+
+## Quick Start
+
+### macOS / Linux
+
+```bash
+git clone https://github.com/nimocat/engineering-knowledge-graph.git
+cd engineering-knowledge-graph
+npm install
+npm run build
+npm link
+
+ekg daemon install
+ekg daemon status
+```
+
+### Windows (PowerShell)
+
+Install Node.js 22 or newer and Git first, then run:
+
+```powershell
+git clone https://github.com/nimocat/engineering-knowledge-graph.git
+Set-Location engineering-knowledge-graph
+npm install
+npm run build
+npm link
+
+ekg daemon install
+ekg daemon status
+```
+
+The Windows daemon is registered for the current user only and EKG stores its local data at `%LOCALAPPDATA%\EKG` by default. No administrator account is required.
+
+To use EKG without `npm link`, replace `ekg` in the examples with:
+
+```powershell
+node .\dist\cli\main.js
+```
+
+### Register a client project
+
+```bash
+cd /absolute/path/to/your-project
+ekg project register --root "$PWD" --name "My Project" --description "Local engineering knowledge"
+ekg project list
+```
+
+Copy the returned project ID, then query prior work or record a compact checkpoint:
+
+```bash
+ekg query --project "<project-id>" "export failure"
+ekg checkpoint --project "<project-id>" --task "Fix export failure" --outcome succeeded --summary "Kept composition work off the main actor and verified the focused test suite"
+```
+
+## Agent / MCP Setup
+
+Start the stdio MCP bridge with:
+
+```bash
+node /absolute/path/to/engineering-knowledge-graph/dist/cli/main.js mcp --stdio
+```
+
+It writes protocol frames to stdout, so do not wrap it in commands that print banners. See [MCP client configuration](docs/mcp-client-configuration.md) for ready-to-use client entries.
+
+## Privacy and Security at a Glance
+
+- Project knowledge is stored locally in SQLite.
+- The Trace Bench HTTP server binds only to `127.0.0.1`.
+- Durable graph records are recursively secret-redacted and bounded.
+- Raw command logs are intentionally unredacted, local-only, retention-bounded, and excluded from graph exports.
+- EKG is single-user and is not a hosted collaboration service.
+
+Read [SECURITY.md](SECURITY.md) before exposing any part of an EKG data directory or raw log collection.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). The project is released under the [MIT License](LICENSE).
 
 ## Prerequisites
 

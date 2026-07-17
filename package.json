@@ -1,6 +1,24 @@
 {
   "name": "engineering-knowledge-graph",
   "version": "0.1.0",
+  "description": "A local-first engineering memory graph for failures, decisions, evidence, and verification.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nimocat/engineering-knowledge-graph.git"
+  },
+  "bugs": {
+    "url": "https://github.com/nimocat/engineering-knowledge-graph/issues"
+  },
+  "homepage": "https://github.com/nimocat/engineering-knowledge-graph#readme",
+  "keywords": [
+    "engineering-memory",
+    "knowledge-graph",
+    "mcp",
+    "sqlite",
+    "developer-tools",
+    "ai-agents"
+  ],
   "private": true,
   "type": "module",
   "bin": {
