@@ -245,5 +245,8 @@ real-tree measurements reduced the prior 6.73-second scan to 0.47 seconds for a
 hot start and 0.28 seconds for a hot finish. One changed root completed in 0.29
 seconds and retained an exact 25-byte delta. Cache hits intentionally force
 review-only cleanup confidence because in-place file rewrites may not alter
-directory mtimes. Production migration and installed-state acceptance remain
-the final delivery gate.
+directory mtimes. Production schema-v9 migration and installed-state acceptance
+are complete: repeated hot start/finish measured 0.55/0.54 seconds with 22 hits,
+zero misses, and zero byte delta; `quick_check=ok` preserved 83 Cases and 480
+nodes. The rollback branch and quiesced schema-v8 backup are recorded in the
+benchmark report.

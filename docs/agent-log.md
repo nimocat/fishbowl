@@ -628,3 +628,8 @@
   and one miss. A 25-byte create/remove probe was measured exactly.
 - Verification so far: focused disk tests 4/4, database migration tests 5/5,
   native dispatch 1/1, TypeScript typecheck, and production build passed.
+- Production: main fast-forwarded to `46a996b`, rollback branch
+  `rollback/ekg-pre-disk-cache-20260717-125644` and a quiesced schema-v8 backup
+  were created, then the LaunchAgent was reinstalled on schema v9. Repeated hot
+  start/finish measured 0.55/0.54 seconds with 22/22 hits and zero byte delta.
+  Installed `quick_check=ok`; 83 Cases and 480 nodes were preserved.
