@@ -53,6 +53,40 @@ describe('MCP protocol adapter', () => {
     expect(recordProblem).not.toHaveBeenCalled()
   })
 
+  it('accepts daemon nulls for omitted checkpoint fields without MCP output validation failure', async () => {
+    const checkpointWork = vi.fn(async () => ({
+      recorded: true,
+      reason: null,
+      createdCase: true,
+      caseId: 'case-1',
+      problemId: 'problem-1',
+      attemptId: 'attempt-1',
+      rootCauseId: null,
+      solutionId: null,
+    }))
+    const client = await connect({ checkpointWork } as unknown as AwaitableKnowledgeBackend)
+
+    const response = await client.callTool({ name: 'checkpoint_work', arguments: {
+      project: { projectId: 'project-1' },
+      operationId: 'checkpoint-null-optionals',
+      task: 'Plan Fishbowl compatibility fix',
+      outcome: 'inconclusive',
+      summary: 'Planning checkpoint',
+    } }) as CallToolResult
+
+    expect(response.isError, JSON.stringify(response)).not.toBe(true)
+    expect(response.structuredContent).toEqual({
+      ok: true,
+      result: {
+        recorded: true,
+        createdCase: true,
+        caseId: 'case-1',
+        problemId: 'problem-1',
+        attemptId: 'attempt-1',
+      },
+    })
+  })
+
   it('starts stdio without writing diagnostics into protocol stdout', async () => {
     const input = new PassThrough()
     const output = new PassThrough()

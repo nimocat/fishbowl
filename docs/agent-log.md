@@ -1,5 +1,13 @@
 # Agent Log
 
+## 2026-07-18 - Checkpoint MCP Output Compatibility
+
+- Symptom: `checkpoint_work` committed successfully through the native daemon, but MCP reported an output validation error; the caller fell back to lower-level record tools.
+- Root cause: Rust `Option::None` fields serialized as JSON `null`, while the MCP output schema represented `reason` and optional node IDs as omitted fields.
+- RED: an in-memory MCP/native-shaped response reproduced the exact `-32602` output validation error; a Rust contract test proved absent checkpoint fields serialized as null.
+- GREEN: Rust now omits absent checkpoint and finalize output fields, while the MCP adapter removes legacy nulls so already-installed older daemons remain compatible. No write retry or duplicate data is required.
+- Verification: 55/55 TypeScript tests, the complete Rust workspace, typecheck, rustfmt, and the production build pass.
+
 ## 2026-07-17 - Task Disk Growth Ledger
 
 - RED: storage tests failed because no disk scanner, observation transaction, history, or cleanup-candidate API existed.

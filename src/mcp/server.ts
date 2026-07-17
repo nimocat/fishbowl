@@ -429,6 +429,15 @@ function successResult(toolName: string, result: unknown): CallToolResult {
   }
 }
 
+function omitNullFields<T>(result: T, fields: readonly string[]): T {
+  if (result === null || typeof result !== 'object' || Array.isArray(result)) return result
+  const normalized = { ...result } as Record<string, unknown>
+  for (const field of fields) {
+    if (normalized[field] === null) delete normalized[field]
+  }
+  return normalized as T
+}
+
 function responseBytes(result: unknown): number {
   try {
     const encoded = JSON.stringify(result)
@@ -1035,7 +1044,10 @@ export function createMcpServer(
       })),
       annotations: idempotentWrite,
     },
-    (input) => invoke('checkpoint_work', () => service.checkpointWork(input)),
+    (input) => invoke('checkpoint_work', async () => omitNullFields(
+      await service.checkpointWork(input),
+      ['reason', 'caseId', 'problemId', 'attemptId', 'rootCauseId', 'solutionId'],
+    )),
   )
 
   server.registerTool(
@@ -1071,7 +1083,8 @@ export function createMcpServer(
           { issues },
         )
       }
-      return service.finalizeWork(parsed.data)
+      return Promise.resolve(service.finalizeWork(parsed.data)).then((result) =>
+        omitNullFields(result, ['rootCauseId', 'solutionId']))
     }),
   )
 

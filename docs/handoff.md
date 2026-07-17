@@ -1,5 +1,9 @@
 # Handoff
 
+## Checkpoint Output Compatibility Fix (2026-07-18)
+
+`checkpoint_work` no longer reports an MCP output validation failure after a successful native write. Rust omits absent optional checkpoint/finalize fields, and TypeScript normalizes legacy daemon nulls at the MCP boundary. Regression coverage exercises the exact daemon-shaped null response and the canonical Rust JSON shape. Full TypeScript and Rust suites, typecheck, rustfmt, and production build pass. This is response-only compatibility work; it does not replay or modify the planning checkpoint already saved through lower-level tools.
+
 ## Task Disk Ledger Follow-up (2026-07-17)
 
 Branch `codex/fishbowl-disk-ledger` is merged and installed at schema v8. The implementation records start/final byte snapshots for allowlisted regenerable directories, computes path-level growth, marks overlapping sessions shared, and exposes read-only cleanup candidates without deletion. Rust Debug/Release, migration, native HTTP, TypeScript, MCP/CLI, production-copy, and installed tests pass. The installed YQSK finish scan reached its 250,000-entry cap and returned in 6.73 seconds; disk lifecycle RPCs therefore use a bounded 15-second client deadline, readiness uses a disposable 250 ms probe rather than leaking that deadline into the operational client, and daemon dispatch runs on Tokio's blocking pool so metadata traversal cannot starve loopback health or unrelated reads. Future work should add a persistent metadata cache or platform-optimized traversal before expanding the allowlist.

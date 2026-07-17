@@ -2,8 +2,9 @@ use std::fs;
 use std::path::PathBuf;
 
 use fishbowl_contracts::{
-    ErrorCode, FailureEnvelope, GetCaseResult, PreflightResult, QueryKnowledgeResult,
-    RequestEnvelope, SuccessEnvelope, Validate,
+    CheckpointWorkResult, ErrorCode, FailureEnvelope, FinalizeWorkResult, GetCaseResult,
+    NodeStatus, PreflightResult, PromotionStatus, QueryKnowledgeResult, RequestEnvelope,
+    SuccessEnvelope, Validate,
 };
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -88,6 +89,52 @@ fn output_serialization_is_deterministic() {
     for _ in 0..100 {
         assert_eq!(serde_json::to_string(&response).unwrap(), expected);
     }
+}
+
+#[test]
+fn write_outputs_omit_absent_optional_fields() {
+    let encoded = serde_json::to_value(CheckpointWorkResult {
+        recorded: true,
+        reason: None,
+        created_case: true,
+        case_id: Some("case-1".into()),
+        problem_id: Some("problem-1".into()),
+        attempt_id: Some("attempt-1".into()),
+        root_cause_id: None,
+        solution_id: None,
+    })
+    .unwrap();
+
+    assert_eq!(
+        encoded,
+        serde_json::json!({
+            "recorded": true,
+            "createdCase": true,
+            "caseId": "case-1",
+            "problemId": "problem-1",
+            "attemptId": "attempt-1"
+        })
+    );
+
+    let finalized = serde_json::to_value(FinalizeWorkResult {
+        recorded: true,
+        created_case: true,
+        case_id: "case-1".into(),
+        problem_id: "problem-1".into(),
+        attempt_ids: Vec::new(),
+        root_cause_id: None,
+        solution_id: None,
+        verification_ids: Vec::new(),
+        artifact_ids: Vec::new(),
+        merge_recorded: true,
+        promotion: PromotionStatus {
+            status: NodeStatus::Candidate,
+            missing_requirements: Vec::new(),
+        },
+    })
+    .unwrap();
+    assert!(!finalized.as_object().unwrap().contains_key("rootCauseId"));
+    assert!(!finalized.as_object().unwrap().contains_key("solutionId"));
 }
 
 #[test]

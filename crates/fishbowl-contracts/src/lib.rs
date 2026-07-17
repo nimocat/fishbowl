@@ -930,12 +930,18 @@ pub enum CheckpointSkipReason {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CheckpointWorkResult {
     pub recorded: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<CheckpointSkipReason>,
     pub created_case: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub case_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub problem_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub attempt_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub root_cause_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub solution_id: Option<String>,
 }
 
@@ -1181,7 +1187,9 @@ pub struct FinalizeWorkResult {
     pub case_id: String,
     pub problem_id: String,
     pub attempt_ids: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub root_cause_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub solution_id: Option<String>,
     pub verification_ids: Vec<String>,
     pub artifact_ids: Vec<String>,

@@ -70,6 +70,7 @@ Fishbowl (Fishbowl) is a local-first service for preserving the path from engine
 - `get_case` defaults to the graph projection without history; summary and cursor-paged full projections keep large Case reads bounded.
 - `record_checkpoint` atomically dispatches up to 25 existing write commands under one project and one idempotency key.
 - `checkpoint_work` is the concise capture path: failures always record; routine successes may skip; optional RootCause/Solution assertions remain candidates until mixed verification. CLI checkpoint payloads are locally shape-validated so malformed structured assertions never collapse into a generic daemon protocol error.
+- Native checkpoint/finalize responses omit absent optional IDs. The MCP adapter also strips legacy daemon `null` values for those optional fields before SDK output validation, so a successful idempotent write cannot be misreported as a response-shape failure during upgrades.
 - `finalize_work` atomically records a completed engineering delivery and its failed Attempts, RootCause, Solution, Verifications, commit, and merge disposition. It is idempotent, never executes Git or validation commands, and reuses Cases only through explicit `caseId` or an exact normalized fingerprint.
 - Default Preflight is Case-ranked, explainable, cached by project event revision, capped at five cards, and compacted below 12 KiB.
 - Case-scoped event writes persist explicit `case_id`; history paging and cycle prevention use indexed Case-local queries rather than JSON extraction or whole-graph loading.
