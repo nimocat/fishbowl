@@ -8,6 +8,7 @@
 - Failed routes: the first worktree creation used zsh's reserved `path` variable and lost executable lookup; renaming the variable fixed creation. TypeScript tests initially ran before the bundled native binary existed; building first restored the intended test fixture.
 - Performance: a release scan of the real YQSK checkout reached the 250,000-entry bound in 3.503 seconds across 15 tracked roots. This is bounded but remains the next optimization target.
 - Installed acceptance found the ordinary 1.5-second RPC deadline was shorter than a bounded cold scan: the daemon completed and persisted the start observation after the CLI reported unavailable. The client now grants only start/finish disk operations a 15-second default while preserving explicit caller timeouts and the 1.5-second default for all other RPCs.
+- A second installed attempt proved the deadline alone was insufficient: synchronous metadata traversal occupied the Tokio request worker, so the CLI lost availability even though SQLite committed. RPC dispatch now runs on Tokio's bounded blocking pool; a one-worker regression test proves a 250 ms sustained dispatch cannot delay `/health` beyond 100 ms.
 
 ## 2026-07-17 - Retrieval P0 Candidate Routing, K-shell, and Bounded PPR
 

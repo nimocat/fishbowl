@@ -499,7 +499,7 @@ async fn rpc(State(state): State<HttpState>, headers: HeaderMap, body: Bytes) ->
         );
     }
     let line = match std::str::from_utf8(&body) {
-        Ok(value) => value,
+        Ok(value) => value.to_owned(),
         Err(_) => {
             return response(
                 StatusCode::BAD_REQUEST,
@@ -510,17 +510,14 @@ async fn rpc(State(state): State<HttpState>, headers: HeaderMap, body: Bytes) ->
     };
     let queued = received.elapsed();
     let execution_started = Instant::now();
-    let encoded = match state.session.lock() {
-        Ok(mut session) => {
-            session.handle_line(line, |operation| state.dispatcher.dispatch(operation))
-        }
-        Err(_) => serde_json::to_string(&json!({
-            "ok": false,
-            "requestId": "unknown",
-            "error": {"code": "INTERNAL_ERROR", "message": "Unexpected service failure"},
-        }))
-        .expect("static response serializes"),
-    };
+    let session = Arc::clone(&state.session);
+    let dispatcher = Arc::clone(&state.dispatcher);
+    let encoded = tokio::task::spawn_blocking(move || match session.lock() {
+        Ok(mut session) => session.handle_line(&line, |operation| dispatcher.dispatch(operation)),
+        Err(_) => internal_rpc_failure(),
+    })
+    .await
+    .unwrap_or_else(|_| internal_rpc_failure());
     let execution = execution_started.elapsed();
     let serialization_started = Instant::now();
     let parsed = serde_json::from_str::<Value>(&encoded).unwrap_or_else(|_| {
@@ -539,6 +536,15 @@ async fn rpc(State(state): State<HttpState>, headers: HeaderMap, body: Bytes) ->
         serialization.as_secs_f64() * 1_000.0,
     );
     response(status, parsed, Some(&timing))
+}
+
+fn internal_rpc_failure() -> String {
+    serde_json::to_string(&json!({
+        "ok": false,
+        "requestId": "unknown",
+        "error": {"code": "INTERNAL_ERROR", "message": "Unexpected service failure"},
+    }))
+    .expect("static response serializes")
 }
 
 fn loopback_request(headers: &HeaderMap) -> bool {

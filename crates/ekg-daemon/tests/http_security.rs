@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode, header};
@@ -9,6 +10,15 @@ use serde_json::{Value, json};
 use tower::ServiceExt;
 
 struct FixtureDispatcher;
+
+struct SlowDispatcher;
+
+impl RpcDispatcher for SlowDispatcher {
+    fn dispatch(&self, _: &DaemonOperation) -> Result<Value, ProtocolError> {
+        std::thread::sleep(Duration::from_millis(250));
+        Ok(json!({"items": [], "limit": 25, "truncated": false}))
+    }
+}
 
 impl RpcDispatcher for FixtureDispatcher {
     fn dispatch(&self, operation: &DaemonOperation) -> Result<Value, ProtocolError> {
@@ -165,6 +175,31 @@ async fn daemon_phase_metrics_are_exposed_without_claiming_mcp_host_time() {
     assert!(timing.contains("execution;dur="));
     assert!(timing.contains("serialization;dur="));
     assert!(!timing.contains("mcp"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn sustained_rpc_work_never_blocks_the_loopback_health_path() {
+    let shared = router(config(), Arc::new(SlowDispatcher));
+    let started = Instant::now();
+    let slow = tokio::spawn(
+        shared
+            .clone()
+            .oneshot(rpc(&valid_request("slow-1", "bounded scan"))),
+    );
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    let health = shared
+        .oneshot(
+            Request::builder()
+                .uri("/health")
+                .header(header::HOST, "127.0.0.1:43123")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(health.status(), StatusCode::OK);
+    assert!(started.elapsed() < Duration::from_millis(100));
+    assert_eq!(slow.await.unwrap().unwrap().status(), StatusCode::OK);
 }
 
 #[tokio::test]
