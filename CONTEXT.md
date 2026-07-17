@@ -18,6 +18,7 @@ Engineering Knowledge Graph (EKG) is a local-first service for preserving the pa
   adapter validates transport shape only and imports neither storage nor
   policy.
 - SQLite in WAL mode is the authoritative materialized store.
+- Schema v8 adds a task disk-growth ledger. Rust captures bounded metadata-only snapshots of known regenerable roots, stores only project-relative paths and byte counts, marks overlapping sessions shared, and never deletes candidates.
 - The append-only `events` table is an audit log and live-update cursor, not a complete event-sourcing replay log.
 - `KnowledgeService` is the transport-neutral application boundary.
 - A persistent authenticated loopback daemon is the normal SQLite owner. Thin stdio MCP and CLI adapters call its versioned RPC allowlist; explicit `--embedded`/`--data-dir` remains for tests and recovery.
@@ -55,7 +56,7 @@ Engineering Knowledge Graph (EKG) is a local-first service for preserving the pa
 - All project-scoped reads require an explicit project reference.
 - Browser mutations are out of scope for the first release.
 - IDs are UUIDs; timestamps are UTC ISO 8601 strings.
-- New databases carry the EKG SQLite `application_id`; schema version 7 adds digest-only relevance feedback, reviewed merge proposals, and explicit Case supersession while older files remain transactionally upgradeable.
+- New databases carry the EKG SQLite `application_id`; schema version 8 adds task disk observations and cleanup attribution while retaining schema-v7 relevance, merge, and supersession data. Older files remain transactionally upgradeable.
 - Promotion requires explicit `humanConfirmed` evidence, and Verification environments use a fixed non-secret allowlist.
 - Import sources are explicit project-contained files or explicit Git `base..head` ranges; no service scans project trees.
 - Portable snapshot imports never confer verified trust: verified Case, RootCause, Solution, SuccessCase, and Guardrail assertions become candidates, and blocking Guardrails therefore cannot arrive verified by assertion alone.

@@ -45,6 +45,61 @@ async fn native_http_dispatches_a_transactional_write_then_reads_it_without_type
     assert_eq!(registered["ok"], true);
     let project_id = registered["result"]["id"].as_str().unwrap();
 
+    let disk_started = call(
+        &app,
+        json!({
+            "protocolVersion": 1,
+            "requestId": "disk-start-1",
+            "operation": "startDiskObservation",
+            "input": {
+                "project": {"projectId": project_id},
+                "operationId": "disk-start-operation-1",
+                "task": "native disk attribution"
+            }
+        }),
+    )
+    .await;
+    assert_eq!(disk_started["ok"], true);
+    let observation_id = disk_started["result"]["observationId"].as_str().unwrap();
+    std::fs::create_dir_all(project_root.join("target/debug")).unwrap();
+    std::fs::write(project_root.join("target/debug/output.bin"), vec![0_u8; 64]).unwrap();
+    let disk_finished = call(
+        &app,
+        json!({
+            "protocolVersion": 1,
+            "requestId": "disk-finish-1",
+            "operation": "finishDiskObservation",
+            "input": {
+                "project": {"projectId": project_id},
+                "operationId": "disk-finish-operation-1",
+                "observationId": observation_id
+            }
+        }),
+    )
+    .await;
+    assert_eq!(disk_finished["ok"], true);
+    assert_eq!(disk_finished["result"]["positiveGrowthBytes"], 64);
+    assert_eq!(
+        disk_finished["result"]["entries"][0]["relativePath"],
+        "target"
+    );
+
+    let disk_candidates = call(
+        &app,
+        json!({
+            "protocolVersion": 1,
+            "requestId": "disk-candidates-1",
+            "operation": "listCleanupCandidates",
+            "input": {"project": {"projectId": project_id}}
+        }),
+    )
+    .await;
+    assert_eq!(disk_candidates["ok"], true);
+    assert_eq!(
+        disk_candidates["result"]["candidates"][0]["reclaimableBytes"],
+        64
+    );
+
     let problem = call(
         &app,
         json!({

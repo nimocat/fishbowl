@@ -1,5 +1,13 @@
 # Agent Log
 
+## 2026-07-17 - Task Disk Growth Ledger
+
+- RED: storage tests failed because no disk scanner, observation transaction, history, or cleanup-candidate API existed.
+- GREEN: added schema-v8 start/finish observations, project-scoped idempotency, relative-path artifact deltas, latest-state cleanup candidates, native daemon dispatch, CLI commands, MCP tools, and agent-session lifecycle guidance.
+- Safety: scans only allowlisted regenerable directory names, skips `.git` and symlinks, caps depth/entries/paths, persists no file contents or absolute paths, marks overlapping tasks `shared`, and never deletes files.
+- Failed routes: the first worktree creation used zsh's reserved `path` variable and lost executable lookup; renaming the variable fixed creation. TypeScript tests initially ran before the bundled native binary existed; building first restored the intended test fixture.
+- Performance: a release scan of the real YQSK checkout reached the 250,000-entry bound in 3.503 seconds across 15 tracked roots. This is bounded but remains the next optimization target.
+
 ## 2026-07-17 - Retrieval P0 Candidate Routing, K-shell, and Bounded PPR
 
 - RED: production `queryKnowledge` could not recover a filtered Solution from

@@ -166,6 +166,19 @@ ekg checkpoint --project "$PROJECT_ID" --task "Fix Metal flicker" --outcome fail
 
 Routine successes may be skipped; failures are always retained. Optional `--data-json` can add `importance`, `fingerprint`, `files`, `command`, `evidence`, `rootCause`, and `solution`. Supplied roots and solutions remain candidates until the normal mixed-verification gate is satisfied.
 
+### Track Task Disk Growth
+
+Agents can bracket one task with a bounded disk observation. EKG records only sizes and project-relative paths for known regenerable roots; it never reads file contents or follows symlinks:
+
+```bash
+ekg disk start --project "$PROJECT_ID" --operation "<stable-start-id>" --task "Build feature"
+ekg disk finish --project "$PROJECT_ID" --operation "<stable-finish-id>" --observation "<observation-id>"
+ekg disk list --project "$PROJECT_ID" --limit 25
+ekg disk candidates --project "$PROJECT_ID" --limit 25
+```
+
+Cleanup candidates are advisory. Existing directories are marked for review, paths observed during overlapping tasks are marked shared, and no command deletes files automatically. Re-check ownership and request explicit authorization before removing anything.
+
 ### Browse Locally
 
 ```bash
@@ -259,7 +272,7 @@ Pruning runs when a raw-log session closes. SQLite stores only an 8 KiB bounded 
 - The first release is local-only and single-user. It has no remote authentication or authorization layer.
 - HTTP binds only to `127.0.0.1`, rejects non-loopback Host headers and cross-origin requests, and exposes read-only browser routes.
 - MCP runs as a local child process with the launching user's filesystem permissions.
-- Imports read only explicitly supplied project-contained files or Git ranges; EKG does not scan registered repositories automatically.
+- Imports read only explicitly supplied project-contained files or Git ranges. Disk observations separately perform a bounded metadata-only scan of known regenerable roots when explicitly invoked.
 - Durable graph text is recursively secret-redacted and bounded, and environment-variable values are not collected by default. Redaction is defense in depth, not a credential vault.
 - Raw logs are intentionally unredacted and may contain secrets printed by child commands.
 - Do not expose the HTTP listener, stdio server, data directory, or raw logs to untrusted users.

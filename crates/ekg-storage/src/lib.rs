@@ -1,10 +1,12 @@
 //! Project-scoped, query-only repository for the existing EKG SQLite schema.
 
+mod disk;
 mod import;
 mod schema;
 mod snapshot;
 mod write;
 
+pub use disk::{DiskSnapshot, DiskSnapshotEntry, capture_project_disk};
 pub use schema::*;
 pub use write::*;
 
@@ -13,13 +15,15 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::time::Instant;
 
 use ekg_contracts::{
-    ArtifactRecord, CaseCounts, CaseDetailLevel, CommandRunRecord, EdgeRecord, ErrorCode,
+    ArtifactRecord, CaseCounts, CaseDetailLevel, CleanupDisposition, CommandRunRecord,
+    DiskArtifactKind, DiskCleanupCandidate, DiskObservationSummary, EdgeRecord, ErrorCode,
     EvidenceKind, EvidenceRecord, GetCaseInput, GetCaseResult, KnowledgeEvent, KnowledgeQueryItem,
-    NodeRecord, NodeStatus, NodeType, PreflightGuardrail, PreflightInput, PreflightResult,
-    ProjectAliasRecord, ProjectRecord, ProjectReference, ProjectWithAliasesRecord,
-    QueryKnowledgeInput, QueryKnowledgeResult, RecentActivityInput, RecentActivityResult,
-    RelationType, RetrievalDiagnostics, RetrievalMatchKind, RetrievalMode, RetrievalReason,
-    Validate,
+    ListCleanupCandidatesInput, ListCleanupCandidatesResult, ListDiskObservationsInput,
+    ListDiskObservationsResult, NodeRecord, NodeStatus, NodeType, PreflightGuardrail,
+    PreflightInput, PreflightResult, ProjectAliasRecord, ProjectRecord, ProjectReference,
+    ProjectWithAliasesRecord, QueryKnowledgeInput, QueryKnowledgeResult, RecentActivityInput,
+    RecentActivityResult, RelationType, RetrievalDiagnostics, RetrievalMatchKind, RetrievalMode,
+    RetrievalReason, Validate,
 };
 use ekg_core::{
     ExpansionConfig, ExpansionEdge, ExpansionNode, ExpansionResult, GuardrailContext,
@@ -680,6 +684,106 @@ impl ReadRepository {
             limit,
             truncated,
             next_sequence,
+        })
+    }
+
+    pub fn list_disk_observations(
+        &self,
+        input: &ListDiskObservationsInput,
+    ) -> Result<ListDiskObservationsResult, StorageError> {
+        input.validate().map_err(StorageError::Contract)?;
+        let project_id = self.resolve_project(&input.project)?;
+        let limit = input.limit.unwrap_or(25);
+        let mut statement = self.connection.prepare(
+            "SELECT id,task,status,started_at,finished_at,baseline_tracked_bytes,final_tracked_bytes,delta_bytes,positive_growth_bytes,overlapping_observations,scan_truncated FROM disk_observations WHERE project_id=? ORDER BY COALESCE(finished_at,started_at) DESC,id DESC LIMIT ?",
+        )?;
+        let mut observations = statement
+            .query_map(params![project_id, limit + 1], |row| {
+                Ok(DiskObservationSummary {
+                    observation_id: row.get(0)?,
+                    task: row.get(1)?,
+                    status: row.get(2)?,
+                    started_at: row.get(3)?,
+                    finished_at: row.get(4)?,
+                    baseline_tracked_bytes: row.get::<_, i64>(5)? as u64,
+                    final_tracked_bytes: row.get::<_, Option<i64>>(6)?.map(|value| value as u64),
+                    delta_bytes: row.get(7)?,
+                    positive_growth_bytes: row.get::<_, Option<i64>>(8)?.map(|value| value as u64),
+                    overlapping_observations: row.get::<_, i64>(9)? as usize,
+                    scan_truncated: row.get::<_, i64>(10)? != 0,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        let truncated = observations.len() > limit;
+        observations.truncate(limit);
+        Ok(ListDiskObservationsResult {
+            observations,
+            limit,
+            truncated,
+        })
+    }
+
+    pub fn list_cleanup_candidates(
+        &self,
+        input: &ListCleanupCandidatesInput,
+    ) -> Result<ListCleanupCandidatesResult, StorageError> {
+        input.validate().map_err(StorageError::Contract)?;
+        let project_id = self.resolve_project(&input.project)?;
+        let limit = input.limit.unwrap_or(25);
+        let mut statement = self.connection.prepare(
+            "WITH ranked AS (SELECT entries.observation_id,observations.task,entries.relative_path,entries.kind,entries.delta_bytes,entries.final_bytes,entries.created_by_observation,entries.cleanup_disposition,observations.finished_at,ROW_NUMBER() OVER (PARTITION BY entries.relative_path ORDER BY observations.finished_at DESC,observations.id DESC) AS path_rank FROM disk_observation_entries entries JOIN disk_observations observations ON observations.id=entries.observation_id AND observations.project_id=entries.project_id WHERE entries.project_id=? AND observations.status='completed') SELECT observation_id,task,relative_path,kind,delta_bytes,final_bytes,created_by_observation,cleanup_disposition,finished_at FROM ranked WHERE path_rank=1 AND delta_bytes>0 ORDER BY delta_bytes DESC,relative_path LIMIT ?",
+        )?;
+        let rows = statement
+            .query_map(params![project_id, limit + 1], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, i64>(5)?,
+                    row.get::<_, i64>(6)?,
+                    row.get::<_, String>(7)?,
+                    row.get::<_, String>(8)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut candidates = rows
+            .into_iter()
+            .map(
+                |(
+                    observation_id,
+                    task,
+                    relative_path,
+                    kind,
+                    growth,
+                    final_bytes,
+                    created,
+                    disposition,
+                    finished_at,
+                )| {
+                    Ok(DiskCleanupCandidate {
+                        observation_id,
+                        task,
+                        relative_path,
+                        kind: parse_disk_artifact_kind(&kind)
+                            .ok_or(StorageError::InvalidStoredData("disk kind"))?,
+                        attributed_growth_bytes: growth as u64,
+                        reclaimable_bytes: final_bytes as u64,
+                        created_by_observation: created != 0,
+                        cleanup_disposition: parse_cleanup_disposition(&disposition)
+                            .ok_or(StorageError::InvalidStoredData("cleanup disposition"))?,
+                        finished_at,
+                    })
+                },
+            )
+            .collect::<Result<Vec<_>, StorageError>>()?;
+        let truncated = candidates.len() > limit;
+        candidates.truncate(limit);
+        Ok(ListCleanupCandidatesResult {
+            candidates,
+            limit,
+            truncated,
         })
     }
 
@@ -1469,6 +1573,25 @@ fn append_route_reasons(
             RetrievalMatchKind::KShellCommunity,
             "structural-community",
         );
+    }
+}
+
+fn parse_disk_artifact_kind(value: &str) -> Option<DiskArtifactKind> {
+    match value {
+        "build-cache" => Some(DiskArtifactKind::BuildCache),
+        "dependency-cache" => Some(DiskArtifactKind::DependencyCache),
+        "generated-output" => Some(DiskArtifactKind::GeneratedOutput),
+        "temporary-output" => Some(DiskArtifactKind::TemporaryOutput),
+        _ => None,
+    }
+}
+
+fn parse_cleanup_disposition(value: &str) -> Option<CleanupDisposition> {
+    match value {
+        "eligible" => Some(CleanupDisposition::Eligible),
+        "review" => Some(CleanupDisposition::Review),
+        "shared" => Some(CleanupDisposition::Shared),
+        _ => None,
     }
 }
 

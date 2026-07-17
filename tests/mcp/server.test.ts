@@ -28,7 +28,9 @@ describe('MCP protocol adapter', () => {
     const { tools } = await client.listTools()
     expect(tools.map(({ name }) => name)).toContain('query_knowledge')
     expect(tools.map(({ name }) => name)).toContain('finalize_work')
-    expect(tools).toHaveLength(29)
+    expect(tools.map(({ name }) => name)).toContain('start_disk_observation')
+    expect(tools.map(({ name }) => name)).toContain('list_disk_cleanup_candidates')
+    expect(tools).toHaveLength(33)
   })
 
   it('adapts MCP list_projects to the native backend without core logic', async () => {

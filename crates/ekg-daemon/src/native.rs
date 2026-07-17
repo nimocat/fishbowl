@@ -1,8 +1,11 @@
 use std::path::Path;
 use std::sync::Mutex;
 
-use ekg_contracts::{DaemonOperation, ErrorCode};
-use ekg_storage::{DatabaseManager, ReadRepository, StorageError, WriteError, WriteRepository};
+use ekg_contracts::{DaemonOperation, ErrorCode, ProjectReference};
+use ekg_storage::{
+    DatabaseManager, DiskSnapshot, ReadRepository, StorageError, WriteError, WriteRepository,
+    capture_project_disk,
+};
 use serde::Serialize;
 use serde_json::{Value, json};
 
@@ -114,6 +117,32 @@ impl RpcDispatcher for NativeDispatcher {
                     .finalize_work(input.clone())
                     .map_err(map_write)?,
             ),
+            DaemonOperation::StartDiskObservation(input) => {
+                let snapshot = self.capture_disk(&input.project)?;
+                encode(
+                    self.write()?
+                        .start_disk_observation(input.clone(), snapshot)
+                        .map_err(map_write)?,
+                )
+            }
+            DaemonOperation::FinishDiskObservation(input) => {
+                let snapshot = self.capture_disk(&input.project)?;
+                encode(
+                    self.write()?
+                        .finish_disk_observation(input.clone(), snapshot)
+                        .map_err(map_write)?,
+                )
+            }
+            DaemonOperation::ListDiskObservations(input) => encode(
+                self.read()?
+                    .list_disk_observations(input)
+                    .map_err(map_storage)?,
+            ),
+            DaemonOperation::ListCleanupCandidates(input) => encode(
+                self.read()?
+                    .list_cleanup_candidates(input)
+                    .map_err(map_storage)?,
+            ),
             DaemonOperation::ReportRelevance(input) => {
                 self.write()?
                     .report_relevance(input.clone())
@@ -185,6 +214,15 @@ impl RpcDispatcher for NativeDispatcher {
 }
 
 impl NativeDispatcher {
+    fn capture_disk(&self, reference: &ProjectReference) -> Result<DiskSnapshot, ProtocolError> {
+        let project = self
+            .read()?
+            .resolve_project_record(reference)
+            .map_err(map_storage)?;
+        let root = reference.project_root.as_deref().unwrap_or(&project.root);
+        capture_project_disk(Path::new(root)).map_err(|_| internal())
+    }
+
     fn read(&self) -> Result<std::sync::MutexGuard<'_, ReadRepository>, ProtocolError> {
         self.reads.lock().map_err(|_| internal())
     }

@@ -1,5 +1,9 @@
 # Handoff
 
+## Task Disk Ledger Follow-up (2026-07-17)
+
+Branch `codex/ekg-disk-ledger` adds schema-v8 task disk observations end to end. The implementation records start/final byte snapshots for allowlisted regenerable directories, computes path-level growth, marks overlapping sessions shared, and exposes read-only cleanup candidates without deletion. Focused storage, migration, native HTTP, TypeScript typecheck, build, and adapter tests pass. A real release scan reaches the 250,000-entry cap in about 3.5 seconds; future work should add a persistent metadata cache or platform-optimized traversal before expanding the allowlist.
+
 ## Current Objective
 
 Migrate EKG's knowledge engine to Rust and introduce deterministic hierarchical

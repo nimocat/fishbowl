@@ -939,6 +939,143 @@ pub struct CheckpointWorkResult {
     pub solution_id: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "kebab-case")]
+pub enum DiskArtifactKind {
+    BuildCache,
+    DependencyCache,
+    GeneratedOutput,
+    TemporaryOutput,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum CleanupDisposition {
+    Eligible,
+    Review,
+    Shared,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StartDiskObservationInput {
+    pub project: ProjectReference,
+    pub operation_id: String,
+    pub task: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StartDiskObservationResult {
+    pub observation_id: String,
+    pub project_id: String,
+    pub started_at: String,
+    pub baseline_tracked_bytes: u64,
+    pub tracked_paths: usize,
+    pub scanned_entries: usize,
+    pub scan_truncated: bool,
+    pub created: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FinishDiskObservationInput {
+    pub project: ProjectReference,
+    pub operation_id: String,
+    pub observation_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DiskGrowthEntry {
+    pub relative_path: String,
+    pub kind: DiskArtifactKind,
+    pub baseline_bytes: u64,
+    pub final_bytes: u64,
+    pub delta_bytes: i64,
+    pub created_by_observation: bool,
+    pub cleanup_disposition: CleanupDisposition,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FinishDiskObservationResult {
+    pub observation_id: String,
+    pub project_id: String,
+    pub started_at: String,
+    pub finished_at: String,
+    pub baseline_tracked_bytes: u64,
+    pub final_tracked_bytes: u64,
+    pub delta_bytes: i64,
+    pub positive_growth_bytes: u64,
+    pub overlapping_observations: usize,
+    pub scanned_entries: usize,
+    pub scan_truncated: bool,
+    pub entries: Vec<DiskGrowthEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ListDiskObservationsInput {
+    pub project: ProjectReference,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DiskObservationSummary {
+    pub observation_id: String,
+    pub task: String,
+    pub status: String,
+    pub started_at: String,
+    pub finished_at: Option<String>,
+    pub baseline_tracked_bytes: u64,
+    pub final_tracked_bytes: Option<u64>,
+    pub delta_bytes: Option<i64>,
+    pub positive_growth_bytes: Option<u64>,
+    pub overlapping_observations: usize,
+    pub scan_truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ListDiskObservationsResult {
+    pub observations: Vec<DiskObservationSummary>,
+    pub limit: usize,
+    pub truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ListCleanupCandidatesInput {
+    pub project: ProjectReference,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DiskCleanupCandidate {
+    pub observation_id: String,
+    pub task: String,
+    pub relative_path: String,
+    pub kind: DiskArtifactKind,
+    pub attributed_growth_bytes: u64,
+    pub reclaimable_bytes: u64,
+    pub created_by_observation: bool,
+    pub cleanup_disposition: CleanupDisposition,
+    pub finished_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ListCleanupCandidatesResult {
+    pub candidates: Vec<DiskCleanupCandidate>,
+    pub limit: usize,
+    pub truncated: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct FinalizeCommitInput {
@@ -1104,6 +1241,14 @@ pub enum DaemonOperation {
     CheckpointWork(CheckpointWorkInput),
     #[serde(rename = "finalizeWork")]
     FinalizeWork(FinalizeWorkInput),
+    #[serde(rename = "startDiskObservation")]
+    StartDiskObservation(StartDiskObservationInput),
+    #[serde(rename = "finishDiskObservation")]
+    FinishDiskObservation(FinishDiskObservationInput),
+    #[serde(rename = "listDiskObservations")]
+    ListDiskObservations(ListDiskObservationsInput),
+    #[serde(rename = "listCleanupCandidates")]
+    ListCleanupCandidates(ListCleanupCandidatesInput),
     #[serde(rename = "reportRelevance")]
     ReportRelevance(ReportRelevanceInput),
     #[serde(rename = "suggestCaseMerges")]
@@ -1136,9 +1281,63 @@ impl Validate for DaemonOperation {
             Self::GetCase(value) => value.validate(),
             Self::ResolveProject(value) => value.validate(),
             Self::ListRecentActivity(value) => value.validate(),
+            Self::StartDiskObservation(value) => value.validate(),
+            Self::FinishDiskObservation(value) => value.validate(),
+            Self::ListDiskObservations(value) => value.validate(),
+            Self::ListCleanupCandidates(value) => value.validate(),
             Self::ListProjects(_) => Ok(()),
             _ => Ok(()),
         }
+    }
+}
+
+impl Validate for StartDiskObservationInput {
+    fn validate(&self) -> Result<(), ErrorCode> {
+        self.project.validate()?;
+        validate_string(
+            &self.operation_id,
+            MAX_REQUEST_ID,
+            ErrorCode::InvalidArgument,
+        )?;
+        validate_string(&self.task, MAX_TEXT, ErrorCode::InvalidArgument)
+    }
+}
+
+impl Validate for FinishDiskObservationInput {
+    fn validate(&self) -> Result<(), ErrorCode> {
+        self.project.validate()?;
+        validate_string(
+            &self.operation_id,
+            MAX_REQUEST_ID,
+            ErrorCode::InvalidArgument,
+        )?;
+        validate_string(
+            &self.observation_id,
+            MAX_REFERENCE,
+            ErrorCode::InvalidArgument,
+        )
+    }
+}
+
+impl Validate for ListDiskObservationsInput {
+    fn validate(&self) -> Result<(), ErrorCode> {
+        self.project.validate()?;
+        validate_optional_limit(self.limit)
+    }
+}
+
+impl Validate for ListCleanupCandidatesInput {
+    fn validate(&self) -> Result<(), ErrorCode> {
+        self.project.validate()?;
+        validate_optional_limit(self.limit)
+    }
+}
+
+fn validate_optional_limit(limit: Option<usize>) -> Result<(), ErrorCode> {
+    if limit.is_some_and(|value| value == 0 || value > 100) {
+        Err(ErrorCode::PayloadTooLarge)
+    } else {
+        Ok(())
     }
 }
 

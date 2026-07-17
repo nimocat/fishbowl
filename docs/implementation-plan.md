@@ -1,5 +1,11 @@
 # Complete First Release Implementation Plan
 
+## Active Follow-up: Task Disk Growth Ledger
+
+**Status:** implementation complete; release verification and installed cutover pending (2026-07-17)
+
+Schema v8 adds idempotent task start/finish observations, conservative overlap attribution, bounded cleanup history, and metadata-only scanning of known regenerable project roots. Rust owns discovery, byte accounting, project isolation, persistence, and cleanup policy; TypeScript exposes only CLI/MCP DTOs. The feature never follows symlinks, reads contents, records absolute project paths, or deletes artifacts. Real-project scanning currently reaches its 250,000-entry safety bound in approximately 3.5 seconds; reducing this cold-scan cost without weakening attribution remains a measured follow-up.
+
 ## Active Migration: Rust Hierarchical Retrieval Core
 
 **Status:** Stages 0-8 offline complete; installed production cutover awaits

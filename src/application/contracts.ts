@@ -211,6 +211,20 @@ export interface RecentActivityResult {
   nextSequence: number
 }
 
+export type DiskArtifactKind = 'build-cache' | 'dependency-cache' | 'generated-output' | 'temporary-output'
+export type CleanupDisposition = 'eligible' | 'review' | 'shared'
+export interface StartDiskObservationInput { project: ProjectReference; operationId: string; task: string }
+export interface StartDiskObservationResult { observationId: string; projectId: string; startedAt: string; baselineTrackedBytes: number; trackedPaths: number; scannedEntries: number; scanTruncated: boolean; created: boolean }
+export interface FinishDiskObservationInput { project: ProjectReference; operationId: string; observationId: string }
+export interface DiskGrowthEntry { relativePath: string; kind: DiskArtifactKind; baselineBytes: number; finalBytes: number; deltaBytes: number; createdByObservation: boolean; cleanupDisposition: CleanupDisposition }
+export interface FinishDiskObservationResult { observationId: string; projectId: string; startedAt: string; finishedAt: string; baselineTrackedBytes: number; finalTrackedBytes: number; deltaBytes: number; positiveGrowthBytes: number; overlappingObservations: number; scannedEntries: number; scanTruncated: boolean; entries: DiskGrowthEntry[] }
+export interface ListDiskObservationsInput { project: ProjectReference; limit?: number }
+export interface DiskObservationSummary { observationId: string; task: string; status: string; startedAt: string; finishedAt?: string; baselineTrackedBytes: number; finalTrackedBytes?: number; deltaBytes?: number; positiveGrowthBytes?: number; overlappingObservations: number; scanTruncated: boolean }
+export interface ListDiskObservationsResult { observations: DiskObservationSummary[]; limit: number; truncated: boolean }
+export interface ListCleanupCandidatesInput { project: ProjectReference; limit?: number }
+export interface DiskCleanupCandidate { observationId: string; task: string; relativePath: string; kind: DiskArtifactKind; attributedGrowthBytes: number; reclaimableBytes: number; createdByObservation: boolean; cleanupDisposition: CleanupDisposition; finishedAt: string }
+export interface ListCleanupCandidatesResult { candidates: DiskCleanupCandidate[]; limit: number; truncated: boolean }
+
 export interface PreflightInput {
   project: ProjectReference
   taskDescription: string
@@ -557,6 +571,10 @@ export interface KnowledgeServiceContract {
   recordCheckpoint(input: RecordCheckpointInput): RecordCheckpointResult
   checkpointWork(input: CheckpointWorkInput): CheckpointWorkResult
   finalizeWork(input: FinalizeWorkInput): FinalizeWorkResult
+  startDiskObservation(input: StartDiskObservationInput): StartDiskObservationResult
+  finishDiskObservation(input: FinishDiskObservationInput): FinishDiskObservationResult
+  listDiskObservations(input: ListDiskObservationsInput): ListDiskObservationsResult
+  listCleanupCandidates(input: ListCleanupCandidatesInput): ListCleanupCandidatesResult
   reportRelevance(input: ReportRelevanceInput): { recorded: true }
   suggestCaseMerges(input: SuggestCaseMergesInput): MergeProposal[]
   applyCaseMerge(input: ApplyCaseMergeInput): MergeProposal

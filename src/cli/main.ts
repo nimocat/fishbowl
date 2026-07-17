@@ -59,6 +59,10 @@ async function dispatch(service: AwaitableKnowledgeBackend, command: CliCommand)
     case 'import-graph': return await service.importProjectGraph({ project: project(command.projectId), archive: JSON.parse(readFileSync(command.file, 'utf8')) as never, operationId: command.operationId })
     case 'export': return await service.exportProjectGraph({ project: project(command.projectId) })
     case 'activity': return await service.listRecentActivity({ project: project(command.projectId), afterSequence: command.afterSequence, limit: command.limit })
+    case 'disk-start': return await service.startDiskObservation({ project: project(command.projectId), operationId: command.operationId, task: command.task })
+    case 'disk-finish': return await service.finishDiskObservation({ project: project(command.projectId), operationId: command.operationId, observationId: command.observationId })
+    case 'disk-list': return await service.listDiskObservations({ project: project(command.projectId), limit: command.limit })
+    case 'disk-candidates': return await service.listCleanupCandidates({ project: project(command.projectId), limit: command.limit })
     case 'checkpoint': return await service.checkpointWork({
       ...(command.data as object),
       project: command.projectId ? { projectId: command.projectId } : { projectRoot: command.projectRoot },

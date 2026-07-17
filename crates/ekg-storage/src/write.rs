@@ -1,16 +1,23 @@
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Component, Path};
+
+use crate::DiskSnapshot;
 use chrono::Utc;
 use ekg_contracts::{
     ApplyCaseMergeInput, ArtifactWriteResult, CheckpointSkipReason, CheckpointWorkInput,
-    CheckpointWorkResult, CheckpointWrite, CheckpointWriteResult, CloseCaseInput, CloseCaseResult,
-    CommandResultWriteResult, CommandStartedResult, FinalizeWorkInput, FinalizeWorkResult,
-    MarkRegressionInput, MergeProposalContract, NodeStatus, NodeWriteResult, ProjectAliasRecord,
-    ProjectRecord, ProjectReference, ProjectWithAliasesRecord, PromotionStatus,
-    RecordArtifactInput, RecordAttemptInput, RecordCheckpointInput, RecordCheckpointResult,
-    RecordCommandResultInput, RecordCommandStartedInput, RecordGuardrailInput, RecordProblemInput,
-    RecordRootCauseInput, RecordSolutionInput, RecordVerificationInput, RegisterProjectInput,
-    RegressionOutcomeContract, RegressionResultContract, ReportRelevanceInput, SourceKey,
-    SuggestCaseMergesInput, UpdateProjectInput, Validate, WriteAttemptData, WriteProblemData,
-    WriteRootCauseData, WriteSolutionData, WriteVerificationData,
+    CheckpointWorkResult, CheckpointWrite, CheckpointWriteResult, CleanupDisposition,
+    CloseCaseInput, CloseCaseResult, CommandResultWriteResult, CommandStartedResult,
+    DiskArtifactKind, DiskGrowthEntry, FinalizeWorkInput, FinalizeWorkResult,
+    FinishDiskObservationInput, FinishDiskObservationResult, MarkRegressionInput,
+    MergeProposalContract, NodeStatus, NodeWriteResult, ProjectAliasRecord, ProjectRecord,
+    ProjectReference, ProjectWithAliasesRecord, PromotionStatus, RecordArtifactInput,
+    RecordAttemptInput, RecordCheckpointInput, RecordCheckpointResult, RecordCommandResultInput,
+    RecordCommandStartedInput, RecordGuardrailInput, RecordProblemInput, RecordRootCauseInput,
+    RecordSolutionInput, RecordVerificationInput, RegisterProjectInput, RegressionOutcomeContract,
+    RegressionResultContract, ReportRelevanceInput, SourceKey, StartDiskObservationInput,
+    StartDiskObservationResult, SuggestCaseMergesInput, UpdateProjectInput, Validate,
+    WriteAttemptData, WriteProblemData, WriteRootCauseData, WriteSolutionData,
+    WriteVerificationData,
 };
 use ekg_core::{
     ApplicabilityBoundary, PromotionEvidence, PromotionRequirement, RegressionOutcome,
@@ -2191,6 +2198,293 @@ fn load_project_with_aliases(
     Ok(ProjectWithAliasesRecord { project, aliases })
 }
 
+impl WriteRepository {
+    pub fn start_disk_observation(
+        &mut self,
+        input: StartDiskObservationInput,
+        snapshot: DiskSnapshot,
+    ) -> Result<StartDiskObservationResult, WriteError> {
+        input.validate().map_err(|_| WriteError::Contract)?;
+        validate_disk_snapshot(&snapshot)?;
+        let transaction = self.connection.savepoint()?;
+        let project_id = resolve_project(&transaction, &input.project)?;
+        if let Some(mut replay) = replay_operation::<StartDiskObservationResult>(
+            &transaction,
+            &project_id,
+            Some(&input.operation_id),
+            "start_disk_observation",
+        )? {
+            replay.created = false;
+            transaction.commit()?;
+            return Ok(replay);
+        }
+        let observation_id = id();
+        let started_at = timestamp();
+        let task = redact_string(input.task.trim());
+        transaction.execute(
+            "INSERT INTO disk_observations (id,project_id,task,status,started_at,baseline_tracked_bytes,overlapping_observations,scanned_entries,scan_truncated) VALUES (?,?,?,'running',?,?,?,?,?)",
+            params![
+                observation_id,
+                project_id,
+                task,
+                started_at,
+                as_i64(snapshot.tracked_bytes)?,
+                0_i64,
+                as_i64(snapshot.scanned_entries as u64)?,
+                bool_i64(snapshot.truncated),
+            ],
+        )?;
+        for entry in &snapshot.entries {
+            transaction.execute(
+                "INSERT INTO disk_observation_entries (observation_id,project_id,relative_path,kind,baseline_bytes,created_by_observation) VALUES (?,?,?,?,?,0)",
+                params![
+                    observation_id,
+                    project_id,
+                    entry.relative_path,
+                    disk_kind_text(entry.kind),
+                    as_i64(entry.bytes)?,
+                ],
+            )?;
+        }
+        let result = StartDiskObservationResult {
+            observation_id: observation_id.clone(),
+            project_id: project_id.clone(),
+            started_at: started_at.clone(),
+            baseline_tracked_bytes: snapshot.tracked_bytes,
+            tracked_paths: snapshot.entries.len(),
+            scanned_entries: snapshot.scanned_entries,
+            scan_truncated: snapshot.truncated,
+            created: true,
+        };
+        append_event(
+            &transaction,
+            &project_id,
+            None,
+            "disk.observation.started",
+            &observation_id,
+            &json!({
+                "observationId": observation_id,
+                "baselineTrackedBytes": snapshot.tracked_bytes,
+                "trackedPaths": snapshot.entries.len(),
+                "scanTruncated": snapshot.truncated,
+            }),
+            &started_at,
+        )?;
+        store_operation(
+            &transaction,
+            &project_id,
+            Some(&input.operation_id),
+            "start_disk_observation",
+            &result,
+        )?;
+        transaction.commit()?;
+        Ok(result)
+    }
+
+    pub fn finish_disk_observation(
+        &mut self,
+        input: FinishDiskObservationInput,
+        snapshot: DiskSnapshot,
+    ) -> Result<FinishDiskObservationResult, WriteError> {
+        input.validate().map_err(|_| WriteError::Contract)?;
+        validate_disk_snapshot(&snapshot)?;
+        let transaction = self.connection.savepoint()?;
+        let project_id = resolve_project(&transaction, &input.project)?;
+        if let Some(replay) = replay_operation::<FinishDiskObservationResult>(
+            &transaction,
+            &project_id,
+            Some(&input.operation_id),
+            "finish_disk_observation",
+        )? {
+            transaction.commit()?;
+            return Ok(replay);
+        }
+        let (started_at, baseline_tracked_bytes, status, baseline_scanned_entries, baseline_truncated): (
+            String,
+            i64,
+            String,
+            i64,
+            i64,
+        ) = transaction
+            .query_row(
+                "SELECT started_at,baseline_tracked_bytes,status,scanned_entries,scan_truncated FROM disk_observations WHERE id=? AND project_id=?",
+                params![input.observation_id, project_id],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
+            )
+            .optional()?
+            .ok_or(WriteError::OwnershipMismatch)?;
+        if status != "running" {
+            return Err(WriteError::Validation("disk observation completed"));
+        }
+        let finished_at = timestamp();
+        let overlapping_observations: i64 = transaction.query_row(
+            "SELECT count(*) FROM disk_observations WHERE project_id=? AND id<>? AND started_at<=? AND COALESCE(finished_at,?)>=?",
+            params![project_id,input.observation_id,finished_at,finished_at,started_at],
+            |row| row.get(0),
+        )?;
+        let mut baseline = BTreeMap::<String, (DiskArtifactKind, u64)>::new();
+        {
+            let mut statement = transaction.prepare(
+                "SELECT relative_path,kind,baseline_bytes FROM disk_observation_entries WHERE project_id=? AND observation_id=?",
+            )?;
+            let rows = statement.query_map(params![project_id, input.observation_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            })?;
+            for row in rows {
+                let (path, kind, bytes) = row?;
+                baseline.insert(
+                    path,
+                    (
+                        parse_disk_kind(&kind).ok_or(WriteError::Validation("disk kind"))?,
+                        bytes as u64,
+                    ),
+                );
+            }
+        }
+        let final_entries = snapshot
+            .entries
+            .iter()
+            .map(|entry| (entry.relative_path.clone(), (entry.kind, entry.bytes)))
+            .collect::<BTreeMap<_, _>>();
+        let paths = baseline
+            .keys()
+            .chain(final_entries.keys())
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        let mut entries = Vec::new();
+        let mut positive_growth_bytes = 0_u64;
+        for path in paths {
+            let (kind, baseline_bytes) = match baseline.get(&path).copied() {
+                Some(entry) => entry,
+                None => (
+                    final_entries
+                        .get(&path)
+                        .map(|entry| entry.0)
+                        .ok_or(WriteError::Validation("disk entry"))?,
+                    0,
+                ),
+            };
+            let final_bytes = final_entries.get(&path).map_or(0, |entry| entry.1);
+            let delta_bytes = signed_delta(final_bytes, baseline_bytes)?;
+            let created_by_observation = baseline_bytes == 0 && final_bytes > 0;
+            let scan_truncated = baseline_truncated != 0 || snapshot.truncated;
+            let cleanup_disposition = if overlapping_observations > 0 {
+                CleanupDisposition::Shared
+            } else if !scan_truncated
+                && created_by_observation
+                && kind != DiskArtifactKind::TemporaryOutput
+            {
+                CleanupDisposition::Eligible
+            } else {
+                CleanupDisposition::Review
+            };
+            if delta_bytes > 0 {
+                positive_growth_bytes = positive_growth_bytes.saturating_add(delta_bytes as u64);
+            }
+            transaction.execute(
+                "INSERT INTO disk_observation_entries (observation_id,project_id,relative_path,kind,baseline_bytes,final_bytes,delta_bytes,created_by_observation,cleanup_disposition) VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(observation_id,relative_path) DO UPDATE SET final_bytes=excluded.final_bytes,delta_bytes=excluded.delta_bytes,created_by_observation=excluded.created_by_observation,cleanup_disposition=excluded.cleanup_disposition",
+                params![
+                    input.observation_id,
+                    project_id,
+                    path,
+                    disk_kind_text(kind),
+                    as_i64(baseline_bytes)?,
+                    as_i64(final_bytes)?,
+                    delta_bytes,
+                    bool_i64(created_by_observation),
+                    cleanup_text(cleanup_disposition),
+                ],
+            )?;
+            if delta_bytes != 0 {
+                entries.push(DiskGrowthEntry {
+                    relative_path: path,
+                    kind,
+                    baseline_bytes,
+                    final_bytes,
+                    delta_bytes,
+                    created_by_observation,
+                    cleanup_disposition,
+                });
+            }
+        }
+        entries.sort_by(|left, right| {
+            right
+                .delta_bytes
+                .cmp(&left.delta_bytes)
+                .then_with(|| left.relative_path.cmp(&right.relative_path))
+        });
+        let delta_bytes = signed_delta(snapshot.tracked_bytes, baseline_tracked_bytes as u64)?;
+        transaction.execute(
+            "UPDATE disk_observations SET status='completed',finished_at=?,final_tracked_bytes=?,delta_bytes=?,positive_growth_bytes=?,overlapping_observations=?,scanned_entries=scanned_entries+?,scan_truncated=CASE WHEN scan_truncated=1 OR ?=1 THEN 1 ELSE 0 END WHERE id=? AND project_id=?",
+            params![
+                finished_at,
+                as_i64(snapshot.tracked_bytes)?,
+                delta_bytes,
+                as_i64(positive_growth_bytes)?,
+                overlapping_observations,
+                as_i64(snapshot.scanned_entries as u64)?,
+                bool_i64(snapshot.truncated),
+                input.observation_id,
+                project_id,
+            ],
+        )?;
+        let scanned_entries = usize::try_from(baseline_scanned_entries)
+            .map_err(|_| WriteError::Validation("disk scan count"))?
+            .saturating_add(snapshot.scanned_entries);
+        let scan_truncated = baseline_truncated != 0 || snapshot.truncated;
+        let result = FinishDiskObservationResult {
+            observation_id: input.observation_id.clone(),
+            project_id: project_id.clone(),
+            started_at,
+            finished_at: finished_at.clone(),
+            baseline_tracked_bytes: baseline_tracked_bytes as u64,
+            final_tracked_bytes: snapshot.tracked_bytes,
+            delta_bytes,
+            positive_growth_bytes,
+            overlapping_observations: overlapping_observations as usize,
+            scanned_entries,
+            scan_truncated,
+            entries,
+        };
+        append_event(
+            &transaction,
+            &project_id,
+            None,
+            "disk.observation.completed",
+            &input.observation_id,
+            &json!({
+                "observationId": input.observation_id,
+                "deltaBytes": delta_bytes,
+                "positiveGrowthBytes": positive_growth_bytes,
+                "overlappingObservations": overlapping_observations,
+                "scanTruncated": scan_truncated,
+            }),
+            &finished_at,
+        )?;
+        store_operation(
+            &transaction,
+            &project_id,
+            Some(&input.operation_id),
+            "finish_disk_observation",
+            &result,
+        )?;
+        transaction.commit()?;
+        Ok(result)
+    }
+}
+
 struct NodeInsert<'a> {
     project_id: &'a str,
     case_id: &'a str,
@@ -2742,6 +3036,83 @@ fn redact_value(value: Value) -> Value {
                 .collect(),
         ),
         other => other,
+    }
+}
+
+fn validate_disk_snapshot(snapshot: &DiskSnapshot) -> Result<(), WriteError> {
+    if snapshot.entries.len() > 256 || snapshot.scanned_entries > 250_000 {
+        return Err(WriteError::Validation("disk snapshot bounds"));
+    }
+    let mut paths = BTreeSet::new();
+    let mut tracked_bytes = 0_u64;
+    for entry in &snapshot.entries {
+        let relative_path = entry.relative_path.trim();
+        if relative_path.is_empty() || relative_path.len() > 4_096 {
+            return Err(WriteError::Validation("disk relative path"));
+        }
+        let path = Path::new(relative_path);
+        if path.is_absolute()
+            || path.components().any(|component| {
+                matches!(
+                    component,
+                    Component::ParentDir | Component::RootDir | Component::Prefix(_)
+                )
+            })
+        {
+            return Err(WriteError::Validation("disk relative path"));
+        }
+        if !paths.insert(relative_path.to_owned()) {
+            return Err(WriteError::Validation("duplicate disk path"));
+        }
+        tracked_bytes = tracked_bytes
+            .checked_add(entry.bytes)
+            .ok_or(WriteError::Validation("disk bytes"))?;
+        as_i64(entry.bytes)?;
+    }
+    if tracked_bytes != snapshot.tracked_bytes {
+        return Err(WriteError::Validation("disk tracked bytes"));
+    }
+    as_i64(snapshot.tracked_bytes)?;
+    Ok(())
+}
+
+fn as_i64(value: u64) -> Result<i64, WriteError> {
+    i64::try_from(value).map_err(|_| WriteError::Validation("disk bytes"))
+}
+
+fn signed_delta(final_bytes: u64, baseline_bytes: u64) -> Result<i64, WriteError> {
+    let delta = i128::from(final_bytes) - i128::from(baseline_bytes);
+    i64::try_from(delta).map_err(|_| WriteError::Validation("disk delta"))
+}
+
+fn bool_i64(value: bool) -> i64 {
+    i64::from(value)
+}
+
+fn disk_kind_text(kind: DiskArtifactKind) -> &'static str {
+    match kind {
+        DiskArtifactKind::BuildCache => "build-cache",
+        DiskArtifactKind::DependencyCache => "dependency-cache",
+        DiskArtifactKind::GeneratedOutput => "generated-output",
+        DiskArtifactKind::TemporaryOutput => "temporary-output",
+    }
+}
+
+fn parse_disk_kind(value: &str) -> Option<DiskArtifactKind> {
+    match value {
+        "build-cache" => Some(DiskArtifactKind::BuildCache),
+        "dependency-cache" => Some(DiskArtifactKind::DependencyCache),
+        "generated-output" => Some(DiskArtifactKind::GeneratedOutput),
+        "temporary-output" => Some(DiskArtifactKind::TemporaryOutput),
+        _ => None,
+    }
+}
+
+fn cleanup_text(disposition: CleanupDisposition) -> &'static str {
+    match disposition {
+        CleanupDisposition::Eligible => "eligible",
+        CleanupDisposition::Review => "review",
+        CleanupDisposition::Shared => "shared",
     }
 }
 

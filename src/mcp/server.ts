@@ -704,6 +704,88 @@ export function createMcpServer(
     (input) => invoke('list_recent_activity', () => service.listRecentActivity(input)),
   )
 
+  const diskKind = z.enum(['build-cache', 'dependency-cache', 'generated-output', 'temporary-output'])
+  const cleanupDisposition = z.enum(['eligible', 'review', 'shared'])
+  const diskGrowthEntry = z.object({
+    relativePath: path,
+    kind: diskKind,
+    baselineBytes: z.number().int().nonnegative(),
+    finalBytes: z.number().int().nonnegative(),
+    deltaBytes: z.number().int(),
+    createdByObservation: z.boolean(),
+    cleanupDisposition,
+  }).strict()
+
+  server.registerTool(
+    'start_disk_observation',
+    {
+      description: 'Capture a bounded baseline of regenerable project artifacts for one task.',
+      inputSchema: z.object({ project: projectReference, operationId: id, task: text }).strict(),
+      outputSchema: outputSchema(z.object({
+        observationId: id, projectId: id, startedAt: timestamp,
+        baselineTrackedBytes: z.number().int().nonnegative(),
+        trackedPaths: z.number().int().nonnegative(),
+        scannedEntries: z.number().int().nonnegative(),
+        scanTruncated: z.boolean(), created: z.boolean(),
+      }).strict()),
+      annotations: idempotentWrite,
+    },
+    (input) => invoke('start_disk_observation', () => service.startDiskObservation(input)),
+  )
+
+  server.registerTool(
+    'finish_disk_observation',
+    {
+      description: 'Capture the final bounded artifact state and attribute disk growth conservatively.',
+      inputSchema: z.object({ project: projectReference, operationId: id, observationId: id }).strict(),
+      outputSchema: outputSchema(z.object({
+        observationId: id, projectId: id, startedAt: timestamp, finishedAt: timestamp,
+        baselineTrackedBytes: z.number().int().nonnegative(), finalTrackedBytes: z.number().int().nonnegative(),
+        deltaBytes: z.number().int(), positiveGrowthBytes: z.number().int().nonnegative(),
+        overlappingObservations: z.number().int().nonnegative(), scannedEntries: z.number().int().nonnegative(),
+        scanTruncated: z.boolean(), entries: z.array(diskGrowthEntry).max(256),
+      }).strict()),
+      annotations: idempotentWrite,
+    },
+    (input) => invoke('finish_disk_observation', () => service.finishDiskObservation(input)),
+  )
+
+  server.registerTool(
+    'list_disk_observations',
+    {
+      description: 'List bounded task-level disk observations for a project.',
+      inputSchema: z.object({ project: projectReference, limit: z.number().int().min(1).max(100).optional() }).strict(),
+      outputSchema: outputSchema(z.object({
+        observations: z.array(z.object({
+          observationId: id, task: text, status: z.enum(['running', 'completed']), startedAt: timestamp,
+          finishedAt: timestamp.optional(), baselineTrackedBytes: z.number().int().nonnegative(),
+          finalTrackedBytes: z.number().int().nonnegative().optional(), deltaBytes: z.number().int().optional(),
+          positiveGrowthBytes: z.number().int().nonnegative().optional(), overlappingObservations: z.number().int().nonnegative(),
+          scanTruncated: z.boolean(),
+        }).strict()).max(100), limit: z.number().int().min(1).max(100), truncated: z.boolean(),
+      }).strict()),
+      annotations: readOnly,
+    },
+    (input) => invoke('list_disk_observations', () => service.listDiskObservations(input)),
+  )
+
+  server.registerTool(
+    'list_disk_cleanup_candidates',
+    {
+      description: 'List explainable cleanup candidates. This tool never deletes files.',
+      inputSchema: z.object({ project: projectReference, limit: z.number().int().min(1).max(100).optional() }).strict(),
+      outputSchema: outputSchema(z.object({
+        candidates: z.array(z.object({
+          observationId: id, task: text, relativePath: path, kind: diskKind,
+          attributedGrowthBytes: z.number().int().nonnegative(), reclaimableBytes: z.number().int().nonnegative(),
+          createdByObservation: z.boolean(), cleanupDisposition, finishedAt: timestamp,
+        }).strict()).max(100), limit: z.number().int().min(1).max(100), truncated: z.boolean(),
+      }).strict()),
+      annotations: readOnly,
+    },
+    (input) => invoke('list_disk_cleanup_candidates', () => service.listCleanupCandidates(input)),
+  )
+
   server.registerTool(
     'get_operation_metrics',
     {

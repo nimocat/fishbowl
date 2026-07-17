@@ -4,10 +4,10 @@ use ekg_storage::{DatabaseFaultPoint, DatabaseManager};
 use rusqlite::Connection;
 
 #[test]
-fn new_database_is_schema_v7_safe_and_integral() {
+fn new_database_is_schema_v8_safe_and_integral() {
     let path = path("new");
     let managed = DatabaseManager::open(&path).unwrap();
-    assert_eq!(managed.user_version().unwrap(), 7);
+    assert_eq!(managed.user_version().unwrap(), 8);
     assert_eq!(managed.quick_check().unwrap(), vec!["ok"]);
     assert_eq!(managed.application_id().unwrap(), 0x454b4701);
     for table in [
@@ -15,6 +15,8 @@ fn new_database_is_schema_v7_safe_and_integral() {
         "import_previews",
         "relevance_feedback",
         "case_merge_proposals",
+        "disk_observations",
+        "disk_observation_entries",
     ] {
         assert!(managed.has_table(table).unwrap(), "missing {table}");
     }
@@ -47,7 +49,7 @@ fn schema_v5_migrates_after_backup_and_preserves_owned_history() {
     let managed = DatabaseManager::open(&path).unwrap();
     let backup = managed.backup_path().unwrap().to_path_buf();
     assert!(backup.exists());
-    assert_eq!(managed.user_version().unwrap(), 7);
+    assert_eq!(managed.user_version().unwrap(), 8);
     assert_eq!(managed.quick_check().unwrap(), vec!["ok"]);
     assert_eq!(
         managed
@@ -89,7 +91,7 @@ fn schema_v1_upgrades_through_all_compatibility_migrations() {
     db.pragma_update(None, "user_version", 1).unwrap();
     drop(db);
     let managed = DatabaseManager::open(&path).unwrap();
-    assert_eq!(managed.user_version().unwrap(), 7);
+    assert_eq!(managed.user_version().unwrap(), 8);
     assert_eq!(managed.quick_check().unwrap(), vec!["ok"]);
     let backup = managed.backup_path().unwrap().to_path_buf();
     drop(managed);
@@ -153,7 +155,7 @@ fn fault_newer_and_corrupt_inputs_never_replace_the_original() {
         .find(|candidate| {
             candidate.file_name().is_some_and(|name| {
                 name.to_string_lossy().starts_with(&format!(
-                    "{}.pre-rust-v7-",
+                    "{}.pre-rust-v8-",
                     commit_fault.file_name().unwrap().to_string_lossy()
                 ))
             })
@@ -175,7 +177,7 @@ fn fault_newer_and_corrupt_inputs_never_replace_the_original() {
 
     let newer = path("newer");
     let db = Connection::open(&newer).unwrap();
-    db.pragma_update(None, "user_version", 8).unwrap();
+    db.pragma_update(None, "user_version", 9).unwrap();
     drop(db);
     let before = fs::read(&newer).unwrap();
     assert!(DatabaseManager::open(&newer).is_err());
