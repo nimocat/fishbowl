@@ -1011,8 +1011,20 @@ pub struct FinishDiskObservationResult {
     pub delta_bytes: i64,
     pub positive_growth_bytes: u64,
     pub overlapping_observations: usize,
+    /// Aggregate across baseline and final captures, retained for compatibility.
     pub scanned_entries: usize,
+    /// Baseline traversal count. Separating it from the final capture makes a
+    /// cache-hit finish diagnosable without implying it walked the project.
+    #[serde(default)]
+    pub baseline_scanned_entries: usize,
+    /// Entries actually traversed by the final capture.
+    #[serde(default)]
+    pub final_scanned_entries: usize,
     pub scan_truncated: bool,
+    #[serde(default)]
+    pub baseline_scan_truncated: bool,
+    #[serde(default)]
+    pub final_scan_truncated: bool,
     pub cache_hits: usize,
     pub cache_misses: usize,
     pub entries: Vec<DiskGrowthEntry>,

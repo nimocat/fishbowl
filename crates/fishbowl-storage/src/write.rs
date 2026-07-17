@@ -2479,7 +2479,12 @@ impl WriteRepository {
             positive_growth_bytes,
             overlapping_observations: overlapping_observations as usize,
             scanned_entries,
+            baseline_scanned_entries: usize::try_from(baseline_scanned_entries)
+                .map_err(|_| WriteError::Validation("disk scan count"))?,
+            final_scanned_entries: snapshot.scanned_entries,
             scan_truncated,
+            baseline_scan_truncated: baseline_truncated != 0,
+            final_scan_truncated: snapshot.truncated,
             cache_hits: capture.cache_hits,
             cache_misses: capture.cache_misses,
             entries,
