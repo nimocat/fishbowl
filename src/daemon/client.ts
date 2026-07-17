@@ -102,7 +102,7 @@ export class DaemonClient {
           'Content-Type': 'application/json',
           'Content-Length': body.byteLength,
         },
-        timeout: this.options.timeoutMs ?? 1_500,
+        timeout: daemonRequestTimeoutMs(operation, this.options.timeoutMs),
       }, (response) => {
         const chunks: Buffer[] = []
         response.on('data', (chunk: Buffer) => chunks.push(chunk))
@@ -133,6 +133,16 @@ export class DaemonClient {
       outgoing.end(body)
     })
   }
+}
+
+export function daemonRequestTimeoutMs(
+  operation: DaemonOperation,
+  configuredTimeoutMs?: number,
+): number {
+  if (configuredTimeoutMs !== undefined) return configuredTimeoutMs
+  return operation === 'startDiskObservation' || operation === 'finishDiskObservation'
+    ? 15_000
+    : 1_500
 }
 
 function parseServerTiming(value: string | string[] | undefined): Pick<DaemonTimingSample, 'queueMs' | 'executionMs' | 'serializationMs'> {
