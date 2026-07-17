@@ -31,3 +31,22 @@ clients fail deterministically instead of talking to an incompatible daemon.
 Malformed checkpoint data receives a field-specific local error. Isolated
 recovery stores remain possible, but callers must opt into them explicitly and
 must stop any existing writer first.
+
+## Executed production record
+
+The protocol-v2 build passed Rust debug/release workspace tests, Clippy with
+warnings denied, TypeScript typecheck, 53 Vitest tests, and the production
+build. Before installation, both SQLite stores were quiesced and backed up at
+`backups/unified-entry-20260717-153746` with SHA-256 hashes. The unique
+`yqshunjian-harmonyos` project was transactionally copied into the schema-v9
+platform-default store: 20 Cases, 22 nodes/FTS rows, 45 events, seven operation
+results, 18 source keys, one import preview, and 36 proposals. Foreign-key and
+quick checks passed.
+
+Two raw command logs were copied byte-identically into the platform-default
+log root and their command/Artifact references were updated transactionally.
+The old data directory is retained privately under the same backup directory
+as `retired-legacy-data`; it is no longer an active entry. Installed acceptance
+found one LaunchAgent at protocol 2, both iOS and HarmonyOS projects, and a
+successful structured checkpoint. The malformed-string probe now fails locally
+with RootCause field guidance instead of a daemon protocol error.

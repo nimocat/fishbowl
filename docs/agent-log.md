@@ -647,3 +647,7 @@
   and contract fixtures now use generation 2.
 - Removed the legacy directory override from Codex/project guidance. Codex uses
   one user-level MCP entry and the installed platform-default store.
+- Production cutover completed backup-first. HarmonyOS-only knowledge and two
+  referenced raw logs were preserved; the legacy directory is a private retired
+  archive. Installed protocol 2 passed integrity, project-list, malformed-local-
+  rejection, and structured-checkpoint acceptance.

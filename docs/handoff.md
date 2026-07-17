@@ -259,6 +259,7 @@ also selected a separate legacy data directory. Protocol generation 2 and
 field-specific CLI validation are implemented with focused RED/GREEN coverage.
 Codex user/workspace configuration now contains no `EKG_DATA_DIR`; normal
 traffic targets the platform-default installed daemon. Production acceptance
-must retain backup hashes, prove the HarmonyOS legacy project was merged,
-confirm one writer/listener, run SQLite quick/foreign-key checks, and replay a
-well-formed checkpoint through the user-level Codex MCP entry.
+is complete: hashed backups retain both inputs, the HarmonyOS project and raw
+logs were migrated, SQLite quick/foreign-key checks passed, one protocol-v2
+LaunchAgent owns the store, and a well-formed checkpoint succeeded. The legacy
+directory remains only as `backups/unified-entry-20260717-153746/retired-legacy-data`.
