@@ -236,3 +236,14 @@ The first real daemon startup also exposed the legacy default-directory migratio
 - Browser confidence filtering is client-side over the server-bounded graph result; highly populated projects may need a first-class confidence query field later.
 - Snapshot limits are intentionally conservative (1 MiB); larger legitimate archives require a future streaming/chunked format rather than raising unbounded materialization limits.
 - Command start events are durable while interrupted commands have no completion row by design; consumers infer interruption from an unmatched start event.
+
+## Disk cache handoff (2026-07-17)
+
+Schema v9 adds the persistent project-scoped disk measurement cache described
+in `docs/decisions/ADR-20260717-persistent-disk-measurement-cache.md`. Candidate
+real-tree measurements reduced the prior 6.73-second scan to 0.47 seconds for a
+hot start and 0.28 seconds for a hot finish. One changed root completed in 0.29
+seconds and retained an exact 25-byte delta. Cache hits intentionally force
+review-only cleanup confidence because in-place file rewrites may not alter
+directory mtimes. Production migration and installed-state acceptance remain
+the final delivery gate.

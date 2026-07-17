@@ -1,7 +1,7 @@
 # Rust database migration and recovery
 
 Rust schema opening is backup-first for every existing database below schema
-v8. It performs read-only `quick_check` and version inspection before opening a
+v9. It performs read-only `quick_check` and version inspection before opening a
 writable connection. Corrupt and newer databases are never replaced.
 
 Probe a database or a consistent SQLite backup without changing production:
@@ -12,12 +12,12 @@ cargo run -p ekg-storage --example database_probe -- /path/to/knowledge-copy.db
 
 The output includes schema version, `quick_check`, and project snapshot counts.
 An upgrade backup is named
-`knowledge.db.pre-rust-v8-<timestamp>.bak`. To restore it, always choose a new,
+`knowledge.db.pre-rust-v9-<timestamp>.bak`. To restore it, always choose a new,
 nonexistent destination first:
 
 ```bash
 cargo run -p ekg-storage --example database_probe -- \
-  --restore /path/to/knowledge.db.pre-rust-v8-<timestamp>.bak \
+  --restore /path/to/knowledge.db.pre-rust-v9-<timestamp>.bak \
   /path/to/recovered/knowledge.db
 ```
 

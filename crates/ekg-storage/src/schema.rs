@@ -6,7 +6,7 @@ use std::time::Duration;
 use chrono::Utc;
 use rusqlite::{Connection, OpenFlags};
 
-pub const SCHEMA_VERSION: i64 = 8;
+pub const SCHEMA_VERSION: i64 = 9;
 pub const EKG_APPLICATION_ID: i64 = 0x454b4701;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -220,7 +220,7 @@ fn backup_database(source: &Path, destination: &Path) -> Result<(), DatabaseErro
 
 fn backup_path(path: &Path) -> PathBuf {
     PathBuf::from(format!(
-        "{}.pre-rust-v8-{}.bak",
+        "{}.pre-rust-v9-{}.bak",
         path.display(),
         Utc::now().timestamp_millis()
     ))
@@ -269,6 +269,7 @@ CREATE TABLE IF NOT EXISTS command_runs(id TEXT PRIMARY KEY,project_id TEXT NOT 
 CREATE TABLE IF NOT EXISTS artifacts(id TEXT PRIMARY KEY,project_id TEXT NOT NULL REFERENCES projects(id),node_id TEXT UNIQUE REFERENCES nodes(id),kind TEXT NOT NULL CHECK(length(trim(kind))>0),uri TEXT NOT NULL CHECK(length(trim(uri))>0),digest TEXT,is_external INTEGER NOT NULL DEFAULT 0 CHECK(is_external IN(0,1)),metadata TEXT NOT NULL CHECK(json_valid(metadata)),created_at TEXT NOT NULL) STRICT;
 CREATE TABLE IF NOT EXISTS disk_observations(id TEXT PRIMARY KEY,project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,task TEXT NOT NULL CHECK(length(trim(task))>0),status TEXT NOT NULL CHECK(status IN('running','completed')),started_at TEXT NOT NULL,finished_at TEXT,baseline_tracked_bytes INTEGER NOT NULL CHECK(baseline_tracked_bytes>=0),final_tracked_bytes INTEGER CHECK(final_tracked_bytes>=0),delta_bytes INTEGER,positive_growth_bytes INTEGER CHECK(positive_growth_bytes>=0),overlapping_observations INTEGER NOT NULL DEFAULT 0 CHECK(overlapping_observations>=0),scanned_entries INTEGER NOT NULL CHECK(scanned_entries>=0),scan_truncated INTEGER NOT NULL CHECK(scan_truncated IN(0,1)),UNIQUE(project_id,id)) STRICT;
 CREATE TABLE IF NOT EXISTS disk_observation_entries(observation_id TEXT NOT NULL,project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,relative_path TEXT NOT NULL CHECK(length(trim(relative_path))>0 AND substr(relative_path,1,1)<>'/'),kind TEXT NOT NULL CHECK(kind IN('build-cache','dependency-cache','generated-output','temporary-output')),baseline_bytes INTEGER NOT NULL CHECK(baseline_bytes>=0),final_bytes INTEGER CHECK(final_bytes>=0),delta_bytes INTEGER,created_by_observation INTEGER NOT NULL DEFAULT 0 CHECK(created_by_observation IN(0,1)),cleanup_disposition TEXT CHECK(cleanup_disposition IN('eligible','review','shared')),PRIMARY KEY(observation_id,relative_path),FOREIGN KEY(project_id,observation_id) REFERENCES disk_observations(project_id,id) ON DELETE RESTRICT) STRICT;
+CREATE TABLE IF NOT EXISTS disk_measurement_cache(project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,relative_path TEXT NOT NULL CHECK(length(trim(relative_path))>0 AND substr(relative_path,1,1)<>'/'),kind TEXT NOT NULL CHECK(kind IN('build-cache','dependency-cache','generated-output','temporary-output')),bytes INTEGER NOT NULL CHECK(bytes>=0),truncated INTEGER NOT NULL CHECK(truncated IN(0,1)),directory_stamps TEXT NOT NULL CHECK(json_valid(directory_stamps)),updated_at TEXT NOT NULL,PRIMARY KEY(project_id,relative_path)) STRICT;
 CREATE TABLE IF NOT EXISTS import_previews(id TEXT PRIMARY KEY,project_id TEXT NOT NULL REFERENCES projects(id),source_digest TEXT NOT NULL,status TEXT NOT NULL CHECK(status IN('pending','applied','stale')),created_at TEXT NOT NULL,applied_at TEXT,parser_version TEXT NOT NULL DEFAULT 'legacy',source_manifest TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(source_manifest)),expires_at TEXT NOT NULL DEFAULT '1970-01-01T00:00:00.000Z',UNIQUE(project_id,id)) STRICT;
 CREATE TABLE IF NOT EXISTS import_proposals(id TEXT PRIMARY KEY,project_id TEXT NOT NULL REFERENCES projects(id),preview_id TEXT NOT NULL,source_key TEXT NOT NULL,node_type TEXT NOT NULL CHECK(node_type IN('Problem','Attempt','RootCause','Solution','Verification','SuccessCase','Guardrail','Artifact')),payload TEXT NOT NULL CHECK(json_valid(payload)),selected INTEGER NOT NULL DEFAULT 0 CHECK(selected IN(0,1)),created_at TEXT NOT NULL,UNIQUE(project_id,preview_id,source_key),FOREIGN KEY(project_id,preview_id) REFERENCES import_previews(project_id,id) ON DELETE CASCADE) STRICT;
 CREATE TABLE IF NOT EXISTS source_keys(id TEXT PRIMARY KEY,project_id TEXT NOT NULL REFERENCES projects(id),source_kind TEXT NOT NULL,source_key TEXT NOT NULL,node_id TEXT NOT NULL REFERENCES nodes(id),created_at TEXT NOT NULL,UNIQUE(project_id,source_kind,source_key)) STRICT;

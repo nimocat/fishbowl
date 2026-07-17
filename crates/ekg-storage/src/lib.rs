@@ -6,7 +6,10 @@ mod schema;
 mod snapshot;
 mod write;
 
-pub use disk::{DiskSnapshot, DiskSnapshotEntry, capture_project_disk};
+pub use disk::{
+    DiskCapture, DiskDirectoryStamp, DiskMeasurementCacheEntry, DiskSnapshot, DiskSnapshotEntry,
+    capture_project_disk, capture_project_disk_cached,
+};
 pub use schema::*;
 pub use write::*;
 
@@ -721,6 +724,56 @@ impl ReadRepository {
             limit,
             truncated,
         })
+    }
+
+    pub fn load_disk_measurement_cache(
+        &self,
+        reference: &ProjectReference,
+    ) -> Result<Vec<DiskMeasurementCacheEntry>, StorageError> {
+        reference.validate().map_err(StorageError::Contract)?;
+        let project_id = self.resolve_project(reference)?;
+        let mut statement = self.connection.prepare(
+            "SELECT relative_path,kind,bytes,truncated,directory_stamps FROM disk_measurement_cache WHERE project_id=? ORDER BY relative_path LIMIT 257",
+        )?;
+        let rows = statement
+            .query_map(params![project_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, String>(4)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        if rows.len() > 256 {
+            return Err(StorageError::InvalidStoredData("disk cache rows"));
+        }
+        let mut stamp_count = 0_usize;
+        let mut entries = Vec::with_capacity(rows.len());
+        for (relative_path, kind, bytes, truncated, stamps) in rows {
+            if stamps.len() > 16 * 1024 * 1024 {
+                return Err(StorageError::InvalidStoredData("disk cache bytes"));
+            }
+            let directory_stamps: Vec<DiskDirectoryStamp> = serde_json::from_str(&stamps)
+                .map_err(|_| StorageError::InvalidStoredData("disk cache stamps"))?;
+            stamp_count = stamp_count
+                .checked_add(directory_stamps.len())
+                .ok_or(StorageError::InvalidStoredData("disk cache bounds"))?;
+            if stamp_count > 250_000 {
+                return Err(StorageError::InvalidStoredData("disk cache bounds"));
+            }
+            entries.push(DiskMeasurementCacheEntry {
+                relative_path,
+                kind: parse_disk_artifact_kind(&kind)
+                    .ok_or(StorageError::InvalidStoredData("disk cache kind"))?,
+                bytes: u64::try_from(bytes)
+                    .map_err(|_| StorageError::InvalidStoredData("disk cache bytes"))?,
+                truncated: truncated != 0,
+                directory_stamps,
+            });
+        }
+        Ok(entries)
     }
 
     pub fn list_cleanup_candidates(

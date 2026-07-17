@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path};
 
-use crate::DiskSnapshot;
+use crate::{DiskCapture, DiskSnapshot};
 use chrono::Utc;
 use ekg_contracts::{
     ApplyCaseMergeInput, ArtifactWriteResult, CheckpointSkipReason, CheckpointWorkInput,
@@ -2204,8 +2204,17 @@ impl WriteRepository {
         input: StartDiskObservationInput,
         snapshot: DiskSnapshot,
     ) -> Result<StartDiskObservationResult, WriteError> {
+        self.start_disk_observation_capture(input, DiskCapture::uncached(snapshot))
+    }
+
+    pub fn start_disk_observation_capture(
+        &mut self,
+        input: StartDiskObservationInput,
+        capture: DiskCapture,
+    ) -> Result<StartDiskObservationResult, WriteError> {
         input.validate().map_err(|_| WriteError::Contract)?;
-        validate_disk_snapshot(&snapshot)?;
+        validate_disk_capture(&capture)?;
+        let snapshot = &capture.snapshot;
         let transaction = self.connection.savepoint()?;
         let project_id = resolve_project(&transaction, &input.project)?;
         if let Some(mut replay) = replay_operation::<StartDiskObservationResult>(
@@ -2246,6 +2255,7 @@ impl WriteRepository {
                 ],
             )?;
         }
+        store_disk_measurement_cache(&transaction, &project_id, &capture)?;
         let result = StartDiskObservationResult {
             observation_id: observation_id.clone(),
             project_id: project_id.clone(),
@@ -2254,6 +2264,8 @@ impl WriteRepository {
             tracked_paths: snapshot.entries.len(),
             scanned_entries: snapshot.scanned_entries,
             scan_truncated: snapshot.truncated,
+            cache_hits: capture.cache_hits,
+            cache_misses: capture.cache_misses,
             created: true,
         };
         append_event(
@@ -2267,6 +2279,8 @@ impl WriteRepository {
                 "baselineTrackedBytes": snapshot.tracked_bytes,
                 "trackedPaths": snapshot.entries.len(),
                 "scanTruncated": snapshot.truncated,
+                "cacheHits": capture.cache_hits,
+                "cacheMisses": capture.cache_misses,
             }),
             &started_at,
         )?;
@@ -2286,8 +2300,17 @@ impl WriteRepository {
         input: FinishDiskObservationInput,
         snapshot: DiskSnapshot,
     ) -> Result<FinishDiskObservationResult, WriteError> {
+        self.finish_disk_observation_capture(input, DiskCapture::uncached(snapshot))
+    }
+
+    pub fn finish_disk_observation_capture(
+        &mut self,
+        input: FinishDiskObservationInput,
+        capture: DiskCapture,
+    ) -> Result<FinishDiskObservationResult, WriteError> {
         input.validate().map_err(|_| WriteError::Contract)?;
-        validate_disk_snapshot(&snapshot)?;
+        validate_disk_capture(&capture)?;
+        let snapshot = &capture.snapshot;
         let transaction = self.connection.savepoint()?;
         let project_id = resolve_project(&transaction, &input.project)?;
         if let Some(replay) = replay_operation::<FinishDiskObservationResult>(
@@ -2440,6 +2463,7 @@ impl WriteRepository {
                 project_id,
             ],
         )?;
+        store_disk_measurement_cache(&transaction, &project_id, &capture)?;
         let scanned_entries = usize::try_from(baseline_scanned_entries)
             .map_err(|_| WriteError::Validation("disk scan count"))?
             .saturating_add(snapshot.scanned_entries);
@@ -2456,6 +2480,8 @@ impl WriteRepository {
             overlapping_observations: overlapping_observations as usize,
             scanned_entries,
             scan_truncated,
+            cache_hits: capture.cache_hits,
+            cache_misses: capture.cache_misses,
             entries,
         };
         append_event(
@@ -2470,6 +2496,8 @@ impl WriteRepository {
                 "positiveGrowthBytes": positive_growth_bytes,
                 "overlappingObservations": overlapping_observations,
                 "scanTruncated": scan_truncated,
+                "cacheHits": capture.cache_hits,
+                "cacheMisses": capture.cache_misses,
             }),
             &finished_at,
         )?;
@@ -3074,6 +3102,111 @@ fn validate_disk_snapshot(snapshot: &DiskSnapshot) -> Result<(), WriteError> {
     }
     as_i64(snapshot.tracked_bytes)?;
     Ok(())
+}
+
+fn validate_disk_capture(capture: &DiskCapture) -> Result<(), WriteError> {
+    validate_disk_snapshot(&capture.snapshot)?;
+    let stamp_count = capture
+        .cache_entries
+        .iter()
+        .try_fold(0_usize, |total, entry| {
+            total.checked_add(entry.directory_stamps.len())
+        });
+    if capture.cache_entries.len() > 256 || stamp_count.is_none_or(|count| count > 250_000) {
+        return Err(WriteError::Validation("disk cache bounds"));
+    }
+    let snapshots = capture
+        .snapshot
+        .entries
+        .iter()
+        .map(|entry| (entry.relative_path.as_str(), (entry.kind, entry.bytes)))
+        .collect::<BTreeMap<_, _>>();
+    let mut paths = BTreeSet::new();
+    for entry in &capture.cache_entries {
+        if !paths.insert(entry.relative_path.as_str())
+            || snapshots.get(entry.relative_path.as_str()) != Some(&(entry.kind, entry.bytes))
+            || entry.directory_stamps.is_empty()
+        {
+            return Err(WriteError::Validation("disk cache entry"));
+        }
+        for stamp in &entry.directory_stamps {
+            if stamp.relative_path != "." {
+                validate_relative_path(&stamp.relative_path)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn store_disk_measurement_cache(
+    transaction: &Connection,
+    project_id: &str,
+    capture: &DiskCapture,
+) -> Result<(), WriteError> {
+    if capture.cache_entries.is_empty() {
+        return Ok(());
+    }
+    let now = timestamp();
+    let current = capture
+        .snapshot
+        .entries
+        .iter()
+        .map(|entry| entry.relative_path.as_str())
+        .collect::<BTreeSet<_>>();
+    for entry in &capture.cache_entries {
+        let stamps = serde_json::to_string(&entry.directory_stamps)?;
+        if stamps.len() > 16 * 1024 * 1024 {
+            return Err(WriteError::Validation("disk cache bytes"));
+        }
+        transaction.execute(
+            "INSERT INTO disk_measurement_cache (project_id,relative_path,kind,bytes,truncated,directory_stamps,updated_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(project_id,relative_path) DO UPDATE SET kind=excluded.kind,bytes=excluded.bytes,truncated=excluded.truncated,directory_stamps=excluded.directory_stamps,updated_at=excluded.updated_at",
+            params![
+                project_id,
+                entry.relative_path,
+                disk_kind_text(entry.kind),
+                as_i64(entry.bytes)?,
+                bool_i64(entry.truncated),
+                stamps,
+                now,
+            ],
+        )?;
+    }
+    if capture.discovery_complete {
+        let mut statement = transaction
+            .prepare("SELECT relative_path FROM disk_measurement_cache WHERE project_id=?")?;
+        let stored = statement
+            .query_map([project_id], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        drop(statement);
+        for relative_path in stored {
+            if !current.contains(relative_path.as_str()) {
+                transaction.execute(
+                    "DELETE FROM disk_measurement_cache WHERE project_id=? AND relative_path=?",
+                    params![project_id, relative_path],
+                )?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_relative_path(relative_path: &str) -> Result<(), WriteError> {
+    if relative_path.trim().is_empty() || relative_path.len() > 4_096 {
+        return Err(WriteError::Validation("disk relative path"));
+    }
+    let path = Path::new(relative_path);
+    if path.is_absolute()
+        || path.components().any(|component| {
+            matches!(
+                component,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
+        })
+    {
+        Err(WriteError::Validation("disk relative path"))
+    } else {
+        Ok(())
+    }
 }
 
 fn as_i64(value: u64) -> Result<i64, WriteError> {

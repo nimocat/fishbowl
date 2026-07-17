@@ -214,10 +214,10 @@ export interface RecentActivityResult {
 export type DiskArtifactKind = 'build-cache' | 'dependency-cache' | 'generated-output' | 'temporary-output'
 export type CleanupDisposition = 'eligible' | 'review' | 'shared'
 export interface StartDiskObservationInput { project: ProjectReference; operationId: string; task: string }
-export interface StartDiskObservationResult { observationId: string; projectId: string; startedAt: string; baselineTrackedBytes: number; trackedPaths: number; scannedEntries: number; scanTruncated: boolean; created: boolean }
+export interface StartDiskObservationResult { observationId: string; projectId: string; startedAt: string; baselineTrackedBytes: number; trackedPaths: number; scannedEntries: number; scanTruncated: boolean; cacheHits: number; cacheMisses: number; created: boolean }
 export interface FinishDiskObservationInput { project: ProjectReference; operationId: string; observationId: string }
 export interface DiskGrowthEntry { relativePath: string; kind: DiskArtifactKind; baselineBytes: number; finalBytes: number; deltaBytes: number; createdByObservation: boolean; cleanupDisposition: CleanupDisposition }
-export interface FinishDiskObservationResult { observationId: string; projectId: string; startedAt: string; finishedAt: string; baselineTrackedBytes: number; finalTrackedBytes: number; deltaBytes: number; positiveGrowthBytes: number; overlappingObservations: number; scannedEntries: number; scanTruncated: boolean; entries: DiskGrowthEntry[] }
+export interface FinishDiskObservationResult { observationId: string; projectId: string; startedAt: string; finishedAt: string; baselineTrackedBytes: number; finalTrackedBytes: number; deltaBytes: number; positiveGrowthBytes: number; overlappingObservations: number; scannedEntries: number; scanTruncated: boolean; cacheHits: number; cacheMisses: number; entries: DiskGrowthEntry[] }
 export interface ListDiskObservationsInput { project: ProjectReference; limit?: number }
 export interface DiskObservationSummary { observationId: string; task: string; status: string; startedAt: string; finishedAt?: string; baselineTrackedBytes: number; finalTrackedBytes?: number; deltaBytes?: number; positiveGrowthBytes?: number; overlappingObservations: number; scanTruncated: boolean }
 export interface ListDiskObservationsResult { observations: DiskObservationSummary[]; limit: number; truncated: boolean }

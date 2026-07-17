@@ -179,6 +179,15 @@ ekg disk candidates --project "$PROJECT_ID" --limit 25
 
 Cleanup candidates are advisory. Existing directories are marked for review, paths observed during overlapping tasks are marked shared, and no command deletes files automatically. Re-check ownership and request explicit authorization before removing anything.
 
+The first bounded scan populates a project-scoped persistent measurement cache.
+Later scans validate directory modification stamps and rescan only changed
+artifact roots; `cacheHits` and `cacheMisses` are returned by `disk start` and
+`disk finish`. A cache hit is intentionally review-only because an in-place
+file rewrite can leave parent-directory timestamps unchanged. Creation,
+removal, and atomic replacement invalidate the affected root. Repeated bounded
+scans may progressively fill roots that did not fit within an earlier
+250,000-entry pass.
+
 ### Browse Locally
 
 ```bash

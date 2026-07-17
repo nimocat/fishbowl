@@ -4,7 +4,10 @@ use ekg_contracts::{
     CleanupDisposition, FinishDiskObservationInput, ListCleanupCandidatesInput,
     ListDiskObservationsInput, ProjectReference, RegisterProjectInput, StartDiskObservationInput,
 };
-use ekg_storage::{DatabaseManager, ReadRepository, WriteRepository, capture_project_disk};
+use ekg_storage::{
+    DatabaseManager, ReadRepository, WriteRepository, capture_project_disk,
+    capture_project_disk_cached,
+};
 
 #[test]
 fn scanner_tracks_only_regenerable_roots_and_never_follows_symlinks() {
@@ -33,6 +36,137 @@ fn scanner_tracks_only_regenerable_roots_and_never_follows_symlinks() {
 
     fs::remove_dir_all(root).unwrap();
     fs::remove_dir_all(outside).unwrap();
+}
+
+#[test]
+fn persistent_measurement_cache_hits_unchanged_roots_and_invalidates_only_changed_roots() {
+    let root = temp_dir("cache");
+    fs::create_dir_all(root.join("server/target/debug/deps")).unwrap();
+    fs::write(root.join("server/target/debug/deps/api.o"), vec![1; 41]).unwrap();
+    fs::create_dir_all(root.join("admin/node_modules/pkg/lib")).unwrap();
+    fs::write(
+        root.join("admin/node_modules/pkg/lib/index.js"),
+        vec![2; 23],
+    )
+    .unwrap();
+
+    let cold = capture_project_disk_cached(&root, &[]).unwrap();
+    assert_eq!(cold.cache_hits, 0);
+    assert_eq!(cold.cache_misses, 2);
+    assert_eq!(cold.snapshot.tracked_bytes, 64);
+
+    let warm = capture_project_disk_cached(&root, &cold.cache_entries).unwrap();
+    assert_eq!(warm.cache_hits, 2);
+    assert_eq!(warm.cache_misses, 0);
+    assert_eq!(warm.snapshot.tracked_bytes, cold.snapshot.tracked_bytes);
+    assert!(warm.snapshot.scanned_entries < cold.snapshot.scanned_entries);
+    assert!(warm.snapshot.truncated);
+
+    fs::write(root.join("server/target/debug/deps/new.o"), vec![3; 19]).unwrap();
+    let partial = capture_project_disk_cached(&root, &warm.cache_entries).unwrap();
+    assert_eq!(partial.cache_hits, 1);
+    assert_eq!(partial.cache_misses, 1);
+    assert_eq!(partial.snapshot.tracked_bytes, 83);
+
+    fs::remove_dir_all(root.join("admin/node_modules")).unwrap();
+    let removed = capture_project_disk_cached(&root, &partial.cache_entries).unwrap();
+    assert!(removed.discovery_complete);
+    assert_eq!(removed.cache_entries.len(), 1);
+    assert_eq!(removed.cache_hits, 1);
+    assert_eq!(removed.snapshot.tracked_bytes, 60);
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn measurement_cache_persists_per_project_and_removes_disappeared_roots() {
+    let first_root = temp_dir("cache-first-project");
+    fs::create_dir_all(first_root.join("target/debug")).unwrap();
+    fs::write(first_root.join("target/debug/app"), vec![1; 41]).unwrap();
+    fs::create_dir_all(first_root.join("node_modules/pkg")).unwrap();
+    fs::write(first_root.join("node_modules/pkg/index.js"), vec![2; 23]).unwrap();
+    let second_root = temp_dir("cache-second-project");
+    let database = temp_path("cache-persistence", "db");
+    DatabaseManager::open(&database).unwrap();
+    let mut writer = WriteRepository::open(database.to_str().unwrap()).unwrap();
+    let first = writer
+        .register_project(RegisterProjectInput {
+            name: "cache-first".into(),
+            root: first_root.to_string_lossy().into_owned(),
+            description: None,
+            operation_id: Some("register-cache-first".into()),
+        })
+        .unwrap();
+    let second = writer
+        .register_project(RegisterProjectInput {
+            name: "cache-second".into(),
+            root: second_root.to_string_lossy().into_owned(),
+            description: None,
+            operation_id: Some("register-cache-second".into()),
+        })
+        .unwrap();
+    let first_reference = ProjectReference {
+        project_id: Some(first.id),
+        project_root: None,
+    };
+    let second_reference = ProjectReference {
+        project_id: Some(second.id),
+        project_root: None,
+    };
+    let cold = capture_project_disk_cached(&first_root, &[]).unwrap();
+    let started = writer
+        .start_disk_observation_capture(
+            StartDiskObservationInput {
+                project: first_reference.clone(),
+                operation_id: "start-cache-persistence".into(),
+                task: "verify persistent cache".into(),
+            },
+            cold,
+        )
+        .unwrap();
+    drop(writer);
+
+    let reader = ReadRepository::open(database.to_str().unwrap()).unwrap();
+    let persisted = reader
+        .load_disk_measurement_cache(&first_reference)
+        .unwrap();
+    assert_eq!(persisted.len(), 2);
+    assert!(
+        reader
+            .load_disk_measurement_cache(&second_reference)
+            .unwrap()
+            .is_empty()
+    );
+    drop(reader);
+
+    fs::remove_dir_all(first_root.join("node_modules")).unwrap();
+    let updated = capture_project_disk_cached(&first_root, &persisted).unwrap();
+    assert!(updated.discovery_complete);
+    assert_eq!(updated.cache_hits, 1);
+    let mut writer = WriteRepository::open(database.to_str().unwrap()).unwrap();
+    writer
+        .finish_disk_observation_capture(
+            FinishDiskObservationInput {
+                project: first_reference.clone(),
+                operation_id: "finish-cache-persistence".into(),
+                observation_id: started.observation_id,
+            },
+            updated,
+        )
+        .unwrap();
+    drop(writer);
+
+    let reader = ReadRepository::open(database.to_str().unwrap()).unwrap();
+    let persisted = reader
+        .load_disk_measurement_cache(&first_reference)
+        .unwrap();
+    assert_eq!(persisted.len(), 1);
+    assert_eq!(persisted[0].relative_path, "target");
+
+    drop(reader);
+    fs::remove_file(database).unwrap();
+    fs::remove_dir_all(first_root).unwrap();
+    fs::remove_dir_all(second_root).unwrap();
 }
 
 #[test]
@@ -209,7 +343,10 @@ fn observations_are_idempotent_project_scoped_and_explain_cleanup_confidence() {
             truncated_snapshot,
         )
         .unwrap();
-    assert_eq!(bounded_result.scanned_entries, 250_001);
+    assert_eq!(
+        bounded_result.scanned_entries,
+        bounded.scanned_entries + 250_000
+    );
     assert!(bounded_result.scan_truncated);
     assert_ne!(
         bounded_result.entries[0].cleanup_disposition,

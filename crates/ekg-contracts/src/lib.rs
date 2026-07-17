@@ -974,6 +974,8 @@ pub struct StartDiskObservationResult {
     pub tracked_paths: usize,
     pub scanned_entries: usize,
     pub scan_truncated: bool,
+    pub cache_hits: usize,
+    pub cache_misses: usize,
     pub created: bool,
 }
 
@@ -1011,6 +1013,8 @@ pub struct FinishDiskObservationResult {
     pub overlapping_observations: usize,
     pub scanned_entries: usize,
     pub scan_truncated: bool,
+    pub cache_hits: usize,
+    pub cache_misses: usize,
     pub entries: Vec<DiskGrowthEntry>,
 }
 

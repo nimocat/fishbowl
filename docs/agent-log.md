@@ -609,3 +609,22 @@
   missing requirements. Post-promotion integrity is `quick_check=ok`, and
   verified-only retrieval returns the promoted Case with explicit
   `verified-trust` evidence.
+
+## 2026-07-17 — persistent disk measurement cache
+
+- Baseline: installed schema-v8 task-end scanning took 6.73 seconds and hit the
+  250,000-entry bound.
+- RED/GREEN: added focused coverage for unchanged-root hits, one-root
+  invalidation, disappeared-root eviction, durable SQLite round-trip, and
+  two-project isolation. The first real cold run exposed empty cache entries
+  after the global scan budget was exhausted; uncacheable partial roots are now
+  omitted and filled by later bounded passes.
+- Implementation: schema v9 persists relative directory stamps and byte
+  estimates per project. Native start/finish loads the cache before scanning,
+  updates it in the observation transaction, reports hit/miss counts, and
+  marks cache-hit evidence review-only.
+- Candidate benchmark: hot start 0.47 seconds (93.0% faster), hot finish 0.28
+  seconds (95.8% faster), and one changed root 0.29 seconds with exactly 21 hits
+  and one miss. A 25-byte create/remove probe was measured exactly.
+- Verification so far: focused disk tests 4/4, database migration tests 5/5,
+  native dispatch 1/1, TypeScript typecheck, and production build passed.
