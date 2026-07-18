@@ -750,3 +750,17 @@
   and restored the bounded 2.5-second macOS LaunchAgent readiness window.
 - Verification: `npm run typecheck`, all 75 Vitest tests, `npm run build`,
   `cargo test --workspace`, `cargo fmt --check`, and `git diff --check` passed.
+
+## 2026-07-18 — self-describing CLI help
+
+- RED tests reproduced the bare `Missing command` failure, absent help module,
+  and unsupported `--version` behavior.
+- Added main, group, and leaf help covering every public command, with bare,
+  `help`, `--help`, `-h`, nested, and version entry points. `run --` preserves
+  child `--help` arguments.
+- Kept JSON error compatibility and added exact `usage`, actionable `hint`,
+  typo suggestions, and an explicit `help` recovery command.
+- Centralized the CLI/MCP version and documented that CLI help is for human
+  operation while Agents continue to use direct MCP tools only.
+- Verification: `npm run typecheck`, all 80 Vitest tests, `npm run build`,
+  `cargo test --workspace`, `cargo fmt --check`, and `git diff --check` passed.

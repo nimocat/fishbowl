@@ -24,6 +24,24 @@ describe('CLI arguments', () => {
     )
   })
 
+  it('treats bare invocation and common help spellings as help commands', () => {
+    expect(parseArguments([]).command).toEqual({ kind: 'help', topic: [] })
+    expect(parseArguments(['help']).command).toEqual({ kind: 'help', topic: [] })
+    expect(parseArguments(['--help']).command).toEqual({ kind: 'help', topic: [] })
+    expect(parseArguments(['-h']).command).toEqual({ kind: 'help', topic: [] })
+    expect(parseArguments(['help', 'project', 'register']).command)
+      .toEqual({ kind: 'help', topic: ['project', 'register'] })
+    expect(parseArguments(['project', 'register', '--help']).command)
+      .toEqual({ kind: 'help', topic: ['project', 'register'] })
+    expect(parseArguments(['project', 'help']).command)
+      .toEqual({ kind: 'help', topic: ['project'] })
+    expect(parseArguments(['--version']).command).toEqual({ kind: 'version' })
+    expect(parseArguments(['-V']).command).toEqual({ kind: 'version' })
+    expect(parseArguments([
+      'run', '--project', 'p', '--', 'tool', '--help',
+    ]).command).toMatchObject({ kind: 'run', argv: ['tool', '--help'] })
+  })
+
   it('parses global data directory and exact run argv without reinterpretation', () => {
     expect(
       parseArguments([

@@ -72,6 +72,24 @@ fishbowl daemon doctor
 
 守护进程仅注册在当前用户下，不需要管理员权限。
 
+### CLI 帮助与诊断
+
+现在直接运行 `fishbowl` 会显示完整命令概览，不会启动 daemon，也不会再报
+`Missing command`。以下帮助写法等价：
+
+```bash
+fishbowl help
+fishbowl help project register
+fishbowl project register --help
+fishbowl --version
+```
+
+命令错误或缺少选项时，CLI 会继续返回可供程序解析的 JSON，并在原始
+`message` 之外提供当前命令的 `usage`、可执行的 `hint`，以及准确的 `help`
+命令。连接问题可运行 `fishbowl daemon doctor`，数据库只读检查可运行
+`fishbowl integrity`。这些 CLI 命令供人类操作；编码 Agent 仍然只直接调用
+Fishbowl MCP 工具。
+
 ### 登记项目
 
 ```bash

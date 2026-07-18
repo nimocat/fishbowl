@@ -6,6 +6,7 @@ import type { AwaitableKnowledgeBackend } from '../application/backend.js'
 import { KnowledgeServiceError } from '../application/errors.js'
 import { OperationMetrics } from '../application/operation-metrics.js'
 import type { DaemonTimingLedger } from '../daemon/client.js'
+import { FISHBOWL_VERSION } from '../version.js'
 
 const MAX_ID_LENGTH = 200
 const MAX_TEXT_LENGTH = 4_096
@@ -541,7 +542,7 @@ export function createMcpServer(
     invokeWithMetrics(metrics, toolName, operation, options.daemonTimings)
   const server = new McpServer({
     name: 'fishbowl',
-    version: '0.1.0',
+    version: FISHBOWL_VERSION,
   })
 
   server.registerTool(

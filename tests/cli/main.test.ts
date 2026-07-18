@@ -49,6 +49,29 @@ describe('CLI command dispatch', () => {
     }
   })
 
+  it('prints actionable help for bare invocation and structured guidance for errors', async () => {
+    const bare = await invoke([])
+    expect(bare).toMatchObject({ code: 0, stderr: '' })
+    expect(bare.stdout).toContain('Usage: fishbowl <command> [options]')
+
+    const topic = await invoke(['project', 'register', '--help'])
+    expect(topic).toMatchObject({ code: 0, stderr: '' })
+    expect(topic.stdout).toContain('Usage: fishbowl project register')
+
+    const version = await invoke(['--version'])
+    expect(version).toEqual({ code: 0, stdout: 'fishbowl 0.1.0\n', stderr: '' })
+
+    const invalid = await invoke(['project', 'register', '--name', 'Example'])
+    expect(invalid.code).toBe(1)
+    expect(invalid.stdout).toBe('')
+    expect(JSON.parse(invalid.stderr)).toMatchObject({
+      message: '--root is required',
+      usage: expect.stringContaining('fishbowl project register'),
+      hint: expect.stringContaining('--root <path>'),
+      help: 'fishbowl help project register',
+    })
+  })
+
   it('runs the human-operated updater before daemon or project dispatch', async () => {
     let stdout = ''
     let called = 0

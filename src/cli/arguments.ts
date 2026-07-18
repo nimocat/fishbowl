@@ -8,6 +8,8 @@ export interface ParsedArguments {
 }
 
 export type CliCommand =
+  | { kind: 'help'; topic: string[] }
+  | { kind: 'version' }
   | { kind: 'update' }
   | { kind: 'serve'; port?: number }
   | { kind: 'mcp-stdio' }
@@ -200,6 +202,28 @@ export function parseArguments(argv: string[]): ParsedArguments {
     dataDirectory = values[1]
     embedded = true // Backward-compatible explicit test/recovery mode.
     values.splice(0, 2)
+  }
+  if (values.length === 0) return { dataDirectory, embedded, command: { kind: 'help', topic: [] } }
+  if (values[0] === 'version' || values[0] === '--version' || values[0] === '-V') {
+    if (values.length > 1) throw new Error(`Unexpected argument: ${values[1]}`)
+    return { dataDirectory, embedded, command: { kind: 'version' } }
+  }
+  if (values[0] === 'help' || values[0] === '--help' || values[0] === '-h') {
+    values.shift()
+    return {
+      dataDirectory,
+      embedded,
+      command: { kind: 'help', topic: values.filter(value => value !== '--help' && value !== '-h') },
+    }
+  }
+  if (values[1] === 'help') {
+    return { dataDirectory, embedded, command: { kind: 'help', topic: [values[0]!, ...values.slice(2)] } }
+  }
+  const childBoundary = values.indexOf('--')
+  const helpSearchEnd = childBoundary === -1 ? values.length : childBoundary
+  const helpIndex = values.slice(0, helpSearchEnd).findIndex(value => value === '--help' || value === '-h')
+  if (helpIndex !== -1) {
+    return { dataDirectory, embedded, command: { kind: 'help', topic: values.slice(0, helpIndex) } }
   }
   const reader = new ArgumentReader(values)
   const commandName = reader.take()

@@ -199,6 +199,18 @@ The seven compatibility-focused TDD tasks are complete: schema-v6 indexed Case h
 
 **Verification:** `npm run typecheck`, all 75 Vitest tests, `npm run build`, `cargo test --workspace`, `cargo fmt --check`, and `git diff --check` passed.
 
+## Self-describing CLI guidance
+
+**Status:** Complete; final gates passed and review pending (2026-07-18)
+
+**Scope:** Make bare invocation, command discovery, argument recovery, diagnostics, and version discovery useful to human operators without weakening machine-readable errors or the Agent MCP-only boundary.
+
+**Implementation:** Added layered main/group/leaf help for every public CLI command; accepted bare invocation, `help`, `--help`, `-h`, nested help, `version`, `--version`, and `-V`; preserved child `run -- ... --help` arguments. Error JSON keeps `error` and `message` while adding exact `usage`, an actionable or typo-aware `hint`, and a `help` command. The CLI and MCP adapter now share one version constant.
+
+**TDD gate:** RED tests captured the previous `Missing command`, unknown help module, and unsupported version flag. Focused GREEN tests cover all public help topics, command groups, spelling suggestions, missing-option recovery, bare dispatch, version output, and child help passthrough.
+
+**Verification:** `npm run typecheck`, all 80 Vitest tests, `npm run build`, `cargo test --workspace`, `cargo fmt --check`, and `git diff --check` passed.
+
 ## Protocol reliability and daemon observability
 
 **Status:** Complete; blocking review and release gates passed (2026-07-18)

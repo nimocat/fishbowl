@@ -11,10 +11,12 @@ import { DaemonClient } from '../daemon/client.js'
 import { readDaemonDescriptor, type DaemonDescriptor, type DaemonPaths } from '../daemon/config.js'
 import { defaultNativeBinary, installCurrentUserDaemon, nativeDaemonArguments, uninstallCurrentUserDaemon } from '../daemon/platform.js'
 import { runStdioServer } from '../mcp/stdio.js'
+import { FISHBOWL_VERSION } from '../version.js'
 import { RawLogStore } from '../logs/raw-log-store.js'
 import { parseArguments, type CliCommand } from './arguments.js'
 import { runCommand } from './run-command.js'
 import { isDirectExecution } from './direct-execution.js'
+import { formatCliError, formatHelp } from './help.js'
 import { updateFishbowl, type FishbowlUpdateResult } from './update.js'
 
 interface OutputStream {
@@ -104,6 +106,14 @@ export async function runCli(argv: string[], dependencies: CliDependencies = {})
     const daemonEnvironment = parsed.embedded
       ? { ...process.env, FISHBOWL_DATA_DIR: parsed.dataDirectory }
       : process.env
+    if (parsed.command.kind === 'help') {
+      stdout.write(formatHelp(parsed.command.topic))
+      return 0
+    }
+    if (parsed.command.kind === 'version') {
+      stdout.write(`fishbowl ${FISHBOWL_VERSION}\n`)
+      return 0
+    }
     if (parsed.command.kind === 'update') {
       printJson(stdout, (dependencies.update ?? updateFishbowl)())
       return 0
@@ -219,8 +229,8 @@ export async function runCli(argv: string[], dependencies: CliDependencies = {})
     return 0
   } catch (error) {
     const value = error instanceof Error
-      ? { error: error.name, message: error.message }
-      : { error: 'Error', message: String(error) }
+      ? { error: error.name, message: error.message, ...formatCliError(argv, error.message) }
+      : { error: 'Error', message: String(error), ...formatCliError(argv, String(error)) }
     printJson(stderr, value)
     return 1
   }

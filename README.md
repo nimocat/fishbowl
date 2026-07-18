@@ -72,6 +72,24 @@ fishbowl daemon doctor
 
 The daemon runs only for the current user. No administrator account is required.
 
+### CLI help and diagnostics
+
+Running `fishbowl` with no arguments now prints the full command overview and
+does not start the daemon. Help is available in equivalent forms:
+
+```bash
+fishbowl help
+fishbowl help project register
+fishbowl project register --help
+fishbowl --version
+```
+
+Invalid commands and missing options return JSON with the original `message`
+plus command-specific `usage`, an actionable `hint`, and the exact `help`
+command to run. Use `fishbowl daemon doctor` for connectivity diagnostics and
+`fishbowl integrity` for a read-only database check. These commands are for
+human operation; coding Agents continue to call Fishbowl MCP tools directly.
+
 ### Register a Project
 
 ```bash

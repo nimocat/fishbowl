@@ -303,6 +303,14 @@ A narrow probe-to-signal race remains pending a native authenticated
 shutdown RPC. MCP clients still need a full restart afterward; Agents never
 invoke the updater.
 
+The human CLI is now self-describing. Bare `fishbowl`, top-level and nested
+help flags, and `fishbowl help <topic>` return layered guidance without daemon
+startup. Every public leaf command has usage; `--version`/`-V` are supported;
+and argument/runtime errors retain JSON `error`/`message` fields while adding
+`usage`, actionable or typo-aware `hint`, and the exact `help` command. The
+`run --` boundary preserves child help flags. This does not authorize Agents
+to use the CLI: normal Agent Fishbowl access remains direct MCP only.
+
 ## Protocol reliability handoff (2026-07-18)
 
 Protocol generation 2 now has `getOperationResult` and project-scoped
