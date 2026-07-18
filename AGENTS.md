@@ -5,6 +5,10 @@
 - Keep SQLite project scoping explicit in every query and mutation.
 - Never persist raw logs, environment values, or unredacted excerpts in SQLite.
 - Run `npm run typecheck`, `npm test`, and `npm run build` before declaring completion.
+- After completing a Fishbowl upgrade, refresh the local linked installation
+  and current-user daemon registration, then verify the updated daemon through
+  direct Fishbowl MCP before declaring completion. Preserve local knowledge
+  data and the configured fixed port.
 
 ## Fishbowl Access From Codex
 
