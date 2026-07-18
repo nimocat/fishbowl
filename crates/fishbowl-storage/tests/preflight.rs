@@ -92,6 +92,36 @@ fn preflight_cache_is_content_free_and_invalidates_on_project_revision() {
     std::fs::remove_file(path).unwrap();
 }
 
+#[test]
+fn preflight_reports_ranked_cases_omitted_by_the_caller_limit() {
+    let path = database("truncated");
+    let repository = ReadRepository::open(path.to_str().unwrap()).unwrap();
+    let result = repository
+        .preflight(&PreflightInput {
+            project: ProjectReference {
+                project_id: Some("project-a".into()),
+                project_root: None,
+            },
+            task_description: "common build test fix".into(),
+            changed_files: None,
+            command: None,
+            fingerprint: None,
+            limit: Some(5),
+            detail: None,
+        })
+        .unwrap();
+    assert_eq!(result.cards.len(), 5);
+    assert!(result.truncated);
+    assert!(!result.expansion_case_ids.is_empty());
+    assert!(
+        result
+            .expansion_case_ids
+            .iter()
+            .all(|case_id| !result.cards.iter().any(|card| &card.case_id == case_id))
+    );
+    std::fs::remove_file(path).unwrap();
+}
+
 fn database(label: &str) -> std::path::PathBuf {
     let path = std::env::temp_dir().join(format!(
         "fishbowl-preflight-{label}-{}.db",

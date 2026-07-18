@@ -2,9 +2,9 @@ use std::fs;
 use std::path::PathBuf;
 
 use fishbowl_contracts::{
-    CheckpointWorkResult, ErrorCode, FailureEnvelope, FinalizeWorkResult, GetCaseResult,
-    NodeStatus, PreflightResult, PromotionStatus, QueryKnowledgeResult, RequestEnvelope,
-    SuccessEnvelope, Validate,
+    CheckpointWorkResult, DiskObservationSummary, ErrorCode, FailureEnvelope, FinalizeWorkResult,
+    GetCaseResult, NodeStatus, PreflightResult, PromotionStatus, QueryKnowledgeResult,
+    RequestEnvelope, SuccessEnvelope, Validate,
 };
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -189,4 +189,30 @@ fn disk_observation_contracts_are_strict_bounded_and_canonical() {
     let mut unknown = value;
     unknown["input"]["absolutePaths"] = Value::Bool(true);
     assert!(serde_json::from_value::<RequestEnvelope>(unknown).is_err());
+
+    let running = DiskObservationSummary {
+        observation_id: "obs-running".into(),
+        task: "build".into(),
+        status: "running".into(),
+        started_at: "2026-07-18T00:00:00Z".into(),
+        finished_at: None,
+        baseline_tracked_bytes: 10,
+        final_tracked_bytes: None,
+        delta_bytes: None,
+        positive_growth_bytes: None,
+        overlapping_observations: 0,
+        scan_truncated: false,
+    };
+    let serialized = serde_json::to_value(running).unwrap();
+    for field in [
+        "finishedAt",
+        "finalTrackedBytes",
+        "deltaBytes",
+        "positiveGrowthBytes",
+    ] {
+        assert!(
+            serialized.get(field).is_none(),
+            "{field} should be omitted when unknown"
+        );
+    }
 }

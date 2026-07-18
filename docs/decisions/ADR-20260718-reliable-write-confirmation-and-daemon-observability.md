@@ -19,9 +19,12 @@ several nodes from the same Case.
   table. A caller checks the durable result with the original `operationId`
   and optional operation kind before retrying an ambiguous write.
 - Aggregate a bounded 1,000-sample metric window in the persistent native
-  daemon. Every sample and metrics query resolves an explicit project; MCP
-  returns only project-owned daemon counts and native dispatch latency. MCP
-  process-local timings are not overlaid because they lack project attribution.
+  daemon. Every daemon sample and daemon metrics query resolves an explicit
+  project; MCP requests with `project` return only project-owned daemon counts
+  and native dispatch latency. For rolling compatibility, the legacy empty MCP
+  request returns only that bridge process's bounded session aggregates and
+  never asks the daemon for a cross-project view. Bridge timings are not
+  overlaid onto project metrics because they lack project attribution.
   `daemonPhaseDetail: "dispatch-total"` states that lock acquisition, native
   work, and result encoding are one measured phase; queue and serialization
   sub-phases remain zero rather than being presented as separately measured.
@@ -36,10 +39,10 @@ several nodes from the same Case.
   evaluation/promotion operation.
 
 The durable lookup, result mode, and promotion guidance are additive within
-protocol generation 2, and no database migration is required. Requiring
-`project` on the previously unscoped MCP `get_operation_metrics` input is an
-intentional compatibility break: clients of that pre-release tool must add an
-explicit project reference so metrics cannot cross project boundaries.
+protocol generation 2, and no database migration is required. Explicit-project
+metrics are the authoritative persistent view; the empty pre-release form is a
+deliberately isolated bridge-session compatibility view and cannot cross the
+daemon's project boundary.
 
 ## Consequences
 

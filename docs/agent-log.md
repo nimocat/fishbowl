@@ -770,3 +770,50 @@
 - Verification: `npm run typecheck`, all 82 Vitest tests, the dedicated 2-test
   acceptance suite, `npm run build`, `cargo test --workspace`,
   `cargo fmt --check`, and `git diff --check` passed.
+
+## 2026-07-18 — product feedback optimization intake
+
+- Read evaluation Case `45fe83a4-529f-4169-adb4-3792ef896cc1` and verified SMS
+  Case `69487af3-c34c-4634-bc0c-fc68e4b02f14` through direct MCP.
+- Confirmed duplicate candidate/verified RootCause nodes in the SMS Case and
+  reproduced the workflow/contract concern against current source boundaries.
+- Current daemon metrics separate core cost from Agent wall time: checkpoint
+  P50/P95 is about 8/15ms, finalize 28/41ms, while disk start/finish P50 is
+  about 2.1s/1.5s. The plan therefore targets fixed calls and payload volume.
+- Architecture started for three workflow profiles, default compact retrieval,
+  exact MCP result schemas, in-place promotion, and conservative truncated disk
+  attribution. No raw logs, credentials, environment values, or SMS recipient
+  data were persisted.
+- Added LIGHT/STANDARD/FULL Agent profiles. LIGHT read-only work skips forced
+  Preflight, disk observation, and checkpoints; disk accounting is now limited
+  to material regenerable artifacts.
+- MCP keeps the legacy empty metrics request as bounded bridge-session metrics,
+  while explicit projects still use persistent daemon metrics. Transport and
+  protocol errors retain their real codes, and all error responses now satisfy
+  the published output contract instead of becoming output-validation failures.
+- Query defaults to five compact Case-diverse cards at the MCP boundary and now
+  returns match reasons, paths, and diagnostics. Preflight publishes its complete
+  card contract. Rust FTS ordering uses BM25 relevance instead of recency.
+- Added project-scoped idempotent `promote_root_cause`: an explicitly confirmed
+  candidate is verified under the same node ID, optional data must exactly match
+  immutable history, and a bounded `node.updated` event is appended.
+- Case promotion now evaluates connected RootCause→Solution→Verification chains;
+  an unrelated verified RootCause can no longer validate a Solution. Truncated
+  disk comparisons persist unknown deltas and return no attributed growth or
+  cleanup candidate.
+- The completed full verification build grew tracked regenerable artifacts by
+  about 734.6 MB, almost entirely `target`; the observation was complete and all
+  entries remain review-only. Fishbowl did not delete any artifact.
+- Blocking review found no Critical issue and identified five Important edge
+  cases. The follow-up now omits/accepts unknown disk summary fields without a
+  fake MCP failure, binds promotion replay to its original Case/node/assertion,
+  excludes regressed/retired Solutions from promotion, forbids causal-data
+  rewrites, and preserves bounded Preflight expansion IDs after caller limits.
+  All new SQL predicates are explicitly project-scoped; the metrics ADR and
+  focused collision, regression, truncation, and relevance tests were updated.
+- The final review follow-up rejected independent nullable success/error fields.
+  MCP output now nests an exact discriminated `outcome`, so contradictory or
+  incomplete envelopes cannot satisfy the published schema.
+- Final gates passed: TypeScript typecheck, 92/92 Vitest tests, production build,
+  the complete Rust workspace, Rust formatting, and diff checks. Blocking
+  re-review reported zero Critical and zero Important issues and approved merge.

@@ -545,6 +545,18 @@ pub struct RecordRootCauseInput {
     pub data: WriteRootCauseData,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PromoteRootCauseInput {
+    pub project: ProjectReference,
+    pub operation_id: String,
+    pub case_id: String,
+    pub root_cause_id: String,
+    pub human_confirmed: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<WriteRootCauseData>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WriteSolutionData {
@@ -1016,7 +1028,7 @@ pub struct FinishDiskObservationResult {
     pub finished_at: String,
     pub baseline_tracked_bytes: u64,
     pub final_tracked_bytes: u64,
-    pub delta_bytes: i64,
+    pub delta_bytes: Option<i64>,
     pub positive_growth_bytes: u64,
     pub overlapping_observations: usize,
     /// Aggregate across baseline and final captures, retained for compatibility.
@@ -1053,10 +1065,14 @@ pub struct DiskObservationSummary {
     pub task: String,
     pub status: String,
     pub started_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub finished_at: Option<String>,
     pub baseline_tracked_bytes: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub final_tracked_bytes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub delta_bytes: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub positive_growth_bytes: Option<u64>,
     pub overlapping_observations: usize,
     pub scan_truncated: bool,
@@ -1257,6 +1273,8 @@ pub enum DaemonOperation {
     RecordAttempt(RecordAttemptInput),
     #[serde(rename = "recordRootCause")]
     RecordRootCause(RecordRootCauseInput),
+    #[serde(rename = "promoteRootCause")]
+    PromoteRootCause(PromoteRootCauseInput),
     #[serde(rename = "recordSolution")]
     RecordSolution(RecordSolutionInput),
     #[serde(rename = "recordVerification")]
@@ -1311,6 +1329,20 @@ impl Validate for DaemonOperation {
             Self::GetOperationMetrics(value) => value.validate(),
             Self::Preflight(value) => value.validate(),
             Self::GetCase(value) => value.validate(),
+            Self::PromoteRootCause(value) => {
+                value.project.validate()?;
+                validate_string(
+                    &value.operation_id,
+                    MAX_REQUEST_ID,
+                    ErrorCode::InvalidArgument,
+                )?;
+                validate_string(&value.case_id, MAX_REQUEST_ID, ErrorCode::InvalidArgument)?;
+                validate_string(
+                    &value.root_cause_id,
+                    MAX_REQUEST_ID,
+                    ErrorCode::InvalidArgument,
+                )
+            }
             Self::ResolveProject(value) => value.validate(),
             Self::ListRecentActivity(value) => value.validate(),
             Self::StartDiskObservation(value) => value.validate(),

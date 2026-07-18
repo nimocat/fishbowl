@@ -16,6 +16,7 @@ export const DAEMON_OPERATIONS = [
   'recordProblem',
   'recordAttempt',
   'recordRootCause',
+  'promoteRootCause',
   'recordSolution',
   'recordVerification',
   'recordArtifactReference',

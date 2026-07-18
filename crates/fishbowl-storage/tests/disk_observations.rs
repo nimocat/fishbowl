@@ -397,10 +397,9 @@ fn observations_are_idempotent_project_scoped_and_explain_cleanup_confidence() {
         bounded.scanned_entries + 250_000
     );
     assert!(bounded_result.scan_truncated);
-    assert_ne!(
-        bounded_result.entries[0].cleanup_disposition,
-        CleanupDisposition::Eligible
-    );
+    assert_eq!(bounded_result.delta_bytes, None);
+    assert!(bounded_result.entries.is_empty());
+    assert_eq!(bounded_result.positive_growth_bytes, 0);
     drop(writer);
     let reader = ReadRepository::open(database.to_str().unwrap()).unwrap();
     let latest = reader
@@ -409,12 +408,7 @@ fn observations_are_idempotent_project_scoped_and_explain_cleanup_confidence() {
             limit: Some(10),
         })
         .unwrap();
-    assert_eq!(latest.candidates.len(), 1);
-    assert_eq!(latest.candidates[0].relative_path, "build");
-    assert_ne!(
-        latest.candidates[0].cleanup_disposition,
-        CleanupDisposition::Eligible
-    );
+    assert!(latest.candidates.is_empty());
 
     fs::remove_file(database).unwrap();
     fs::remove_dir_all(root).unwrap();

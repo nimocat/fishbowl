@@ -254,9 +254,9 @@ export interface StartDiskObservationInput { project: ProjectReference; operatio
 export interface StartDiskObservationResult { observationId: string; projectId: string; startedAt: string; baselineTrackedBytes: number; trackedPaths: number; scannedEntries: number; scanTruncated: boolean; cacheHits: number; cacheMisses: number; created: boolean }
 export interface FinishDiskObservationInput { project: ProjectReference; operationId: string; observationId: string }
 export interface DiskGrowthEntry { relativePath: string; kind: DiskArtifactKind; baselineBytes: number; finalBytes: number; deltaBytes: number; createdByObservation: boolean; cleanupDisposition: CleanupDisposition }
-export interface FinishDiskObservationResult { observationId: string; projectId: string; startedAt: string; finishedAt: string; baselineTrackedBytes: number; finalTrackedBytes: number; deltaBytes: number; positiveGrowthBytes: number; overlappingObservations: number; scannedEntries: number; baselineScannedEntries: number; finalScannedEntries: number; scanTruncated: boolean; baselineScanTruncated: boolean; finalScanTruncated: boolean; cacheHits: number; cacheMisses: number; entries: DiskGrowthEntry[] }
+export interface FinishDiskObservationResult { observationId: string; projectId: string; startedAt: string; finishedAt: string; baselineTrackedBytes: number; finalTrackedBytes: number; deltaBytes: number | null; positiveGrowthBytes: number; overlappingObservations: number; scannedEntries: number; baselineScannedEntries: number; finalScannedEntries: number; scanTruncated: boolean; baselineScanTruncated: boolean; finalScanTruncated: boolean; cacheHits: number; cacheMisses: number; entries: DiskGrowthEntry[] }
 export interface ListDiskObservationsInput { project: ProjectReference; limit?: number }
-export interface DiskObservationSummary { observationId: string; task: string; status: string; startedAt: string; finishedAt?: string; baselineTrackedBytes: number; finalTrackedBytes?: number; deltaBytes?: number; positiveGrowthBytes?: number; overlappingObservations: number; scanTruncated: boolean }
+export interface DiskObservationSummary { observationId: string; task: string; status: string; startedAt: string; finishedAt?: string | null; baselineTrackedBytes: number; finalTrackedBytes?: number | null; deltaBytes?: number | null; positiveGrowthBytes?: number | null; overlappingObservations: number; scanTruncated: boolean }
 export interface ListDiskObservationsResult { observations: DiskObservationSummary[]; limit: number; truncated: boolean }
 export interface ListCleanupCandidatesInput { project: ProjectReference; limit?: number }
 export interface DiskCleanupCandidate { observationId: string; task: string; relativePath: string; kind: DiskArtifactKind; attributedGrowthBytes: number; reclaimableBytes: number; createdByObservation: boolean; cleanupDisposition: CleanupDisposition; finishedAt: string }
@@ -328,6 +328,15 @@ export interface RecordRootCauseInput extends OperationIdentity {
   status?: Extract<NodeStatus, 'candidate' | 'verified'>
   humanConfirmed?: boolean
   data: RootCauseData
+}
+
+export interface PromoteRootCauseInput {
+  project: ProjectReference
+  operationId: string
+  caseId: string
+  rootCauseId: string
+  humanConfirmed: true
+  data?: RootCauseData
 }
 
 export interface ServiceSolutionData extends SolutionData {
@@ -603,6 +612,7 @@ export interface KnowledgeServiceContract {
   recordProblem(input: RecordProblemInput): NodeWriteResult
   recordAttempt(input: RecordAttemptInput): NodeWriteResult
   recordRootCause(input: RecordRootCauseInput): NodeWriteResult
+  promoteRootCause(input: PromoteRootCauseInput): NodeWriteResult
   recordSolution(input: RecordSolutionInput): NodeWriteResult
   recordVerification(input: RecordVerificationInput): NodeWriteResult
   recordArtifactReference(input: RecordArtifactInput): ArtifactWriteResult

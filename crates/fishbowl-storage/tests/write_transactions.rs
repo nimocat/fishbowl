@@ -7,13 +7,13 @@ use fishbowl_contracts::{
     FinalizeMergeInput, FinalizeRootCauseInput, FinalizeSolutionInput, FinalizeVerificationInput,
     FinalizeWorkInput, GetCaseInput, ImportContentSource, ImportProjectGraphInput,
     MarkRegressionInput, NodeStatus, PreviewImportContentInput, ProjectReference,
-    RecordArtifactInput, RecordAttemptInput, RecordCheckpointInput, RecordCommandResultInput,
-    RecordCommandStartedInput, RecordGuardrailInput, RecordProblemInput, RecordRootCauseInput,
-    RecordSolutionInput, RecordVerificationInput, RegisterProjectInput, RegressionOutcomeContract,
-    RelationType, ReportRelevanceInput, SnapshotEdge, SourceKey, SuggestCaseMergesInput,
-    UpdateProjectInput, WriteArtifactData, WriteAttemptData, WriteGuardrailCriteria,
-    WriteGuardrailData, WriteProblemData, WriteRootCauseData, WriteSolutionData,
-    WriteVerificationData,
+    PromoteRootCauseInput, RecordArtifactInput, RecordAttemptInput, RecordCheckpointInput,
+    RecordCommandResultInput, RecordCommandStartedInput, RecordGuardrailInput, RecordProblemInput,
+    RecordRootCauseInput, RecordSolutionInput, RecordVerificationInput, RegisterProjectInput,
+    RegressionOutcomeContract, RelationType, ReportRelevanceInput, SnapshotEdge, SourceKey,
+    SuggestCaseMergesInput, UpdateProjectInput, WriteArtifactData, WriteAttemptData,
+    WriteGuardrailCriteria, WriteGuardrailData, WriteProblemData, WriteRootCauseData,
+    WriteSolutionData, WriteVerificationData,
 };
 use fishbowl_storage::{ReadRepository, WriteFaultPoint, WriteRepository};
 use rusqlite::Connection;
@@ -402,6 +402,14 @@ fn causal_node_chain_preserves_trust_edges_evidence_artifacts_and_guardrails() {
         })
         .unwrap();
     assert_eq!(regression.outcome, RegressionOutcomeContract::Regressed);
+    let after_regression = repository
+        .close_case(CloseCaseInput {
+            project: project("project-a"),
+            case_id: guardrail.case_id.clone(),
+            operation_id: Some("close-after-regression".into()),
+        })
+        .unwrap();
+    assert_eq!(after_regression.promotion.status, NodeStatus::Candidate);
     repository
         .report_relevance(ReportRelevanceInput {
             project: project("project-a"),
@@ -430,6 +438,181 @@ fn causal_node_chain_preserves_trust_edges_evidence_artifacts_and_guardrails() {
         connection
             .query_row("SELECT count(*) FROM guardrails", [], |row| row
                 .get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn promotion_requires_one_connected_verified_causal_chain() {
+    let path = database("connected-promotion");
+    let mut repository = WriteRepository::open(path.to_str().unwrap()).unwrap();
+    let problem = repository
+        .record_problem(problem_input("connected-problem"))
+        .unwrap();
+    let candidate = repository
+        .record_root_cause(RecordRootCauseInput {
+            project: project("project-a"),
+            operation_id: Some("candidate-root".into()),
+            source_key: None,
+            case_id: problem.case_id.clone(),
+            problem_id: problem.node_id.clone(),
+            failed_attempt_ids: Vec::new(),
+            status: Some(NodeStatus::Candidate),
+            human_confirmed: false,
+            data: WriteRootCauseData {
+                explanation: "linked candidate".into(),
+                evidence: vec!["candidate evidence".into()],
+                rejected_alternatives: Vec::new(),
+                confidence: 0.9,
+            },
+        })
+        .unwrap();
+    let unlinked = repository
+        .record_root_cause(RecordRootCauseInput {
+            project: project("project-a"),
+            operation_id: Some("unlinked-verified-root".into()),
+            source_key: None,
+            case_id: problem.case_id.clone(),
+            problem_id: problem.node_id.clone(),
+            failed_attempt_ids: Vec::new(),
+            status: Some(NodeStatus::Verified),
+            human_confirmed: true,
+            data: WriteRootCauseData {
+                explanation: "different verified cause".into(),
+                evidence: vec!["verified evidence".into()],
+                rejected_alternatives: Vec::new(),
+                confidence: 0.95,
+            },
+        })
+        .unwrap();
+    let solution = repository
+        .record_solution(RecordSolutionInput {
+            project: project("project-a"),
+            operation_id: Some("linked-solution".into()),
+            source_key: None,
+            case_id: problem.case_id.clone(),
+            root_cause_id: candidate.node_id.clone(),
+            data: WriteSolutionData {
+                summary: "fix candidate cause".into(),
+                applicability: vec!["test".into()],
+                limitations: vec!["bounded".into()],
+                side_effects: Vec::new(),
+                decisive_difference: "connected".into(),
+                applicability_boundary: BTreeMap::new(),
+                human_verification_required: true,
+                non_automatable_reason: None,
+            },
+        })
+        .unwrap();
+    repository
+        .record_verification(RecordVerificationInput {
+            project: project("project-a"),
+            operation_id: Some("connected-auto".into()),
+            source_key: None,
+            case_id: problem.case_id.clone(),
+            solution_id: solution.node_id.clone(),
+            data: WriteVerificationData {
+                kind: "automated".into(),
+                succeeded: true,
+                human_confirmed: false,
+                environment: BTreeMap::new(),
+                command: Some(vec!["cargo".into(), "test".into()]),
+                exit_status: Some(0),
+                source_revision: None,
+                excerpt: Some("passed".into()),
+            },
+        })
+        .unwrap();
+    let result = repository
+        .record_verification(RecordVerificationInput {
+            project: project("project-a"),
+            operation_id: Some("connected-human".into()),
+            source_key: None,
+            case_id: problem.case_id,
+            solution_id: solution.node_id,
+            data: WriteVerificationData {
+                kind: "human".into(),
+                succeeded: true,
+                human_confirmed: true,
+                environment: BTreeMap::new(),
+                command: None,
+                exit_status: None,
+                source_revision: None,
+                excerpt: Some("confirmed".into()),
+            },
+        })
+        .unwrap();
+
+    assert_eq!(result.promotion.status, NodeStatus::Candidate);
+    assert!(
+        result
+            .promotion
+            .missing_requirements
+            .contains(&"verified-root-cause".to_owned())
+    );
+    let promoted = repository
+        .promote_root_cause(PromoteRootCauseInput {
+            project: project("project-a"),
+            operation_id: "promote-linked-root".into(),
+            case_id: result.case_id,
+            root_cause_id: candidate.node_id.clone(),
+            human_confirmed: true,
+            data: None,
+        })
+        .unwrap();
+    assert_eq!(promoted.node_id, candidate.node_id);
+    assert_eq!(promoted.promotion.status, NodeStatus::Verified);
+    assert!(!promoted.created);
+    assert!(
+        repository
+            .promote_root_cause(PromoteRootCauseInput {
+                project: project("project-a"),
+                operation_id: "promote-linked-root".into(),
+                case_id: promoted.case_id.clone(),
+                root_cause_id: unlinked.node_id,
+                human_confirmed: true,
+                data: None,
+            })
+            .is_err()
+    );
+    assert!(
+        repository
+            .promote_root_cause(PromoteRootCauseInput {
+                project: project("project-a"),
+                operation_id: "rewrite-verified-root".into(),
+                case_id: promoted.case_id,
+                root_cause_id: promoted.node_id,
+                human_confirmed: true,
+                data: Some(WriteRootCauseData {
+                    explanation: "rewritten".into(),
+                    evidence: vec!["different".into()],
+                    rejected_alternatives: Vec::new(),
+                    confidence: 1.0
+                }),
+            })
+            .is_err()
+    );
+    drop(repository);
+    let connection = Connection::open(&path).unwrap();
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT count(*) FROM nodes JOIN cases ON cases.id=nodes.case_id WHERE nodes.type='RootCause' AND cases.project_id=?",
+                ["project-a"],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+        2
+    );
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT count(*) FROM events WHERE type='node.updated' AND project_id=?",
+                ["project-a"],
+                |row| row.get::<_, i64>(0)
+            )
             .unwrap(),
         1
     );

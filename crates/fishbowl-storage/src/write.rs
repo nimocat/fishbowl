@@ -10,14 +10,14 @@ use fishbowl_contracts::{
     DiskArtifactKind, DiskGrowthEntry, FinalizeWorkInput, FinalizeWorkResult,
     FinishDiskObservationInput, FinishDiskObservationResult, MarkRegressionInput,
     MergeProposalContract, NodeStatus, NodeWriteResult, ProjectAliasRecord, ProjectRecord,
-    ProjectReference, ProjectWithAliasesRecord, PromotionStatus, RecordArtifactInput,
-    RecordAttemptInput, RecordCheckpointInput, RecordCheckpointResult, RecordCommandResultInput,
-    RecordCommandStartedInput, RecordGuardrailInput, RecordProblemInput, RecordRootCauseInput,
-    RecordSolutionInput, RecordVerificationInput, RegisterProjectInput, RegressionOutcomeContract,
-    RegressionResultContract, ReportRelevanceInput, SourceKey, StartDiskObservationInput,
-    StartDiskObservationResult, SuggestCaseMergesInput, UpdateProjectInput, Validate,
-    WriteAttemptData, WriteProblemData, WriteRootCauseData, WriteSolutionData,
-    WriteVerificationData,
+    ProjectReference, ProjectWithAliasesRecord, PromoteRootCauseInput, PromotionStatus,
+    RecordArtifactInput, RecordAttemptInput, RecordCheckpointInput, RecordCheckpointResult,
+    RecordCommandResultInput, RecordCommandStartedInput, RecordGuardrailInput, RecordProblemInput,
+    RecordRootCauseInput, RecordSolutionInput, RecordVerificationInput, RegisterProjectInput,
+    RegressionOutcomeContract, RegressionResultContract, ReportRelevanceInput, SourceKey,
+    StartDiskObservationInput, StartDiskObservationResult, SuggestCaseMergesInput,
+    UpdateProjectInput, Validate, WriteAttemptData, WriteProblemData, WriteRootCauseData,
+    WriteSolutionData, WriteVerificationData,
 };
 use fishbowl_core::{
     ApplicabilityBoundary, PromotionEvidence, PromotionRequirement, RegressionOutcome,
@@ -752,6 +752,113 @@ impl WriteRepository {
             &project_id,
             input.operation_id.as_deref(),
             "record_root_cause",
+            &result,
+        )?;
+        transaction.commit()?;
+        Ok(result)
+    }
+
+    pub fn promote_root_cause(
+        &mut self,
+        input: PromoteRootCauseInput,
+    ) -> Result<NodeWriteResult, WriteError> {
+        input.project.validate().map_err(|_| WriteError::Contract)?;
+        if !input.human_confirmed || input.operation_id.trim().is_empty() {
+            return Err(WriteError::Validation("root cause promotion confirmation"));
+        }
+        if let Some(data) = &input.data {
+            if data.explanation.trim().is_empty()
+                || data.evidence.is_empty()
+                || data.evidence.iter().any(|item| item.trim().is_empty())
+                || !data.confidence.is_finite()
+                || !(0.0..=1.0).contains(&data.confidence)
+            {
+                return Err(WriteError::Validation("root cause"));
+            }
+        }
+        let transaction = self.connection.savepoint()?;
+        let project_id = resolve_project(&transaction, &input.project)?;
+        if let Some(mut result) = replay_operation::<NodeWriteResult>(
+            &transaction,
+            &project_id,
+            Some(&input.operation_id),
+            "promote_root_cause",
+        )? {
+            if result.case_id != input.case_id || result.node_id != input.root_cause_id {
+                return Err(WriteError::OperationConflict);
+            }
+            if let Some(asserted) = input.data.as_ref() {
+                let stored_data: String = transaction
+                    .query_row(
+                        "SELECT nodes.data FROM nodes JOIN cases ON cases.id=nodes.case_id WHERE nodes.id=? AND nodes.case_id=? AND nodes.type='RootCause' AND cases.project_id=?",
+                        params![input.root_cause_id, input.case_id, project_id],
+                        |row| row.get(0),
+                    )
+                    .optional()?
+                    .ok_or(WriteError::OwnershipMismatch)?;
+                if serde_json::to_string(&redact_value(serde_json::to_value(asserted)?))?
+                    != stored_data
+                {
+                    return Err(WriteError::OperationConflict);
+                }
+            }
+            result.created = false;
+            transaction.commit()?;
+            return Ok(result);
+        }
+        require_case(&transaction, &project_id, &input.case_id)?;
+        require_node(
+            &transaction,
+            &project_id,
+            &input.case_id,
+            &input.root_cause_id,
+            "RootCause",
+        )?;
+        let (status, stored_data): (String, String) = transaction.query_row(
+            "SELECT nodes.status,nodes.data FROM nodes JOIN cases ON cases.id=nodes.case_id WHERE nodes.id=? AND nodes.case_id=? AND cases.project_id=?",
+            params![input.root_cause_id, input.case_id, project_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        if !matches!(status.as_str(), "candidate" | "verified") {
+            return Err(WriteError::Validation("root cause promotion state"));
+        }
+        let asserted_data = redact_value(match input.data.as_ref() {
+            Some(data) => serde_json::to_value(data)?,
+            None => serde_json::from_str(&stored_data)?,
+        });
+        if serde_json::to_string(&asserted_data)? != stored_data {
+            return Err(WriteError::Validation(
+                "root cause promotion cannot rewrite causal history",
+            ));
+        }
+        let changed = status != "verified";
+        if changed {
+            transaction.execute(
+                "UPDATE nodes SET status='verified' WHERE id=? AND case_id=? AND EXISTS(SELECT 1 FROM cases WHERE cases.id=nodes.case_id AND cases.project_id=?)",
+                params![input.root_cause_id, input.case_id, project_id],
+            )?;
+            append_event(
+                &transaction,
+                &project_id,
+                Some(&input.case_id),
+                "node.updated",
+                &input.root_cause_id,
+                &json!({"caseId": input.case_id, "nodeId": input.root_cause_id, "type": "RootCause", "status": "verified", "changedFields": ["status"]}),
+                &timestamp(),
+            )?;
+        }
+        let promotion = evaluate_case_promotion(&transaction, &project_id, &input.case_id, true)?;
+        let result = NodeWriteResult {
+            case_id: input.case_id,
+            node_id: input.root_cause_id,
+            promotion,
+            created: false,
+        };
+        store_operation(
+            &transaction,
+            &project_id,
+            Some(&input.operation_id),
+            "promote_root_cause",
             &result,
         )?;
         transaction.commit()?;
@@ -2409,7 +2516,10 @@ impl WriteRepository {
             .collect::<BTreeSet<_>>();
         let mut entries = Vec::new();
         let mut positive_growth_bytes = 0_u64;
+        let scan_truncated = baseline_truncated != 0 || snapshot.truncated;
         for path in paths {
+            let baseline_present = baseline.contains_key(&path);
+            let final_present = final_entries.contains_key(&path);
             let (kind, baseline_bytes) = match baseline.get(&path).copied() {
                 Some(entry) => entry,
                 None => (
@@ -2421,9 +2531,16 @@ impl WriteRepository {
                 ),
             };
             let final_bytes = final_entries.get(&path).map_or(0, |entry| entry.1);
-            let delta_bytes = signed_delta(final_bytes, baseline_bytes)?;
-            let created_by_observation = baseline_bytes == 0 && final_bytes > 0;
-            let scan_truncated = baseline_truncated != 0 || snapshot.truncated;
+            // A truncated traversal cannot prove absence on either side and can
+            // also contain partial per-root byte counts. Preserve the row for
+            // diagnostics, but never turn incomplete measurements into growth
+            // attribution or cleanup eligibility.
+            let measurement_complete = !scan_truncated;
+            let delta_bytes = measurement_complete
+                .then(|| signed_delta(final_bytes, baseline_bytes))
+                .transpose()?;
+            let created_by_observation =
+                measurement_complete && !baseline_present && final_present && final_bytes > 0;
             let cleanup_disposition = if overlapping_observations > 0 {
                 CleanupDisposition::Shared
             } else if !scan_truncated
@@ -2434,8 +2551,9 @@ impl WriteRepository {
             } else {
                 CleanupDisposition::Review
             };
-            if delta_bytes > 0 {
-                positive_growth_bytes = positive_growth_bytes.saturating_add(delta_bytes as u64);
+            if delta_bytes.is_some_and(|delta| delta > 0) {
+                positive_growth_bytes =
+                    positive_growth_bytes.saturating_add(delta_bytes.unwrap_or_default() as u64);
             }
             transaction.execute(
                 "INSERT INTO disk_observation_entries (observation_id,project_id,relative_path,kind,baseline_bytes,final_bytes,delta_bytes,created_by_observation,cleanup_disposition) VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(observation_id,relative_path) DO UPDATE SET final_bytes=excluded.final_bytes,delta_bytes=excluded.delta_bytes,created_by_observation=excluded.created_by_observation,cleanup_disposition=excluded.cleanup_disposition",
@@ -2451,7 +2569,7 @@ impl WriteRepository {
                     cleanup_text(cleanup_disposition),
                 ],
             )?;
-            if delta_bytes != 0 {
+            if let Some(delta_bytes) = delta_bytes.filter(|delta| *delta != 0) {
                 entries.push(DiskGrowthEntry {
                     relative_path: path,
                     kind,
@@ -2469,7 +2587,14 @@ impl WriteRepository {
                 .cmp(&left.delta_bytes)
                 .then_with(|| left.relative_path.cmp(&right.relative_path))
         });
-        let delta_bytes = signed_delta(snapshot.tracked_bytes, baseline_tracked_bytes as u64)?;
+        let delta_bytes = if scan_truncated {
+            None
+        } else {
+            Some(signed_delta(
+                snapshot.tracked_bytes,
+                baseline_tracked_bytes as u64,
+            )?)
+        };
         transaction.execute(
             "UPDATE disk_observations SET status='completed',finished_at=?,final_tracked_bytes=?,delta_bytes=?,positive_growth_bytes=?,overlapping_observations=?,scanned_entries=scanned_entries+?,scan_truncated=CASE WHEN scan_truncated=1 OR ?=1 THEN 1 ELSE 0 END WHERE id=? AND project_id=?",
             params![
@@ -2666,92 +2791,109 @@ fn evaluate_case_promotion(
     mutate: bool,
 ) -> Result<PromotionStatus, WriteError> {
     require_case(transaction, project_id, case_id)?;
-    let root_rows = transaction
-        .prepare("SELECT status, data FROM nodes WHERE case_id = ? AND type = 'RootCause'")?
-        .query_map(params![case_id], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
-    let root_cause_verified = root_rows.iter().any(|(status, _)| status == "verified");
-    let root_cause_evidence_count = root_rows
-        .iter()
-        .filter_map(|(_, data)| serde_json::from_str::<Value>(data).ok())
-        .filter_map(|data| data.get("evidence").and_then(Value::as_array).map(Vec::len))
-        .sum();
     let solution_rows = transaction
-        .prepare("SELECT id, data FROM nodes WHERE case_id = ? AND type = 'Solution' ORDER BY created_at DESC, id DESC")?
-        .query_map(params![case_id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+        .prepare("SELECT nodes.id,nodes.data FROM nodes JOIN cases ON cases.id=nodes.case_id WHERE nodes.case_id=? AND nodes.type='Solution' AND nodes.status IN('candidate','verified') AND cases.project_id=? ORDER BY nodes.created_at DESC,nodes.id DESC")?
+        .query_map(params![case_id, project_id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
         .collect::<Result<Vec<_>, _>>()?;
-    let solution = solution_rows
-        .first()
-        .and_then(|(_, data)| serde_json::from_str::<Value>(data).ok());
-    let solution_id = solution_rows.first().map(|(id, _)| id.as_str());
-    let verifications = if let Some(solution_id) = solution_id {
-        transaction
-            .prepare("SELECT nodes.data FROM edges JOIN nodes ON nodes.id = edges.target_id WHERE edges.case_id = ? AND edges.source_id = ? AND edges.relation = 'VERIFIED_BY' AND nodes.type = 'Verification'")?
-            .query_map(params![case_id, solution_id], |row| row.get::<_, String>(0))?
+    let mut selected = None;
+    for (solution_id, solution_data) in &solution_rows {
+        let solution = serde_json::from_str::<Value>(solution_data).ok();
+        let linked_root = transaction
+            .query_row(
+                "SELECT root.status,root.data FROM edges JOIN nodes root ON root.id=edges.target_id JOIN cases ON cases.id=edges.case_id WHERE edges.case_id=? AND edges.source_id=? AND edges.relation='ADDRESSES' AND root.type='RootCause' AND cases.project_id=? ORDER BY root.created_at,root.id LIMIT 1",
+                params![case_id, solution_id, project_id],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .optional()?;
+        let root_cause_verified = linked_root
+            .as_ref()
+            .is_some_and(|(status, _)| status == "verified");
+        let root_cause_evidence_count = linked_root
+            .as_ref()
+            .and_then(|(_, data)| serde_json::from_str::<Value>(data).ok())
+            .and_then(|data| data.get("evidence").and_then(Value::as_array).map(Vec::len))
+            .unwrap_or(0);
+        let verifications = transaction
+            .prepare("SELECT nodes.data FROM edges JOIN nodes ON nodes.id=edges.target_id JOIN cases ON cases.id=edges.case_id WHERE edges.case_id=? AND edges.source_id=? AND edges.relation='VERIFIED_BY' AND nodes.type='Verification' AND cases.project_id=?")?
+            .query_map(params![case_id, solution_id, project_id], |row| row.get::<_, String>(0))?
             .collect::<Result<Vec<_>, _>>()?
             .into_iter()
             .filter_map(|data| serde_json::from_str::<Value>(&data).ok())
-            .collect::<Vec<_>>()
-    } else {
-        Vec::new()
-    };
-    let successful_automated_verification_count = verifications
-        .iter()
-        .filter(|data| {
-            data.get("kind").and_then(Value::as_str) == Some("automated")
-                && data.get("succeeded").and_then(Value::as_bool) == Some(true)
-        })
-        .count();
-    let human_verification_present = verifications.iter().any(|data| {
-        data.get("kind").and_then(Value::as_str) == Some("human")
-            && data.get("succeeded").and_then(Value::as_bool) == Some(true)
+            .collect::<Vec<_>>();
+        let strings = |key: &str| {
+            solution
+                .as_ref()
+                .and_then(|data| data.get(key))
+                .and_then(Value::as_array)
+                .map(|values| {
+                    values
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_owned)
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        let evaluation = evaluate_promotion(&PromotionEvidence {
+            root_cause_evidence_count,
+            root_cause_verified,
+            successful_automated_verification_count: verifications
+                .iter()
+                .filter(|data| {
+                    data.get("kind").and_then(Value::as_str) == Some("automated")
+                        && data.get("succeeded").and_then(Value::as_bool) == Some(true)
+                })
+                .count(),
+            non_automatable_reason: solution
+                .as_ref()
+                .and_then(|data| data.get("nonAutomatableReason"))
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+            human_verification_required: solution
+                .as_ref()
+                .and_then(|data| data.get("humanVerificationRequired"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            human_verification_present: verifications.iter().any(|data| {
+                data.get("kind").and_then(Value::as_str) == Some("human")
+                    && data.get("succeeded").and_then(Value::as_bool) == Some(true)
+            }),
+            human_confirmed: verifications.iter().any(|data| {
+                data.get("kind").and_then(Value::as_str) == Some("human")
+                    && data.get("succeeded").and_then(Value::as_bool) == Some(true)
+                    && data.get("humanConfirmed").and_then(Value::as_bool) == Some(true)
+            }),
+            applicability: strings("applicability"),
+            limitations: strings("limitations"),
+            decisive_difference: solution
+                .as_ref()
+                .and_then(|data| data.get("decisiveDifference"))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned(),
+        });
+        let eligible = evaluation.eligible;
+        if selected.is_none() || eligible {
+            selected = Some((solution_id.as_str(), evaluation));
+        }
+        if eligible {
+            break;
+        }
+    }
+    let fallback = evaluate_promotion(&PromotionEvidence {
+        root_cause_evidence_count: 0,
+        root_cause_verified: false,
+        successful_automated_verification_count: 0,
+        non_automatable_reason: None,
+        human_verification_required: false,
+        human_verification_present: false,
+        human_confirmed: false,
+        applicability: Vec::new(),
+        limitations: Vec::new(),
+        decisive_difference: String::new(),
     });
-    let human_confirmed = verifications.iter().any(|data| {
-        data.get("kind").and_then(Value::as_str) == Some("human")
-            && data.get("succeeded").and_then(Value::as_bool) == Some(true)
-            && data.get("humanConfirmed").and_then(Value::as_bool) == Some(true)
-    });
-    let strings = |key: &str| {
-        solution
-            .as_ref()
-            .and_then(|data| data.get(key))
-            .and_then(Value::as_array)
-            .map(|values| {
-                values
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .map(str::to_owned)
-                    .collect()
-            })
-            .unwrap_or_default()
-    };
-    let evaluation = evaluate_promotion(&PromotionEvidence {
-        root_cause_evidence_count,
-        root_cause_verified,
-        successful_automated_verification_count,
-        non_automatable_reason: solution
-            .as_ref()
-            .and_then(|data| data.get("nonAutomatableReason"))
-            .and_then(Value::as_str)
-            .map(str::to_owned),
-        human_verification_required: solution
-            .as_ref()
-            .and_then(|data| data.get("humanVerificationRequired"))
-            .and_then(Value::as_bool)
-            .unwrap_or(false),
-        human_verification_present,
-        human_confirmed,
-        applicability: strings("applicability"),
-        limitations: strings("limitations"),
-        decisive_difference: solution
-            .as_ref()
-            .and_then(|data| data.get("decisiveDifference"))
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_owned(),
-    });
+    let (solution_id, evaluation) =
+        selected.map_or((None, fallback), |(id, evaluation)| (Some(id), evaluation));
     if mutate && evaluation.eligible {
         transaction.execute(
             "UPDATE cases SET status = 'verified' WHERE id = ? AND project_id = ?",
@@ -2759,8 +2901,8 @@ fn evaluate_case_promotion(
         )?;
         if let Some(solution_id) = solution_id {
             transaction.execute(
-                "UPDATE nodes SET status = 'verified' WHERE id = ?",
-                params![solution_id],
+                "UPDATE nodes SET status='verified' WHERE id=? AND case_id=? AND EXISTS(SELECT 1 FROM cases WHERE cases.id=nodes.case_id AND cases.project_id=?)",
+                params![solution_id, case_id, project_id],
             )?;
         }
     }
@@ -2804,7 +2946,7 @@ fn promotion_next_action(requirement: &str) -> &'static str {
     match requirement {
         "root-cause-evidence" => "Add bounded evidence to the RootCause before promotion.",
         "verified-root-cause" => {
-            "Confirm the evidenced RootCause with record_root_cause status=verified and humanConfirmed=true."
+            "Confirm the existing evidenced RootCause in place with promote_root_cause and humanConfirmed=true."
         }
         "automated-verification-or-exception" => {
             "Record a successful automated Verification or a bounded non-automatable reason."
@@ -3087,7 +3229,7 @@ fn result(case_id: String, node_id: String, created: bool) -> NodeWriteResult {
             ],
             next_actions: vec![
                 "Add bounded evidence to the RootCause before promotion.".into(),
-                "Confirm the evidenced RootCause with record_root_cause status=verified and humanConfirmed=true.".into(),
+                "Confirm the existing evidenced RootCause in place with promote_root_cause and humanConfirmed=true.".into(),
                 "Record a successful automated Verification or a bounded non-automatable reason.".into(),
                 "Record an explicit successful human Verification with humanConfirmed=true.".into(),
                 "Add non-empty Solution applicability.".into(),

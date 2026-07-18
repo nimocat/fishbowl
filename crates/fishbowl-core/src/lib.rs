@@ -293,6 +293,7 @@ pub fn rank_cases(
 }
 
 pub fn compact_preflight(mut input: PreflightResult, max_bytes: usize) -> PreflightResult {
+    let prelimited_expansion_ids = std::mem::take(&mut input.expansion_case_ids);
     let original_ids = input
         .cards
         .iter()
@@ -301,7 +302,15 @@ pub fn compact_preflight(mut input: PreflightResult, max_bytes: usize) -> Prefli
     input.cards = input.cards.into_iter().take(5).map(compact_card).collect();
     rebuild_preflight_projections(&mut input);
     input.truncated |= original_ids.len() > input.cards.len();
-    input.expansion_case_ids = original_ids.into_iter().skip(input.cards.len()).collect();
+    input.expansion_case_ids = original_ids
+        .into_iter()
+        .skip(input.cards.len())
+        .chain(prelimited_expansion_ids)
+        .collect();
+    if input.expansion_case_ids.len() > 128 {
+        input.expansion_case_ids.truncate(128);
+        input.truncated = true;
+    }
     while serde_json::to_vec(&input).map_or(usize::MAX, |value| value.len()) >= max_bytes
         && input.cards.len() > 1
     {
@@ -315,6 +324,12 @@ pub fn compact_preflight(mut input: PreflightResult, max_bytes: usize) -> Prefli
         && !input.uncertain.is_empty()
     {
         input.uncertain.clear();
+        input.truncated = true;
+    }
+    while serde_json::to_vec(&input).map_or(usize::MAX, |value| value.len()) >= max_bytes
+        && input.expansion_case_ids.len() > 1
+    {
+        input.expansion_case_ids.pop();
         input.truncated = true;
     }
     input

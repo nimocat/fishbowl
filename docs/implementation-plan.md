@@ -211,6 +211,18 @@ The seven compatibility-focused TDD tasks are complete: schema-v6 indexed Case h
 
 **Verification:** `npm run typecheck`, all 82 Vitest tests, the dedicated 2-test acceptance suite, `npm run build`, `cargo test --workspace`, `cargo fmt --check`, and `git diff --check` passed.
 
+## Product feedback: lower-overhead workflows and trustworthy contracts
+
+**Status:** Complete; full verification and blocking review passed (2026-07-18)
+
+**Evidence:** Evaluation Case `45fe83a4-529f-4169-adb4-3792ef896cc1` reports strong exact retrieval and durable knowledge value but weak broad-query precision, unstable MCP schema experience, excessive fixed workflow cost, cold/truncated disk attribution risk, and awkward candidate promotion. Verified SMS Case `69487af3-c34c-4634-bc0c-fc68e4b02f14` contains both a candidate and a later duplicate verified RootCause with the same explanation, confirming the missing in-place promotion path. Current daemon metrics show checkpoint P50/P95 near 8/15ms and finalize near 28/41ms; disk start/finish dominate at roughly 2.1s/1.5s P50, so workflow round trips and payload size—not SQLite write latency—are the primary target.
+
+**Architecture:** Preserve one project-scoped Rust authority and the direct MCP-only Agent boundary. Add light/standard/full caller profiles in the Agent contract; make disk observation conditional on artifact-producing work; keep default query Case-diverse at five compact cards with explicit standard expansion; publish exact MCP schemas for explanations, diagnostics, and Preflight cards; add an idempotent project-owned in-place node promotion operation; and make truncated baselines incapable of claiming pre-existing paths were created by the current observation.
+
+**Acceptance:** Small read-only questions require only project resolution plus query/get-case; implementation uses preflight and a final checkpoint; only artifact-producing or long-running work uses disk observation and full finalization. MCP query defaults to five compact Case-diverse items with expansion through `get_case`; lexical candidates use FTS relevance rather than recency; query/Preflight explanation fields pass MCP output validation; `promote_root_cause` reuses the candidate node ID; Case verification requires one connected RootCause→Solution→Verification chain; and incomplete disk scans never claim growth or cleanup eligibility.
+
+**Verification:** `npm run typecheck`, all 92 Vitest tests, `npm run build`, `cargo test --workspace`, `cargo fmt --check`, and `git diff --check` passed. Two blocking review rounds ended with zero Critical and zero Important findings and a ready-to-merge verdict.
+
 ## Protocol reliability and daemon observability
 
 **Status:** Complete; blocking review and release gates passed (2026-07-18)

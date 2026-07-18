@@ -145,6 +145,11 @@ impl NativeDispatcher {
                     .record_root_cause(input.clone())
                     .map_err(map_write)?,
             ),
+            DaemonOperation::PromoteRootCause(input) => encode(
+                self.write()?
+                    .promote_root_cause(input.clone())
+                    .map_err(map_write)?,
+            ),
             DaemonOperation::RecordSolution(input) => encode(
                 self.write()?
                     .record_solution(input.clone())

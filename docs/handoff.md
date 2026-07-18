@@ -328,3 +328,32 @@ bounded, and invalid UTF-8 never dispatches. Final blocking review, TypeScript
 typecheck, 59/59 Vitest tests, the complete Rust workspace, production build,
 formatting, and diff checks passed. The configured acceptance target currently
 contains no test files. No SQLite migration is required.
+
+## Proportional workflow and connected-promotion handoff (2026-07-18)
+
+The Agent contract now defines LIGHT, STANDARD, and FULL profiles. Read-only
+LIGHT work resolves the project and queries only when useful; it does not force
+Preflight, disk scans, or a checkpoint. Disk observation is reserved for material
+regenerable artifacts. MCP query calls default to five Case-diverse compact cards
+and expand through `get_case`; query explanations/diagnostics and Preflight cards
+are included in the published output schemas. Broad FTS results use BM25 order
+instead of recency.
+
+MCP errors now carry a schema-valid structured error result, so an application
+error cannot be replaced by an output-validation failure. Daemon transport and
+protocol codes remain visible with update/restart guidance. Empty legacy metrics
+requests return only the current bridge session; explicit-project requests keep
+using the persistent daemon window.
+
+Structured results are wrapped in an exact `outcome` discriminated union. The
+success branch has a non-null result and null error; the failure branch has a
+null result and actionable error. This is intentionally stricter than the former
+independent nullable fields, which could advertise contradictory states.
+
+`promote_root_cause` is the supported candidate-to-verified path. It requires an
+explicit project, operation ID, existing Case/RootCause IDs, and human confirmation;
+it keeps the node ID, treats optional data as an exact immutable assertion, and
+records a redacted `node.updated` event. Case/Solution promotion now requires one connected
+RootCause→Solution→Verification chain, preventing unrelated nodes in the same Case
+from being combined. Incomplete disk scans record unknown per-path deltas and
+return no claimed growth or cleanup eligibility.

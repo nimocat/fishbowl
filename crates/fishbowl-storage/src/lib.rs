@@ -245,15 +245,22 @@ impl ReadRepository {
         }
         parameters.push(SqlValue::Integer((limit + 1) as i64));
         let exact_reasons = exact_reasons(input);
-        let select = "nodes.id AS node_id, nodes.case_id AS case_id, nodes.type AS node_type, nodes.status AS node_status, nodes.data AS node_data, nodes.created_at AS node_created_at, cases.project_id AS project_id, cases.title AS case_title";
+        let text_rank = if search_join.is_empty() {
+            "0.0"
+        } else {
+            "bm25(node_search)"
+        };
+        let select = format!(
+            "nodes.id AS node_id, nodes.case_id AS case_id, nodes.type AS node_type, nodes.status AS node_status, nodes.data AS node_data, nodes.created_at AS node_created_at, cases.project_id AS project_id, cases.title AS case_title, {text_rank} AS text_rank"
+        );
         let sql = if matches!(input.result_mode, Some(QueryResultMode::Nodes)) {
             format!(
-                "SELECT {select} FROM nodes JOIN cases ON cases.id = nodes.case_id {search_join} WHERE {} ORDER BY nodes.created_at DESC, nodes.id DESC LIMIT ?",
+                "SELECT {select} FROM nodes JOIN cases ON cases.id = nodes.case_id {search_join} WHERE {} ORDER BY text_rank ASC,nodes.created_at DESC,nodes.id DESC LIMIT ?",
                 conditions.join(" AND ")
             )
         } else {
             format!(
-                "SELECT node_id, case_id, node_type, node_status, node_data, node_created_at, project_id, case_title FROM (SELECT {select}, row_number() OVER (PARTITION BY nodes.case_id ORDER BY nodes.created_at DESC, nodes.id DESC) AS case_rank FROM nodes JOIN cases ON cases.id = nodes.case_id {search_join} WHERE {}) WHERE case_rank = 1 ORDER BY node_created_at DESC, node_id DESC LIMIT ?",
+                "WITH matches AS MATERIALIZED (SELECT {select} FROM nodes JOIN cases ON cases.id=nodes.case_id {search_join} WHERE {}) SELECT node_id,case_id,node_type,node_status,node_data,node_created_at,project_id,case_title FROM (SELECT matches.*,row_number() OVER (PARTITION BY case_id ORDER BY text_rank ASC,node_created_at DESC,node_id DESC) AS case_rank FROM matches) WHERE case_rank=1 ORDER BY text_rank ASC,node_created_at DESC,node_id DESC LIMIT ?",
                 conditions.join(" AND ")
             )
         };
@@ -1499,7 +1506,7 @@ impl ReadRepository {
         let now_epoch_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |duration| duration.as_millis() as i64);
-        let cards = rank_cases(
+        let ranked_cards = rank_cases(
             &RelevanceContext {
                 task_description: input.task_description.clone(),
                 changed_files: input.changed_files.clone().unwrap_or_default(),
@@ -1508,10 +1515,14 @@ impl ReadRepository {
                 now_epoch_ms,
             },
             candidates,
-        )
-        .into_iter()
-        .take(limit)
-        .collect();
+        );
+        let truncated = ranked_cards.len() > limit;
+        let expansion_case_ids = ranked_cards
+            .iter()
+            .skip(limit)
+            .map(|card| card.case_id.clone())
+            .collect();
+        let cards = ranked_cards.into_iter().take(limit).collect();
         let uncertain = nodes
             .iter()
             .filter(|node| {
@@ -1530,8 +1541,8 @@ impl ReadRepository {
                 root_causes: vec![],
                 solutions: vec![],
                 uncertain,
-                truncated: false,
-                expansion_case_ids: vec![],
+                truncated,
+                expansion_case_ids,
             },
             12 * 1024,
         );

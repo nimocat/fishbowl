@@ -163,7 +163,7 @@ export function createDaemonBackend(client: DaemonClient): AwaitableKnowledgeBac
   const operations: DaemonOperation[] = [
     'registerProject', 'resolveProject', 'updateProject', 'queryKnowledge', 'getCase',
     'getOperationResult', 'getOperationMetrics',
-    'listRecentActivity', 'preflight', 'recordProblem', 'recordAttempt', 'recordRootCause',
+    'listRecentActivity', 'preflight', 'recordProblem', 'recordAttempt', 'recordRootCause', 'promoteRootCause',
     'recordSolution', 'recordVerification', 'recordArtifactReference', 'recordGuardrail',
     'recordCheckpoint', 'checkpointWork', 'finalizeWork', 'startDiskObservation', 'finishDiskObservation',
     'listDiskObservations', 'listCleanupCandidates', 'reportRelevance', 'suggestCaseMerges', 'applyCaseMerge',

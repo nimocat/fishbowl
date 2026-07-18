@@ -39,6 +39,16 @@ describe('Codex Fishbowl access policy', () => {
     expect(codexSection).toContain('Never fall back to the Fishbowl CLI')
   })
 
+  it('defines proportional light, standard, and full MCP workflows', () => {
+    const bootstrapPrompt = read('docs/agent-bootstrap-prompt.md')
+    expect(bootstrapPrompt).toContain('LIGHT')
+    expect(bootstrapPrompt).toContain('STANDARD')
+    expect(bootstrapPrompt).toContain('FULL')
+    expect(bootstrapPrompt).toContain('Do not call `get_preflight_guidance`, disk observation, or checkpoint tools for a LIGHT task')
+    expect(bootstrapPrompt).toContain('Only use disk observation when the task is expected to create material regenerable artifacts')
+    expect(bootstrapPrompt).toContain('Default `query_knowledge` to at most 5 results')
+  })
+
   it('documents a reproducible Windows update and MCP reconnect flow', () => {
     const readme = read('README.zh-CN.md')
     const englishReadme = read('README.md')

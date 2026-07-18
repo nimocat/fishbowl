@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AwaitableKnowledgeBackend } from '../../src/application/backend.js'
 import { createMcpServer } from '../../src/mcp/server.js'
 import { runStdioServer } from '../../src/mcp/stdio.js'
+import { DaemonClientError } from '../../src/daemon/client.js'
 
 describe('MCP protocol adapter', () => {
   const cleanup: Array<() => Promise<void>> = []
@@ -28,10 +29,11 @@ describe('MCP protocol adapter', () => {
     const { tools } = await client.listTools()
     expect(tools.map(({ name }) => name)).toContain('query_knowledge')
     expect(tools.map(({ name }) => name)).toContain('finalize_work')
+    expect(tools.map(({ name }) => name)).toContain('promote_root_cause')
     expect(tools.map(({ name }) => name)).toContain('get_operation_result')
     expect(tools.map(({ name }) => name)).toContain('start_disk_observation')
     expect(tools.map(({ name }) => name)).toContain('list_disk_cleanup_candidates')
-    expect(tools).toHaveLength(34)
+    expect(tools).toHaveLength(35)
   })
 
   it('adapts MCP list_projects to the native backend without core logic', async () => {
@@ -39,8 +41,29 @@ describe('MCP protocol adapter', () => {
     const client = await connect({ listProjects } as unknown as AwaitableKnowledgeBackend)
     const response = await client.callTool({ name: 'list_projects', arguments: {} }) as CallToolResult
     expect(response.isError).not.toBe(true)
-    expect(response.structuredContent).toMatchObject({ ok: true, result: [{ id: 'p1' }] })
+    expect(response.structuredContent).toMatchObject({ outcome: { ok: true, result: [{ id: 'p1' }] } })
     expect(listProjects).toHaveBeenCalledOnce()
+  })
+
+  it('defaults MCP queries to five and preserves retrieval explanations', async () => {
+    const queryKnowledge = vi.fn(async (input) => ({
+      items: [{
+        projectId: 'p1', caseId: 'c1', caseTitle: 'Relevant case',
+        node: { id: 'n1', caseId: 'c1', type: 'Solution', status: 'verified', data: { summary: 'Fix' }, createdAt: '2026-07-18T00:00:00.000Z' },
+        whyMatched: [{ kind: 'exact-file', value: 'src/a.ts' }], supportingPath: ['n1'],
+      }],
+      limit: input.limit, truncated: false,
+      diagnostics: { mode: 'exact', seedCount: 0, candidateCaseCount: 1, visitedNodes: 1, visitedEdges: 0, iterations: 0 },
+    }))
+    const client = await connect({ queryKnowledge } as unknown as AwaitableKnowledgeBackend)
+    const response = await client.callTool({ name: 'query_knowledge', arguments: {
+      project: { projectId: 'p1' }, file: 'src/a.ts',
+    } }) as CallToolResult
+    expect(response.isError, JSON.stringify(response)).not.toBe(true)
+    expect(queryKnowledge).toHaveBeenCalledWith(expect.objectContaining({ limit: 5 }))
+    expect(response.structuredContent).toMatchObject({
+      outcome: { result: { items: [{ summary: 'Fix', node: { data: { summary: 'Fix' } }, whyMatched: [{ kind: 'exact-file' }], supportingPath: ['n1'] }] } },
+    })
   })
 
   it('rejects an oversized adapter payload before native dispatch', async () => {
@@ -77,14 +100,13 @@ describe('MCP protocol adapter', () => {
 
     expect(response.isError, JSON.stringify(response)).not.toBe(true)
     expect(response.structuredContent).toEqual({
-      ok: true,
-      result: {
+      outcome: { ok: true, error: null, result: {
         recorded: true,
         createdCase: true,
         caseId: 'case-1',
         problemId: 'problem-1',
         attemptId: 'attempt-1',
-      },
+      } },
     })
   })
 
@@ -111,11 +133,63 @@ describe('MCP protocol adapter', () => {
       project: { projectId: 'project-1' },
     } }) as CallToolResult
 
-    expect(operation.structuredContent).toMatchObject({ ok: true, result: { found: true, kind: 'checkpoint_work' } })
-    expect(metrics.structuredContent).toMatchObject({ ok: true, result: [{ operation: 'checkpoint_work', count: 12 }] })
+    expect(operation.structuredContent).toMatchObject({ outcome: { ok: true, result: { found: true, kind: 'checkpoint_work' } } })
+    expect(metrics.structuredContent).toMatchObject({ outcome: { ok: true, result: [{ operation: 'checkpoint_work', count: 12 }] } })
     expect(getOperationResult).toHaveBeenCalledOnce()
     expect(getOperationMetrics).toHaveBeenCalledOnce()
   })
+
+  it('keeps the legacy empty metrics request on the MCP bridge', async () => {
+    const getOperationMetrics = vi.fn()
+    const client = await connect({ getOperationMetrics } as unknown as AwaitableKnowledgeBackend)
+    await client.callTool({ name: 'list_projects', arguments: {} })
+
+    const response = await client.callTool({ name: 'get_operation_metrics', arguments: {} }) as CallToolResult
+
+    expect(response.isError, JSON.stringify(response)).not.toBe(true)
+    expect(response.structuredContent).toMatchObject({
+      outcome: { ok: true, result: [expect.objectContaining({ operation: 'list_projects', count: 1 })] },
+    })
+    expect(getOperationMetrics).not.toHaveBeenCalled()
+  })
+
+  it('accepts null disk summary measurements from running or truncated observations', async () => {
+    const listDiskObservations = vi.fn(async () => ({
+      observations: [{
+        observationId: 'obs-1', task: 'bounded build', status: 'completed',
+        startedAt: '2026-07-18T00:00:00.000Z', finishedAt: '2026-07-18T00:01:00.000Z',
+        baselineTrackedBytes: 10, finalTrackedBytes: 20, deltaBytes: null,
+        positiveGrowthBytes: 0, overlappingObservations: 0, scanTruncated: true,
+      }, {
+        observationId: 'obs-2', task: 'running build', status: 'running',
+        startedAt: '2026-07-18T00:02:00.000Z', finishedAt: null,
+        baselineTrackedBytes: 20, finalTrackedBytes: null, deltaBytes: null,
+        positiveGrowthBytes: null, overlappingObservations: 0, scanTruncated: false,
+      }], limit: 10, truncated: false,
+    }))
+    const client = await connect({ listDiskObservations } as unknown as AwaitableKnowledgeBackend)
+    const response = await client.callTool({ name: 'list_disk_observations', arguments: {
+      project: { projectId: 'project-1' }, limit: 10,
+    } }) as CallToolResult
+    expect(response.isError, JSON.stringify(response)).not.toBe(true)
+    expect(response.structuredContent).toMatchObject({
+      outcome: { result: { observations: [{ deltaBytes: null }, { finishedAt: null, deltaBytes: null }] } },
+    })
+  })
+
+  it.each(['INVALID_REQUEST', 'PROTOCOL_MISMATCH', 'DAEMON_UNAVAILABLE', 'INVALID_RESPONSE']) (
+    'preserves actionable daemon error code %s',
+    async (code) => {
+      const listProjects = vi.fn(async () => { throw new DaemonClientError(code, 'daemon detail') })
+      const client = await connect({ listProjects } as unknown as AwaitableKnowledgeBackend)
+      const response = await client.callTool({ name: 'list_projects', arguments: {} }) as CallToolResult
+      expect(response.isError).toBe(true)
+      expect(response.content).toEqual(expect.arrayContaining([
+        expect.objectContaining({ text: expect.stringContaining(`[${code}] daemon detail`) }),
+      ]))
+      expect(JSON.stringify(response)).not.toContain('INTERNAL_ERROR')
+    },
+  )
 
   it('reports finalize cross-field validation with an actionable field path', async () => {
     const finalizeWork = vi.fn()
@@ -137,6 +211,39 @@ describe('MCP protocol adapter', () => {
       expect.objectContaining({ text: expect.stringContaining('verifications') }),
     ]))
     expect(finalizeWork).not.toHaveBeenCalled()
+  })
+
+  it('rejects empty finalize semantic lists before native dispatch', async () => {
+    const finalizeWork = vi.fn()
+    const client = await connect({ finalizeWork } as unknown as AwaitableKnowledgeBackend)
+    const response = await client.callTool({ name: 'finalize_work', arguments: {
+      project: { projectId: 'project-1' }, operationId: 'finalize-empty-evidence',
+      task: 'Finish work', outcome: 'succeeded', summary: 'Done',
+      commit: { sha: 'abc', message: 'done' },
+      rootCause: { explanation: 'Cause', confidence: 1, evidence: [] },
+      solution: { summary: 'Fix', applicability: [], limitations: [], decisiveDifference: 'Works' },
+      verifications: [{ kind: 'human', succeeded: true, excerpt: 'confirmed', humanConfirmed: true }],
+      merge: { status: 'pending' },
+    } }) as CallToolResult
+    expect(response.isError).toBe(true)
+    expect(JSON.stringify(response)).toContain('rootCause')
+    expect(JSON.stringify(response)).toContain('evidence')
+    expect(JSON.stringify(response)).toContain('applicability')
+    expect(JSON.stringify(response)).toContain('limitations')
+    expect(finalizeWork).not.toHaveBeenCalled()
+  })
+
+  it('rejects a checkpoint solution without a root cause before native dispatch', async () => {
+    const checkpointWork = vi.fn()
+    const client = await connect({ checkpointWork } as unknown as AwaitableKnowledgeBackend)
+    const response = await client.callTool({ name: 'checkpoint_work', arguments: {
+      project: { projectId: 'project-1' }, operationId: 'checkpoint-invalid',
+      task: 'Checkpoint', outcome: 'succeeded', summary: 'Done',
+      solution: { summary: 'Fix', applicability: ['here'], limitations: ['bounded'], decisiveDifference: 'Works' },
+    } }) as CallToolResult
+    expect(response.isError).toBe(true)
+    expect(JSON.stringify(response)).toContain('rootCause')
+    expect(checkpointWork).not.toHaveBeenCalled()
   })
 
   it('starts stdio without writing diagnostics into protocol stdout', async () => {

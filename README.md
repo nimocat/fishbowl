@@ -117,11 +117,11 @@ fishbowl checkpoint \
 
 ## Give Fishbowl to Codex or Another Agent
 
-Configure the user-level stdio MCP server once, then copy the [MCP Agent Session Prompt](docs/agent-bootstrap-prompt.md) into a coding agent. It tells the agent to:
+Configure the user-level stdio MCP server once, then copy the [MCP Agent Session Prompt](docs/agent-bootstrap-prompt.md) into a coding agent. It tells the agent to choose a proportional LIGHT, STANDARD, or FULL workflow and to:
 
-1. Call Fishbowl MCP tools directly for project resolution and preflight.
-2. Query relevant history before substantive work.
-3. Save concise, redacted checkpoints through MCP when the task ends.
+1. Call Fishbowl MCP tools directly and resolve the project explicitly.
+2. Use compact, Case-diverse history results and expand only selected Cases.
+3. Reserve preflight, disk observation, and checkpoints for work whose risk or reusable output justifies them.
 4. Report an unavailable MCP server instead of falling back to the CLI.
 
 The MCP client starts this persistent stdio bridge from its server configuration:
@@ -135,7 +135,9 @@ See the ready-to-copy [MCP client configurations](docs/mcp-client-configuration.
 ## The Engineering Loop
 
 ```text
-Preflight -> Query prior knowledge -> Implement -> Verify -> Record a redacted checkpoint
+LIGHT:    Resolve -> Query when useful -> Answer
+STANDARD: Resolve -> Brief preflight/query -> Implement -> Verify -> Notable checkpoint
+FULL:     Resolve -> Preflight/query -> Observe artifacts when relevant -> Implement -> Verify -> Finalize
 ```
 
 Fishbowl keeps records distinct so the graph remains useful under review:

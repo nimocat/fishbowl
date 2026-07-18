@@ -121,6 +121,41 @@ fn query_defaults_to_one_best_node_per_case_and_allows_node_expansion() {
 }
 
 #[test]
+fn lexical_relevance_outranks_newer_creation_time() {
+    let path = database("lexical-rank");
+    let connection = Connection::open(&path).unwrap();
+    connection.execute_batch(
+        "INSERT INTO cases VALUES ('case-relevant','project-a','Rare exact solution','candidate','2026-01-01T00:00:00Z');
+         INSERT INTO nodes VALUES ('node-relevant','case-relevant','Solution','candidate','{\"summary\":\"rare exact solution rare exact solution rare exact solution\"}','2026-01-01T00:00:00Z');
+         INSERT INTO node_search VALUES ('project-a','node-relevant','Rare exact solution','rare exact solution rare exact solution rare exact solution');
+         INSERT INTO cases VALUES ('case-newer-noise','project-a','Recent note','candidate','2026-07-18T00:00:00Z');
+         INSERT INTO nodes VALUES ('node-newer-noise','case-newer-noise','Problem','open','{\"summary\":\"rare exact solution plus generic common build words\"}','2026-07-18T00:00:00Z');
+         INSERT INTO node_search VALUES ('project-a','node-newer-noise','Recent note','rare exact solution generic common build test record history');",
+    ).unwrap();
+    drop(connection);
+    let repository = ReadRepository::open(path.to_str().unwrap()).unwrap();
+    let result = repository
+        .query_knowledge(&QueryKnowledgeInput {
+            project: ProjectReference {
+                project_id: Some("project-a".into()),
+                project_root: None,
+            },
+            text: Some("rare exact solution".into()),
+            domain: None,
+            node_types: None,
+            statuses: None,
+            file: None,
+            command: None,
+            fingerprint: None,
+            limit: Some(2),
+            result_mode: None,
+        })
+        .unwrap();
+    assert_eq!(result.items[0].case_id, "case-relevant");
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
 fn aliases_resolve_and_identical_other_project_text_never_leaks() {
     let path = database("alias");
     let repository = ReadRepository::open(path.to_str().unwrap()).unwrap();

@@ -191,13 +191,13 @@ const finalizeWorkInputBase = z.object({
   rootCause: z.object({
     explanation: text,
     confidence: z.number().min(0).max(1),
-    evidence: stringList,
+    evidence: nonEmptyStringList,
     rejectedAlternatives: stringList.optional(),
   }).strict().optional(),
   solution: z.object({
     summary: text,
-    applicability: stringList,
-    limitations: stringList,
+    applicability: nonEmptyStringList,
+    limitations: nonEmptyStringList,
     decisiveDifference: text,
   }).strict().optional(),
   verifications: z.array(finalizeVerification).max(MAX_ARRAY_LENGTH).optional(),
@@ -209,6 +209,43 @@ const finalizeWorkInputBase = z.object({
     summary: text.optional(),
   }).strict(),
 }).strict()
+
+const checkpointWorkInputBase = z.object({
+  project: projectReference,
+  operationId: id,
+  caseId: id.optional(),
+  task: text,
+  outcome: z.enum(['failed', 'succeeded', 'inconclusive']),
+  summary: text,
+  importance: z.enum(['routine', 'notable', 'critical']).optional(),
+  fingerprint: text.optional(),
+  files: fileList.optional(),
+  command: argv.optional(),
+  evidence: z.array(text.describe('One concise evidence statement string; objects are not accepted.'))
+    .max(MAX_ARRAY_LENGTH).optional(),
+  rootCause: z.object({
+    explanation: text,
+    confidence: z.number().min(0).max(1),
+    rejectedAlternatives: stringList.optional(),
+  }).strict().optional(),
+  solution: z.object({
+    summary: text,
+    applicability: nonEmptyStringList,
+    limitations: nonEmptyStringList,
+    decisiveDifference: text,
+  }).strict().optional(),
+  humanConfirmed: z.boolean().optional(),
+}).strict()
+
+const checkpointWorkInput = checkpointWorkInputBase.superRefine((input, context) => {
+  if (input.solution !== undefined && input.rootCause === undefined) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['rootCause'],
+      message: 'rootCause is required when solution is present',
+    })
+  }
+})
 
 const finalizeWorkInput = finalizeWorkInputBase.superRefine((input, context) => {
   const issue = (path: Array<string | number>, message: string) => context.addIssue({
@@ -377,6 +414,33 @@ const nodeResult = z.object({
   data: z.record(boundedJsonValue),
   createdAt: timestamp,
 })
+const retrievalReasonResult = z.object({
+  kind: z.enum(['exact-text', 'exact-fingerprint', 'exact-file', 'exact-command', 'domain-route', 'prefix-route', 'k-shell-community', 'ppr-path', 'verified-trust']),
+  value: text,
+}).strict()
+const retrievalDiagnosticsResult = z.object({
+  mode: z.enum(['exact', 'hybrid', 'exact-fallback']),
+  seedCount: z.number().int().nonnegative(),
+  candidateCaseCount: z.number().int().nonnegative(),
+  visitedNodes: z.number().int().nonnegative(),
+  visitedEdges: z.number().int().nonnegative(),
+  iterations: z.number().int().nonnegative(),
+}).strict()
+const preflightReasonResult = z.object({
+  kind: z.enum(['exact-fingerprint', 'blocking-guardrail', 'exact-file', 'exact-command', 'verified-knowledge', 'text']),
+  value: text,
+}).strict()
+const preflightGuardrailResult = z.object({ node: nodeResult, blocks: z.boolean() }).strict()
+const preflightCardResult = z.object({
+  caseId: id,
+  caseTitle: text,
+  score: z.number(),
+  whyMatched: z.array(preflightReasonResult).max(MAX_ARRAY_LENGTH),
+  failedAttempt: nodeResult.optional(),
+  rootCause: nodeResult.optional(),
+  solution: nodeResult.optional(),
+  guardrails: z.array(preflightGuardrailResult).max(MAX_ARRAY_LENGTH).optional(),
+}).strict()
 const edgeResult = z.object({
   id,
   caseId: id,
@@ -396,7 +460,16 @@ const eventResult = z.object({
 const genericRecord = z.record(boundedJsonValue)
 
 function outputSchema<T extends z.ZodTypeAny>(result: T) {
-  return z.object({ ok: z.literal(true), result })
+  return z.object({
+    outcome: z.discriminatedUnion('ok', [
+      z.object({ ok: z.literal(true), result, error: z.null() }).strict(),
+      z.object({
+        ok: z.literal(false),
+        result: z.null(),
+        error: z.object({ code: text, message: text, action: text }).strict(),
+      }).strict(),
+    ]),
+  }).strict()
 }
 
 const readOnly: ToolAnnotations = {
@@ -429,6 +502,10 @@ const errorActions: Record<string, string> = {
   STALE_PREVIEW: 'Create a new import preview and approve that preview.',
   EXPIRED_PREVIEW: 'Create a new import preview and apply it before expiry.',
   INVALID_ARCHIVE: 'Export a fresh supported graph snapshot and retry the import.',
+  INVALID_REQUEST: 'Update Fishbowl and restart the MCP client, then retry the request.',
+  PROTOCOL_MISMATCH: 'Update Fishbowl and restart the MCP client so bridge and daemon versions match.',
+  DAEMON_UNAVAILABLE: 'Use the human-operated doctor or daemon diagnostics, then restart the MCP client.',
+  INVALID_RESPONSE: 'Update Fishbowl and restart the MCP client; the daemon returned an incompatible response.',
 }
 
 const domainErrorCodes: Record<string, string> = {
@@ -451,6 +528,7 @@ function errorResult(error: unknown): CallToolResult {
   return {
     isError: true,
     content: [{ type: 'text', text: `[${code}] ${message}. ${action}` }],
+    structuredContent: { outcome: { ok: false, result: null, error: { code, message, action } } },
   }
 }
 
@@ -458,7 +536,7 @@ function successResult(toolName: string, result: unknown): CallToolResult {
   const count = Array.isArray(result) ? ` (${result.length} items)` : ''
   return {
     content: [{ type: 'text', text: `${toolName} succeeded${count}.` }],
-    structuredContent: { ok: true, result },
+    structuredContent: { outcome: { ok: true, result, error: null } },
   }
 }
 
@@ -488,6 +566,25 @@ function resultItemCount(result: unknown): number | null {
     if (Array.isArray(value)) return value.length
   }
   return null
+}
+
+function compactNodeSummary(data: Record<string, unknown>): string {
+  for (const key of ['summary', 'explanation', 'failureExplanation', 'decisiveDifference', 'guidance', 'excerpt', 'uri']) {
+    const value = data[key]
+    if (typeof value === 'string' && value.trim()) return value.trim().slice(0, 240)
+  }
+  const encoded = JSON.stringify(data)
+  return (encoded === '{}' ? 'No summary recorded.' : encoded).slice(0, 240)
+}
+
+function compactQueryResult<T extends { items: Array<{ node: { data: Record<string, unknown> } }> }>(result: T): T {
+  return {
+    ...result,
+    items: result.items.map((item) => {
+      const summary = compactNodeSummary(item.node.data)
+      return { ...item, summary, node: { ...item.node, data: { summary } } }
+    }),
+  }
 }
 
 async function invokeWithMetrics(
@@ -638,17 +735,24 @@ export function createMcpServer(
                 projectId: id,
                 caseId: id,
                 caseTitle: text,
+                summary: z.string().min(1).max(240).optional(),
                 node: nodeResult,
+                whyMatched: z.array(retrievalReasonResult).max(MAX_ARRAY_LENGTH).optional(),
+                supportingPath: z.array(id).max(MAX_ARRAY_LENGTH).optional(),
               }),
             )
             .max(100),
           limit: z.number().int().min(1).max(100),
           truncated: z.boolean(),
+          diagnostics: retrievalDiagnosticsResult.optional(),
         }),
       ),
       annotations: readOnly,
     },
-    (input) => invoke('query_knowledge', () => service.queryKnowledge(input)),
+    (input) => invoke('query_knowledge', async () => {
+      const result = await service.queryKnowledge({ ...input, limit: input.limit ?? 5 })
+      return input.resultMode === 'nodes' ? result : compactQueryResult(result)
+    }),
   )
 
   server.registerTool(
@@ -725,19 +829,25 @@ export function createMcpServer(
           taskDescription: text,
           changedFiles: z.array(path).max(MAX_ARRAY_LENGTH).optional(),
           command: argv.optional(),
+          fingerprint: text.optional(),
           limit: z.number().int().min(1).max(100).optional(),
+          detail: z.enum(['brief', 'standard', 'full']).optional(),
         })
         .strict(),
       outputSchema: outputSchema(
         z.object({
           blocked: z.boolean(),
+          cards: z.array(preflightCardResult).max(100).optional()
+            .describe('Case-ranked cards; omitted only by a legacy daemon during a rolling upgrade.'),
           guardrails: z
-            .array(z.object({ node: nodeResult, blocks: z.boolean() }))
+            .array(preflightGuardrailResult)
             .max(100),
           failedAttempts: z.array(nodeResult).max(100),
           rootCauses: z.array(nodeResult).max(100),
           solutions: z.array(nodeResult).max(100),
           uncertain: z.array(nodeResult).max(100),
+          truncated: z.boolean().optional(),
+          expansionCaseIds: z.array(id).max(1_000).optional(),
         }),
       ),
       annotations: readOnly,
@@ -807,7 +917,7 @@ export function createMcpServer(
       outputSchema: outputSchema(z.object({
         observationId: id, projectId: id, startedAt: timestamp, finishedAt: timestamp,
         baselineTrackedBytes: z.number().int().nonnegative(), finalTrackedBytes: z.number().int().nonnegative(),
-        deltaBytes: z.number().int(), positiveGrowthBytes: z.number().int().nonnegative(),
+        deltaBytes: z.number().int().nullable(), positiveGrowthBytes: z.number().int().nonnegative(),
         overlappingObservations: z.number().int().nonnegative(), scannedEntries: z.number().int().nonnegative(),
         baselineScannedEntries: z.number().int().nonnegative(), finalScannedEntries: z.number().int().nonnegative(),
         scanTruncated: z.boolean(), baselineScanTruncated: z.boolean(), finalScanTruncated: z.boolean(), cacheHits: z.number().int().nonnegative(),
@@ -826,9 +936,9 @@ export function createMcpServer(
       outputSchema: outputSchema(z.object({
         observations: z.array(z.object({
           observationId: id, task: text, status: z.enum(['running', 'completed']), startedAt: timestamp,
-          finishedAt: timestamp.optional(), baselineTrackedBytes: z.number().int().nonnegative(),
-          finalTrackedBytes: z.number().int().nonnegative().optional(), deltaBytes: z.number().int().optional(),
-          positiveGrowthBytes: z.number().int().nonnegative().optional(), overlappingObservations: z.number().int().nonnegative(),
+          finishedAt: timestamp.nullish(), baselineTrackedBytes: z.number().int().nonnegative(),
+          finalTrackedBytes: z.number().int().nonnegative().nullish(), deltaBytes: z.number().int().nullish(),
+          positiveGrowthBytes: z.number().int().nonnegative().nullish(), overlappingObservations: z.number().int().nonnegative(),
           scanTruncated: z.boolean(),
         }).strict()).max(100), limit: z.number().int().min(1).max(100), truncated: z.boolean(),
       }).strict()),
@@ -857,8 +967,10 @@ export function createMcpServer(
   server.registerTool(
     'get_operation_metrics',
     {
-      description: 'Return project-scoped bounded latency, error, and response-size aggregates from the persistent daemon.',
-      inputSchema: z.object({ project: projectReference }).strict(),
+      description: 'Return project-scoped persistent-daemon metrics when project is supplied; an empty legacy request returns this MCP bridge session\'s bounded metrics.',
+      inputSchema: z.object({
+        project: z.object({ projectId: id.optional(), projectRoot: path.optional() }).strict().optional(),
+      }).strict(),
       outputSchema: outputSchema(z.array(z.object({
         operation: text,
         daemonPhaseDetail: z.literal('dispatch-total').optional(),
@@ -876,7 +988,19 @@ export function createMcpServer(
       }).strict()).max(100)),
       annotations: readOnly,
     },
-    (input) => invoke('get_operation_metrics', () => service.getOperationMetrics(input)),
+    (input) => {
+      if (input.project === undefined) {
+        return Promise.resolve(successResult('get_operation_metrics', metrics.aggregates()))
+      }
+      const parsedProject = projectReference.safeParse(input.project)
+      if (!parsedProject.success) {
+        return Promise.resolve(errorResult(new KnowledgeServiceError(
+          'VALIDATION_FAILED',
+          `project ${parsedProject.error.issues.map((issue) => issue.message).join('; ')}`,
+        )))
+      }
+      return invoke('get_operation_metrics', () => service.getOperationMetrics({ project: parsedProject.data }))
+    },
   )
 
   server.registerTool(
@@ -938,6 +1062,24 @@ export function createMcpServer(
       annotations: additiveWrite,
     },
     (input) => invoke('record_root_cause', () => service.recordRootCause(input)),
+  )
+
+  server.registerTool(
+    'promote_root_cause',
+    {
+      description: 'Promote one existing candidate RootCause in place after explicit human confirmation. Optional data is an exact idempotency assertion and can never rewrite causal history.',
+      inputSchema: z.object({
+        project: projectReference,
+        operationId: id,
+        caseId: id,
+        rootCauseId: id,
+        humanConfirmed: z.literal(true),
+        data: rootCauseData.optional(),
+      }).strict(),
+      outputSchema: outputSchema(nodeWriteResult),
+      annotations: idempotentWrite,
+    },
+    (input) => invoke('promote_root_cause', () => service.promoteRootCause(input)),
   )
 
   server.registerTool(
@@ -1062,33 +1204,7 @@ export function createMcpServer(
     'checkpoint_work',
     {
       description: 'Concise idempotent capture of failed, notable, or critical engineering work.',
-      inputSchema: z.object({
-        project: projectReference,
-        operationId: id,
-        caseId: id.optional(),
-        task: text,
-        outcome: z.enum(['failed', 'succeeded', 'inconclusive']),
-        summary: text,
-        importance: z.enum(['routine', 'notable', 'critical']).optional(),
-        fingerprint: text.optional(),
-        files: fileList.optional(),
-        command: argv.optional(),
-        evidence: z.array(
-          text.describe('One concise evidence statement string; objects are not accepted.'),
-        ).max(MAX_ARRAY_LENGTH).optional(),
-        rootCause: z.object({
-          explanation: text,
-          confidence: z.number().min(0).max(1),
-          rejectedAlternatives: stringList.optional(),
-        }).strict().optional(),
-        solution: z.object({
-          summary: text,
-          applicability: nonEmptyStringList,
-          limitations: nonEmptyStringList,
-          decisiveDifference: text,
-        }).strict().optional(),
-        humanConfirmed: z.boolean().optional(),
-      }).strict(),
+      inputSchema: checkpointWorkInputBase,
       outputSchema: outputSchema(z.object({
         recorded: z.boolean(),
         reason: z.literal('routine-success').optional(),
@@ -1101,10 +1217,24 @@ export function createMcpServer(
       })),
       annotations: idempotentWrite,
     },
-    (input) => invoke('checkpoint_work', async () => omitNullFields(
-      await service.checkpointWork(input),
-      ['reason', 'caseId', 'problemId', 'attemptId', 'rootCauseId', 'solutionId'],
-    )),
+    (input) => invoke('checkpoint_work', async () => {
+      const parsed = checkpointWorkInput.safeParse(input)
+      if (!parsed.success) {
+        const issues = parsed.error.issues.map((issue) => ({
+          path: issue.path.join('.') || 'input',
+          message: issue.message,
+        }))
+        throw new KnowledgeServiceError(
+          'VALIDATION_FAILED',
+          issues.map((issue) => `${issue.path} ${issue.message}`).join('; '),
+          { issues },
+        )
+      }
+      return omitNullFields(
+        await service.checkpointWork(parsed.data),
+        ['reason', 'caseId', 'problemId', 'attemptId', 'rootCauseId', 'solutionId'],
+      )
+    }),
   )
 
   server.registerTool(
