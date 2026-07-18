@@ -49,6 +49,29 @@ describe('CLI command dispatch', () => {
     }
   })
 
+  it('runs the human-operated updater before daemon or project dispatch', async () => {
+    let stdout = ''
+    let called = 0
+    const code = await runCli(['update'], {
+      stdout: { write: (value: string | Uint8Array) => ((stdout += value.toString()), true) },
+      stderr: { write: () => true },
+      update: () => {
+        called += 1
+        return {
+          updated: true,
+          deploymentRefreshed: true,
+          previousRevision: 'old-revision',
+          currentRevision: 'new-revision',
+          branch: 'main',
+        }
+      },
+    })
+
+    expect(code).toBe(0)
+    expect(called).toBe(1)
+    expect(JSON.parse(stdout)).toMatchObject({ updated: true, currentRevision: 'new-revision' })
+  })
+
   it('registers, lists, resolves, updates, and queries a project as JSON', async () => {
     const { data, project } = sandbox()
     const registered = await invoke([
@@ -70,6 +93,10 @@ describe('CLI command dispatch', () => {
     const query = await invoke(['--data-dir', data, 'query', '--project', projectId, 'nothing'])
     expect(query.code).toBe(0)
     expect(JSON.parse(query.stdout)).toMatchObject({ items: [] })
+
+    const doctor = await invoke(['--data-dir', data, 'daemon', 'doctor'])
+    expect(doctor.code).toBe(0)
+    expect(JSON.parse(doctor.stdout)).toMatchObject({ running: true, healthy: true, tokenPresent: true })
   })
 
   it('previews and applies explicit imports, then exports and imports a graph archive', async () => {

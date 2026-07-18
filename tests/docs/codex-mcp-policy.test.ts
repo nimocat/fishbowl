@@ -27,6 +27,7 @@ describe('Codex Fishbowl access policy', () => {
     expect(bootstrapPrompt).toContain('Treat MCP tool discovery as the only agent-side Fishbowl discovery path')
     expect(agentRules).toContain('Treat MCP tool discovery as the only Fishbowl discovery path')
     expect(bootstrapPrompt).not.toMatch(/fishbowl (?:query|checkpoint|preflight|project|run)\b/)
+    expect(bootstrapPrompt).not.toContain('fishbowl update')
   })
 
   it('makes the user-level Codex MCP server required', () => {

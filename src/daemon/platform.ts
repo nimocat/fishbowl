@@ -4,7 +4,7 @@ import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { readDaemonDescriptor, resolveDaemonPaths, type DaemonPaths } from './config.js'
+import { resolveDaemonPaths, type DaemonPaths } from './config.js'
 import { launchAgentPlist, macosInstallCommands, macosUninstallCommands } from './macos-launchd.js'
 import {
   legacyWindowsRunRemovalArgs,
@@ -46,7 +46,6 @@ export function installCurrentUserDaemon(options: {
   }
   if (platform === 'win32') {
     try { execFileSync('reg.exe', legacyWindowsRunRemovalArgs(), { stdio: 'ignore' }) } catch { /* old registration absent */ }
-    stopExistingDaemon(paths)
     const command = windowsRunCommand(nativeBinary, daemonArguments)
     execFileSync('reg.exe', windowsRunRegistrationArgs(command), { stdio: 'ignore' })
     return { platform: 'win32', location: WINDOWS_LOCATION, dataPreserved: true }
@@ -84,15 +83,6 @@ function retireLegacyMacOSDaemon(directory: string, uid: number): void {
     try { execFileSync(command.file, command.args, { stdio: 'ignore' }) } catch { /* old service absent */ }
   }
   rmSync(legacyLocation, { force: true })
-}
-
-function stopExistingDaemon(paths: DaemonPaths): void {
-  try {
-    const descriptor = readDaemonDescriptor({ paths })
-    process.kill(descriptor.pid, 'SIGTERM')
-  } catch {
-    // A missing, stale, or inaccessible descriptor must not prevent installation.
-  }
 }
 
 export function nativeDaemonArguments(paths: DaemonPaths): string[] {

@@ -8,6 +8,7 @@ export interface ParsedArguments {
 }
 
 export type CliCommand =
+  | { kind: 'update' }
   | { kind: 'serve'; port?: number }
   | { kind: 'mcp-stdio' }
   | { kind: 'project-register'; root: string; name: string; description?: string }
@@ -204,7 +205,9 @@ export function parseArguments(argv: string[]): ParsedArguments {
   const commandName = reader.take()
   let command: CliCommand
 
-  if (commandName === 'serve') {
+  if (commandName === 'update') {
+    command = { kind: 'update' }
+  } else if (commandName === 'serve') {
     command = { kind: 'serve', port: reader.integer('--port') }
   } else if (commandName === 'daemon') {
     const action = reader.take()
@@ -296,5 +299,8 @@ export function parseArguments(argv: string[]): ParsedArguments {
   }
 
   reader.assertEmpty()
+  if (command.kind === 'update' && embedded) {
+    throw new Error('update does not accept --data-dir or --embedded')
+  }
   return { dataDirectory, embedded, command }
 }

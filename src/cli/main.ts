@@ -7,13 +7,15 @@ import type { Writable } from 'node:stream'
 
 import type { AwaitableKnowledgeBackend } from '../application/backend.js'
 import { ensureInstalledDaemon, initializeDaemonCredentials } from '../daemon/lifecycle.js'
-import { readDaemonDescriptor } from '../daemon/config.js'
+import { DaemonClient } from '../daemon/client.js'
+import { readDaemonDescriptor, type DaemonDescriptor, type DaemonPaths } from '../daemon/config.js'
 import { defaultNativeBinary, installCurrentUserDaemon, nativeDaemonArguments, uninstallCurrentUserDaemon } from '../daemon/platform.js'
 import { runStdioServer } from '../mcp/stdio.js'
 import { RawLogStore } from '../logs/raw-log-store.js'
 import { parseArguments, type CliCommand } from './arguments.js'
 import { runCommand } from './run-command.js'
 import { isDirectExecution } from './direct-execution.js'
+import { updateFishbowl, type FishbowlUpdateResult } from './update.js'
 
 interface OutputStream {
   write(value: string | Uint8Array): unknown
@@ -25,6 +27,7 @@ export interface CliDependencies {
   backend?: AwaitableKnowledgeBackend
   /** Test/process-owner hook; normal CLI daemons remain detached. */
   daemonDetached?: boolean
+  update?: () => FishbowlUpdateResult
 }
 
 function printJson(stream: OutputStream, value: unknown): void {
@@ -101,9 +104,14 @@ export async function runCli(argv: string[], dependencies: CliDependencies = {})
     const daemonEnvironment = parsed.embedded
       ? { ...process.env, FISHBOWL_DATA_DIR: parsed.dataDirectory }
       : process.env
+    if (parsed.command.kind === 'update') {
+      printJson(stdout, (dependencies.update ?? updateFishbowl)())
+      return 0
+    }
     if (parsed.command.kind === 'daemon') {
       const initialized = initializeDaemonCredentials({ environment: daemonEnvironment })
       if (parsed.command.action === 'install') {
+        await stopInstalledDaemonIfRunning(initialized)
         printJson(stdout, installCurrentUserDaemon({ paths: initialized.paths }))
         return 0
       }
@@ -130,7 +138,23 @@ export async function runCli(argv: string[], dependencies: CliDependencies = {})
           return (error as NodeJS.ErrnoException).code === 'EPERM'
         }
       })()
-      if (parsed.command.action === 'stop' && running) process.kill(descriptor.pid, 'SIGTERM')
+      let healthy = false
+      if (running && (parsed.command.action === 'doctor' || parsed.command.action === 'stop')) {
+        try {
+          const probe = new DaemonClient({ descriptor, token: initialized.token, timeoutMs: 500 })
+          await probe.call('listProjects', {})
+          healthy = true
+        } catch {
+          healthy = false
+        }
+      }
+      if (parsed.command.action === 'stop' && running) {
+        if (!healthy) {
+          throw new Error('Refusing to stop a daemon PID that did not pass authenticated health validation')
+        }
+        process.kill(descriptor.pid, 'SIGTERM')
+        await waitForProcessExit(descriptor.pid)
+      }
       printJson(stdout, {
         running: parsed.command.action === 'stop' ? false : running,
         protocolVersion: descriptor.protocolVersion,
@@ -138,8 +162,13 @@ export async function runCli(argv: string[], dependencies: CliDependencies = {})
         pid: descriptor.pid,
         port: descriptor.port,
         ...(descriptor.browserPort && { webUrl: `http://127.0.0.1:${descriptor.browserPort}` }),
-        ...(parsed.command.action === 'doctor' && { dataDirectory: initialized.paths.dataDirectory, tokenPresent: initialized.token.length === 64 }),
+        ...(parsed.command.action === 'doctor' && {
+          healthy,
+          dataDirectory: initialized.paths.dataDirectory,
+          tokenPresent: initialized.token.length === 64,
+        }),
       })
+      if (parsed.command.action === 'doctor') return healthy ? 0 : 1
       return running || parsed.command.action === 'stop' ? 0 : 1
     }
     if (parsed.command.kind === 'mcp-stdio') {
@@ -195,6 +224,65 @@ export async function runCli(argv: string[], dependencies: CliDependencies = {})
     printJson(stderr, value)
     return 1
   }
+}
+
+export async function waitForProcessExit(pid: number, options: {
+  timeoutMs?: number
+  now?: () => number
+  sleep?: (milliseconds: number) => Promise<void>
+  signal?: (pid: number, signal: 0) => void
+} = {}): Promise<void> {
+  const timeoutMs = options.timeoutMs ?? 2_500
+  const now = options.now ?? Date.now
+  const sleep = options.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)))
+  const signal = options.signal ?? process.kill
+  const deadline = now() + timeoutMs
+  while (now() < deadline) {
+    try {
+      signal(pid, 0)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ESRCH') return
+      if ((error as NodeJS.ErrnoException).code !== 'EPERM') throw error
+    }
+    await sleep(25)
+  }
+  throw new Error(`Fishbowl daemon did not stop within ${timeoutMs}ms`)
+}
+
+export async function stopInstalledDaemonIfRunning(
+  initialized: { paths: DaemonPaths; token: string },
+  options: {
+    readDescriptor?: () => DaemonDescriptor
+    signal?: (pid: number, signal: NodeJS.Signals | 0) => void
+    authenticate?: (descriptor: DaemonDescriptor) => Promise<void>
+    wait?: (pid: number) => Promise<void>
+  } = {},
+): Promise<boolean> {
+  let descriptor: DaemonDescriptor
+  try {
+    descriptor = (options.readDescriptor ?? (() => readDaemonDescriptor({ paths: initialized.paths })))()
+  } catch {
+    return false
+  }
+  const signal = options.signal ?? process.kill
+  try {
+    signal(descriptor.pid, 0)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false
+    if ((error as NodeJS.ErrnoException).code !== 'EPERM') throw error
+  }
+  try {
+    if (options.authenticate) await options.authenticate(descriptor)
+    else {
+      const probe = new DaemonClient({ descriptor, token: initialized.token, timeoutMs: 500 })
+      await probe.call('listProjects', {})
+    }
+  } catch {
+    throw new Error('Refusing to replace a running daemon that did not pass authenticated health validation')
+  }
+  signal(descriptor.pid, 'SIGTERM')
+  await (options.wait ?? waitForProcessExit)(descriptor.pid)
+  return true
 }
 
 const direct = isDirectExecution(import.meta.url, process.argv[1])

@@ -187,6 +187,18 @@ The seven compatibility-focused TDD tasks are complete: schema-v6 indexed Case h
 
 **Windows follow-up (2026-07-18):** Added a reproducible current-user PowerShell update flow and native Windows path examples. Tightened the session prompt so missing MCP tools never trigger CLI discovery (`where`, `which`, `Get-Command`, package scripts, or filesystem search); users configure or restart the MCP Host outside the Agent session.
 
+## Safe CLI self-update
+
+**Status:** Complete; final gates passed (2026-07-18)
+
+**Scope:** Give human operators one safe source-checkout update command without weakening the Agent MCP-only boundary or allowing destructive Git behavior.
+
+**Implementation:** Added option-free `fishbowl update` orchestration for macOS and Windows. It validates a clean official `origin/main`, fetches and permits only fast-forward history, performs a no-op only when source and deployed revisions are current, and installs dependencies before daemon downtime. It backs up `dist` before quiescing the daemon, then builds/links, reinstalls and verifies the daemon, and restores the prior deployment on failure. macOS allows a bounded 2.5-second LaunchAgent readiness window without the generic auto-spawn path. Windows registration never signals a stale descriptor PID; `daemon install` replaces a running daemon only after authenticated stop and confirmed exit. Local changes, forks, and other branches fail before fetch; divergence fails after fetch but before worktree, build, or daemon mutation.
+
+**TDD gate:** Parser and updater suites failed before implementation. Focused tests cover the exact Windows command sequence, source-plus-deployment no-op, dirty/untrusted/non-main/diverged refusal, backup-before-downtime, failed-build rollback and same-revision repair, recovery after registration-removal failure, macOS LaunchAgent polling without auto-spawn, stale-descriptor registration safety, bounded daemon-stop exit semantics, and top-level CLI dispatch.
+
+**Verification:** `npm run typecheck`, all 75 Vitest tests, `npm run build`, `cargo test --workspace`, `cargo fmt --check`, and `git diff --check` passed.
+
 ## Protocol reliability and daemon observability
 
 **Status:** Complete; blocking review and release gates passed (2026-07-18)

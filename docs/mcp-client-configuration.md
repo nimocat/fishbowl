@@ -62,6 +62,10 @@ default_tools_approval_mode = "writes"
 
 These commands and paths configure the MCP Host. They are not agent-session fallback commands. After rebuilding or changing either path, fully restart the MCP client and verify that its server list exposes `fishbowl` tools.
 
+For later human-operated updates, run `fishbowl update` from PowerShell. The
+source checkout must be clean and on the official `origin/main`. Restart the
+MCP client after success; an Agent must never invoke the update command itself.
+
 ## Claude Desktop Style
 
 Add this server under `mcpServers` in the client's JSON configuration, then restart the client:

@@ -158,7 +158,15 @@ fishbowl daemon install
 
 ### Windows 更新（PowerShell）
 
-在最初克隆的 Fishbowl 仓库中执行。若 `git status --short` 显示你自己的修改，请先提交或暂存，不要直接覆盖：
+安装本次版本后，日常更新只需由你在 PowerShell 中执行：
+
+```powershell
+fishbowl update
+```
+
+该命令只接受干净的 Fishbowl 官方 `origin/main`：它执行 fast-forward、`npm ci`、生产构建、`npm link`、当前用户 daemon 重装、启动与健康检查。它不会使用 `reset --hard`、覆盖本地修改或切换分支。`%LOCALAPPDATA%\Fishbowl` 下的知识数据会保留。部署失败时会尽力恢复旧的 CLI 和 daemon；再次执行同一命令会继续修复尚未完成的部署，而不是因为源码已经最新就跳过。
+
+如果旧版本返回 `Unknown command: update`，需要在最初克隆的 Fishbowl 仓库中手动引导一次。若 `git status --short` 显示你自己的修改，请先提交或暂存：
 
 从源码构建需要 Node.js 22 或更新版本、Git、带 MSVC 工具链的 Rust stable，以及 Visual Studio Build Tools 的 C++ 工作负载。
 
@@ -173,7 +181,7 @@ npm link
 fishbowl daemon install
 ```
 
-`daemon install` 会停止旧的当前用户进程并更新 `HKCU` 启动项；`%LOCALAPPDATA%\Fishbowl` 下的知识数据会保留。随后请完全退出并重启 MCP 客户端（例如 Codex 或 Claude Desktop），让它重新启动更新后的 stdio MCP 进程并按需拉起守护进程。重启后可由你在 PowerShell 中执行 `fishbowl daemon doctor` 检查状态。Agent 不需要、也不应该自行查找或运行 Fishbowl CLI。
+每次更新成功后请完全退出并重启 MCP 客户端（例如 Codex 或 Claude Desktop），让它重新启动更新后的 stdio MCP 进程。Agent 不需要、也不应该自行查找或运行 `fishbowl update` 或其他 Fishbowl CLI。
 
 如果 MCP 客户端保存的是仓库内 `dist\cli\main.js` 的绝对路径，只要仍使用同一个克隆目录就不必修改配置；路径变化时按 [Windows MCP 路径配置](docs/mcp-client-configuration.md#windows-paths) 更新一次。
 

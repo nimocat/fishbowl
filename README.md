@@ -158,7 +158,15 @@ fishbowl daemon install
 
 ### Updating on Windows (PowerShell)
 
-Run this in the Fishbowl repository you originally cloned. If `git status --short` shows your own changes, commit or stash them before updating:
+After installing this release, routine updates are one human-run PowerShell command:
+
+```powershell
+fishbowl update
+```
+
+The command accepts only a clean checkout of the official Fishbowl `origin/main`. It fast-forwards, runs `npm ci`, builds production artifacts, refreshes `npm link`, reinstalls and starts the current-user daemon, and completes a health check. It never uses `reset --hard`, overwrites local changes, or switches branches. Knowledge under `%LOCALAPPDATA%\Fishbowl` is preserved. A failed deployment restores the prior CLI and daemon when possible; rerunning the command repairs an incomplete deployment instead of skipping merely because the source is current.
+
+If an older release reports `Unknown command: update`, bootstrap the command once in the Fishbowl repository you originally cloned. If `git status --short` shows your own changes, commit or stash them first:
 
 The source build requires Node.js 22 or newer, Git, Rust stable with the MSVC toolchain, and the Visual Studio Build Tools C++ workload.
 
@@ -173,7 +181,7 @@ npm link
 fishbowl daemon install
 ```
 
-`daemon install` stops the previous current-user process and refreshes the `HKCU` startup registration while preserving knowledge under `%LOCALAPPDATA%\Fishbowl`. Fully quit and restart the MCP client (for example Codex or Claude Desktop) afterward so it launches the rebuilt stdio MCP process and starts the daemon when needed. You can then run `fishbowl daemon doctor` yourself in PowerShell to verify it. Agents do not need—and must not try—to locate or run the Fishbowl CLI themselves.
+After every successful update, fully quit and restart the MCP client (for example Codex or Claude Desktop) so it launches the rebuilt stdio MCP process. Agents do not need—and must not try—to locate or run `fishbowl update` or any other Fishbowl CLI themselves.
 
 If the MCP client already points to the absolute `dist\cli\main.js` path in the same clone, its configuration does not change. If the clone moved, update it once using [Windows MCP paths](docs/mcp-client-configuration.md#windows-paths).
 

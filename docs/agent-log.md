@@ -723,3 +723,30 @@
   synchronized CONTEXT plus the accepted daemon ADR. Focused policy tests,
   TypeScript typecheck, 60/60 Vitest tests, production build, and diff checks
   passed.
+
+## 2026-07-18 — safe CLI self-update
+
+- Added RED tests for `fishbowl update` parsing, end-to-end command ordering,
+  no-op updates, unsafe checkout refusal, build failure recovery, and CLI
+  dispatch without daemon startup.
+- Implemented a human-only macOS/Windows updater over a clean official
+  `origin/main`. It uses fetch plus fast-forward merge, never destructive Git,
+  quiesces the daemon before replacing native artifacts, rebuilds and relinks,
+  then reinstalls, starts, and health-checks the daemon.
+- Preserved the Agent MCP-only contract: installation documentation may tell a
+  human to run the updater, but Agent prompts and rules never authorize it.
+- Review hardened recovery with a deployed-revision marker and ignored `dist`
+  backup, moved daemon downtime after fast-forward/dependency installation,
+  split Windows explicit startup from macOS LaunchAgent polling, and added
+  daemon-stop exit/timeout/error tests.
+- Strengthened `daemon doctor` to require an authenticated RPC. `daemon stop`
+  now refuses an unverified/stale PID before signaling it and waits for bounded
+  confirmed exit. Windows registration no longer reads or signals a retained
+  descriptor PID; regression tests cover backup failure before downtime and
+  recovery after registration-removal failure. A narrow authenticated
+  probe-to-signal race remains until shutdown moves into the daemon RPC.
+- Final review also moved authenticated stop-and-wait into `daemon install`,
+  so a Windows bootstrap cannot leave an already-running old binary behind,
+  and restored the bounded 2.5-second macOS LaunchAgent readiness window.
+- Verification: `npm run typecheck`, all 75 Vitest tests, `npm run build`,
+  `cargo test --workspace`, `cargo fmt --check`, and `git diff --check` passed.

@@ -286,6 +286,23 @@ as the only Fishbowl discovery path: a missing namespace is reported for human
 configuration or client restart, never followed by PATH, package, filesystem,
 CLI, HTTP, or SQLite discovery from the Agent session.
 
+Human operators on macOS and Windows can now use `fishbowl update` after one
+manual bootstrap. The updater accepts only a clean official `origin/main` and
+fast-forward history, preserves the platform knowledge directory, refreshes
+the linked build and daemon, and verifies health. A deployed-revision marker
+and ignored `dist` backup make failed same-revision deployments rerunnable and
+restore the prior daemon when possible. It refuses local changes, forks, and
+other branches before fetch; divergence is rejected after fetch but before
+worktree, build, or daemon mutation. macOS waits for LaunchAgent health rather
+than starting a competing daemon. Doctor health is an authenticated RPC, and
+stop refuses unverified PIDs before waiting for exit. Windows registration
+never signals a retained descriptor PID; authenticated stop owns updater
+shutdown, and `daemon install` also authenticates, stops, and waits before
+replacing a running daemon. macOS gets a bounded 2.5-second readiness window.
+A narrow probe-to-signal race remains pending a native authenticated
+shutdown RPC. MCP clients still need a full restart afterward; Agents never
+invoke the updater.
+
 ## Protocol reliability handoff (2026-07-18)
 
 Protocol generation 2 now has `getOperationResult` and project-scoped

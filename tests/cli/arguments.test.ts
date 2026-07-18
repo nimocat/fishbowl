@@ -97,6 +97,12 @@ describe('CLI arguments', () => {
     expect(parseArguments(['daemon', 'foreground']).command).toEqual({ kind: 'daemon', action: 'foreground' })
   })
 
+  it('parses the human-operated self-update command without options', () => {
+    expect(parseArguments(['update']).command).toEqual({ kind: 'update' })
+    expect(() => parseArguments(['update', '--force'])).toThrow(/Unexpected argument/)
+    expect(() => parseArguments(['--embedded', 'update'])).toThrow(/does not accept --data-dir or --embedded/)
+  })
+
   it('parses explicit disk observation lifecycle and cleanup queries', () => {
     expect(parseArguments([
       'disk', 'start', '--project', 'project-a', '--operation', 'task-1-start', '--task', 'build feature',
