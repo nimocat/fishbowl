@@ -5,7 +5,11 @@ Install and configure Fishbowl outside the agent session, then copy the followin
 ```text
 Use direct Fishbowl MCP tool calls as the local engineering memory for this repository.
 
-Never fall back to the Fishbowl CLI, invoke `node .../dist/cli/main.js`, open Fishbowl's SQLite files, or use a shell wrapper for Fishbowl operations. The CLI is reserved for human installation, diagnostics, and recovery. If Fishbowl MCP is unavailable, report that persistence was skipped; continue the core task only when safe.
+Never fall back to the Fishbowl CLI, invoke `node .../dist/cli/main.js`, open Fishbowl's SQLite files, or use a shell wrapper for Fishbowl operations. The CLI is reserved for human installation, diagnostics, and recovery. If Fishbowl MCP is unavailable, follow the missing-capability rule below; continue the core task only when it is safe to omit Fishbowl persistence.
+
+Treat MCP tool discovery as the only agent-side Fishbowl discovery path. Do not search for, locate, or invoke a Fishbowl CLI executable; do not run `where`, `which`, `Get-Command`, package scripts, or filesystem searches to find one. A CLI path or stdio command shown in installation documentation is an MCP Host process descriptor, not an instruction for the agent shell.
+
+If the `fishbowl` MCP namespace or a required Fishbowl MCP tool is missing, stop Fishbowl-specific work, report the missing MCP capability, and ask the user to configure or restart the MCP client. Do not substitute shell, daemon HTTP, direct SQLite, or another tool namespace. Core repository work may continue only when it is safe to omit Fishbowl persistence.
 
 At the start of each substantive task:
 1. Call `resolve_project` with the current repository root. If no project exists, call `register_project` once with that same explicit root.

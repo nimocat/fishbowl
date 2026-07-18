@@ -23,6 +23,9 @@ describe('Codex Fishbowl access policy', () => {
     expect(bootstrapPrompt).toContain('get_preflight_guidance')
     expect(bootstrapPrompt).toContain('query_knowledge')
     expect(bootstrapPrompt).toContain('checkpoint_work')
+    expect(bootstrapPrompt).toContain('Do not search for, locate, or invoke a Fishbowl CLI executable')
+    expect(bootstrapPrompt).toContain('Treat MCP tool discovery as the only agent-side Fishbowl discovery path')
+    expect(agentRules).toContain('Treat MCP tool discovery as the only Fishbowl discovery path')
     expect(bootstrapPrompt).not.toMatch(/fishbowl (?:query|checkpoint|preflight|project|run)\b/)
   })
 
@@ -33,5 +36,28 @@ describe('Codex Fishbowl access policy', () => {
     expect(codexSection).toBeDefined()
     expect(codexSection).toContain('required = true')
     expect(codexSection).toContain('Never fall back to the Fishbowl CLI')
+  })
+
+  it('documents a reproducible Windows update and MCP reconnect flow', () => {
+    const readme = read('README.zh-CN.md')
+    const englishReadme = read('README.md')
+    const clientConfiguration = read('docs/mcp-client-configuration.md')
+
+    expect(readme).toContain('### Windows 更新（PowerShell）')
+    expect(readme).toContain('git pull --ff-only origin main')
+    expect(readme).toContain('npm ci')
+    expect(readme).toContain('Rust stable')
+    expect(readme).toContain('fishbowl daemon install')
+    expect(readme).toContain('重启 MCP 客户端')
+    expect(clientConfiguration).toContain('## Windows Paths')
+    expect(clientConfiguration).toContain('(Get-Command node).Source')
+    expect(clientConfiguration).toContain('Resolve-Path .\\dist\\cli\\main.js')
+    expect(englishReadme).toContain('### Updating on Windows (PowerShell)')
+    expect(englishReadme).toContain('git pull --ff-only origin main')
+    expect(englishReadme).toContain('Rust stable')
+
+    const windowsJson = clientConfiguration.match(/JSON requires doubled backslashes:\n\n```json\n([\s\S]*?)```/)?.[1]
+    expect(windowsJson).toBeDefined()
+    expect(() => JSON.parse(windowsJson as string)).not.toThrow()
   })
 })

@@ -57,7 +57,7 @@ fishbowl daemon doctor
 
 ### Windows（PowerShell）
 
-先安装 Node.js 22 或更新版本以及 Git，再执行：
+先安装 Node.js 22 或更新版本、Git、带 MSVC 工具链的 Rust stable，以及 Visual Studio Build Tools 的 C++ 工作负载，再执行：
 
 ```powershell
 git clone https://github.com/nimocat/fishbowl.git
@@ -155,6 +155,27 @@ Fishbowl 守护进程（当前用户、带认证）
 ```bash
 fishbowl daemon install
 ```
+
+### Windows 更新（PowerShell）
+
+在最初克隆的 Fishbowl 仓库中执行。若 `git status --short` 显示你自己的修改，请先提交或暂存，不要直接覆盖：
+
+从源码构建需要 Node.js 22 或更新版本、Git、带 MSVC 工具链的 Rust stable，以及 Visual Studio Build Tools 的 C++ 工作负载。
+
+```powershell
+Set-Location C:\path\to\fishbowl
+git status --short
+git pull --ff-only origin main
+npm ci
+npm run build
+npm link
+
+fishbowl daemon install
+```
+
+`daemon install` 会停止旧的当前用户进程并更新 `HKCU` 启动项；`%LOCALAPPDATA%\Fishbowl` 下的知识数据会保留。随后请完全退出并重启 MCP 客户端（例如 Codex 或 Claude Desktop），让它重新启动更新后的 stdio MCP 进程并按需拉起守护进程。重启后可由你在 PowerShell 中执行 `fishbowl daemon doctor` 检查状态。Agent 不需要、也不应该自行查找或运行 Fishbowl CLI。
+
+如果 MCP 客户端保存的是仓库内 `dist\cli\main.js` 的绝对路径，只要仍使用同一个克隆目录就不必修改配置；路径变化时按 [Windows MCP 路径配置](docs/mcp-client-configuration.md#windows-paths) 更新一次。
 
 ## 参与开发
 

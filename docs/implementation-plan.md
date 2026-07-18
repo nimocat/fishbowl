@@ -185,6 +185,8 @@ The seven compatibility-focused TDD tasks are complete: schema-v6 indexed Case h
 
 **TDD gate:** `tests/docs/codex-mcp-policy.test.ts` failed against the CLI bootstrap and optional MCP configuration, then passed after MCP-only guidance was installed.
 
+**Windows follow-up (2026-07-18):** Added a reproducible current-user PowerShell update flow and native Windows path examples. Tightened the session prompt so missing MCP tools never trigger CLI discovery (`where`, `which`, `Get-Command`, package scripts, or filesystem search); users configure or restart the MCP Host outside the Agent session.
+
 ## Protocol reliability and daemon observability
 
 **Status:** Complete; blocking review and release gates passed (2026-07-18)

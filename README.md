@@ -57,7 +57,7 @@ fishbowl daemon doctor
 
 ### Windows (PowerShell)
 
-Install Node.js 22 or newer and Git, then run:
+Install Node.js 22 or newer, Git, Rust stable with the MSVC toolchain, and the Visual Studio Build Tools C++ workload, then run:
 
 ```powershell
 git clone https://github.com/nimocat/fishbowl.git
@@ -155,6 +155,27 @@ Run once after upgrading:
 ```bash
 fishbowl daemon install
 ```
+
+### Updating on Windows (PowerShell)
+
+Run this in the Fishbowl repository you originally cloned. If `git status --short` shows your own changes, commit or stash them before updating:
+
+The source build requires Node.js 22 or newer, Git, Rust stable with the MSVC toolchain, and the Visual Studio Build Tools C++ workload.
+
+```powershell
+Set-Location C:\path\to\fishbowl
+git status --short
+git pull --ff-only origin main
+npm ci
+npm run build
+npm link
+
+fishbowl daemon install
+```
+
+`daemon install` stops the previous current-user process and refreshes the `HKCU` startup registration while preserving knowledge under `%LOCALAPPDATA%\Fishbowl`. Fully quit and restart the MCP client (for example Codex or Claude Desktop) afterward so it launches the rebuilt stdio MCP process and starts the daemon when needed. You can then run `fishbowl daemon doctor` yourself in PowerShell to verify it. Agents do not need—and must not try—to locate or run the Fishbowl CLI themselves.
+
+If the MCP client already points to the absolute `dist\cli\main.js` path in the same clone, its configuration does not change. If the clone moved, update it once using [Windows MCP paths](docs/mcp-client-configuration.md#windows-paths).
 
 ## Development
 

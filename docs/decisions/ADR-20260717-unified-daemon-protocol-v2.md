@@ -19,6 +19,9 @@ daemon, which could report only `Request shape or operation is invalid`.
   operations as direct MCP tool calls. It never falls back to CLI, direct
   SQLite access, or a shell wrapper. CLI installation, diagnostics, and
   recovery remain human-operated boundaries.
+- MCP tool discovery is the only Agent-side Fishbowl discovery path. A missing
+  namespace or tool is reported for human configuration or client restart;
+  the Agent does not search PATH, package scripts, or the filesystem for CLI.
 - Normal CLI, MCP, and LaunchAgent traffic uses the platform-default store.
   Alternate data directories are explicit test/recovery boundaries only.
 - The public RPC generation is 2. Generation-1 descriptors are rejected.

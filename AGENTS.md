@@ -10,5 +10,6 @@
 
 - Use direct Fishbowl MCP tool calls for all agent queries and writes.
 - Never fall back to the Fishbowl CLI, `node .../dist/cli/main.js`, direct SQLite access, or shell wrappers when MCP is unavailable.
+- Treat MCP tool discovery as the only Fishbowl discovery path. Do not search PATH, package scripts, or the filesystem for a Fishbowl CLI executable from an agent session.
 - Treat the CLI as a human-operated installation, diagnostics, and recovery interface only.
-- If the MCP server is unavailable, report that Fishbowl persistence was skipped and continue the core task only when doing so is safe.
+- If the MCP namespace or required tool is unavailable, report it and ask the user to configure or restart the MCP client. Do not substitute another transport; continue the core task only when omitting Fishbowl persistence is safe.

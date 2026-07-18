@@ -18,6 +18,50 @@ node /Users/eric/fishbowl/dist/cli/main.js mcp --stdio
 
 The client must keep stdin/stdout attached for MCP protocol traffic. Fishbowl does not print startup diagnostics to stdout.
 
+## Windows Paths
+
+After building Fishbowl, resolve the exact Windows paths from PowerShell:
+
+```powershell
+Set-Location C:\path\to\fishbowl
+$nodePath = (Get-Command node).Source
+$mcpEntry = (Resolve-Path .\dist\cli\main.js).Path
+$nodePath
+$mcpEntry
+```
+
+Use the two printed absolute paths in the MCP client configuration. JSON requires doubled backslashes:
+
+```json
+{
+  "mcpServers": {
+    "fishbowl": {
+      "command": "C:\\Program Files\\nodejs\\node.exe",
+      "args": [
+        "C:\\src\\fishbowl\\dist\\cli\\main.js",
+        "mcp",
+        "--stdio"
+      ]
+    }
+  }
+}
+```
+
+For Codex TOML on Windows, single-quoted literal strings keep backslashes readable:
+
+```toml
+[mcp_servers.fishbowl]
+command = 'C:\Program Files\nodejs\node.exe'
+args = ['C:\src\fishbowl\dist\cli\main.js', 'mcp', '--stdio']
+enabled = true
+required = true
+startup_timeout_sec = 30
+tool_timeout_sec = 60
+default_tools_approval_mode = "writes"
+```
+
+These commands and paths configure the MCP Host. They are not agent-session fallback commands. After rebuilding or changing either path, fully restart the MCP client and verify that its server list exposes `fishbowl` tools.
+
 ## Claude Desktop Style
 
 Add this server under `mcpServers` in the client's JSON configuration, then restart the client:
@@ -54,6 +98,8 @@ default_tools_approval_mode = "writes"
 ```
 
 Configure this entry once at user level. During a Codex task, use direct Fishbowl MCP tool calls for project resolution, preflight, queries, and writes. Never fall back to the Fishbowl CLI or launch the stdio command from Codex's shell when an MCP call fails. Report the unavailable server instead; the command above is only the MCP host's process descriptor.
+
+Do not ask Codex to locate Fishbowl with `which`, `where`, `Get-Command`, package scripts, or filesystem search. If the `fishbowl` namespace is absent, fix the user-level MCP configuration outside the task and restart Codex.
 
 The same configuration can be added without editing a file:
 

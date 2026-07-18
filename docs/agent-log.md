@@ -708,3 +708,18 @@
   configured acceptance command found no `tests/acceptance` files. Strict
   Clippy additionally surfaced two unrelated pre-existing lints in snapshot
   test placement and disk-watch condition structure; neither file was changed.
+
+## 2026-07-18 — Windows update and MCP-only discovery guidance
+
+- Added an explicit PowerShell update sequence covering fast-forward pull,
+  clean dependency install, native rebuild, current-user daemon refresh,
+  health check, and MCP client restart while preserving local knowledge data.
+- Strengthened the reusable Agent prompt and repository rules: MCP tool
+  discovery is the only Agent-side Fishbowl discovery path. Agents must not
+  search PATH, package scripts, or the filesystem for the CLI, and a missing
+  MCP namespace is reported for human configuration instead of triggering a
+  transport fallback.
+- Review added the required Windows Rust/MSVC/C++ build prerequisites and
+  synchronized CONTEXT plus the accepted daemon ADR. Focused policy tests,
+  TypeScript typecheck, 60/60 Vitest tests, production build, and diff checks
+  passed.

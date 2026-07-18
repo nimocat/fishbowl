@@ -280,6 +280,12 @@ afterward through MCP. Restart Codex or open a new task to load the renamed
 `fishbowl` namespace; the already-running task may retain the former
 `engineering_knowledge_graph` namespace until then.
 
+The Windows follow-up documents a complete PowerShell update sequence and
+absolute Node/MCP entry resolution. The Agent prompt now treats MCP discovery
+as the only Fishbowl discovery path: a missing namespace is reported for human
+configuration or client restart, never followed by PATH, package, filesystem,
+CLI, HTTP, or SQLite discovery from the Agent session.
+
 ## Protocol reliability handoff (2026-07-18)
 
 Protocol generation 2 now has `getOperationResult` and project-scoped
