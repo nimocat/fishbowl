@@ -4,16 +4,20 @@ use fishbowl_contracts::{DaemonOperation, ErrorCode, RequestEnvelope, Validate};
 use serde_json::{Value, json};
 
 const UNKNOWN_REQUEST_ID: &str = "unknown";
+const MAX_PARSE_ERROR_CHARS: usize = 512;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProtocolError {
     pub code: ErrorCode,
-    pub message: &'static str,
+    pub message: String,
 }
 
 impl ProtocolError {
-    pub const fn new(code: ErrorCode, message: &'static str) -> Self {
-        Self { code, message }
+    pub fn new(code: ErrorCode, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+        }
     }
 }
 
@@ -50,12 +54,14 @@ impl ProtocolSession {
         let request_id = safe_request_id(line).unwrap_or_else(|| UNKNOWN_REQUEST_ID.to_owned());
         let request = match serde_json::from_str::<RequestEnvelope>(line) {
             Ok(value) => value,
-            Err(_) => {
-                return failure(
-                    &request_id,
-                    ErrorCode::InvalidRequest,
-                    "Request shape or operation is invalid",
-                );
+            Err(error) => {
+                let detail: String = error
+                    .to_string()
+                    .chars()
+                    .take(MAX_PARSE_ERROR_CHARS)
+                    .collect();
+                let message = format!("Request shape validation failed: {detail}");
+                return failure(&request_id, ErrorCode::InvalidRequest, &message);
             }
         };
         if let Err(code) = request.validate() {
@@ -94,10 +100,26 @@ impl ProtocolSession {
                     "Unexpected service failure",
                 )
             }),
-            Err(error) => failure(&request.request_id, error.code, error.message),
+            Err(error) => failure(&request.request_id, error.code, &error.message),
         };
         self.remember(request.request_id, canonical, response.clone());
         response
+    }
+
+    pub fn payload_too_large_response() -> String {
+        failure(
+            UNKNOWN_REQUEST_ID,
+            ErrorCode::PayloadTooLarge,
+            validation_message(ErrorCode::PayloadTooLarge),
+        )
+    }
+
+    pub fn invalid_utf8_response() -> String {
+        failure(
+            UNKNOWN_REQUEST_ID,
+            ErrorCode::InvalidRequest,
+            "Request must be UTF-8",
+        )
     }
 
     fn remember(&mut self, request_id: String, request: String, response: String) {
@@ -122,7 +144,7 @@ fn safe_request_id(line: &str) -> Option<String> {
     }
 }
 
-fn failure(request_id: &str, code: ErrorCode, message: &'static str) -> String {
+fn failure(request_id: &str, code: ErrorCode, message: &str) -> String {
     serde_json::to_string(&json!({
         "ok": false,
         "requestId": request_id,

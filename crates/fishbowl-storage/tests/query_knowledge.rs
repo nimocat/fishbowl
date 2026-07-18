@@ -1,5 +1,6 @@
 use fishbowl_contracts::{
-    NodeStatus, NodeType, ProjectReference, QueryKnowledgeInput, RetrievalMatchKind, RetrievalMode,
+    NodeStatus, NodeType, ProjectReference, QueryKnowledgeInput, QueryResultMode,
+    RetrievalMatchKind, RetrievalMode,
 };
 use fishbowl_core::ExpansionConfig;
 use fishbowl_storage::ReadRepository;
@@ -22,6 +23,7 @@ fn complete_query_is_project_scoped_composable_and_deterministic() {
         command: Some("xcodebuild".into()),
         fingerprint: Some("camera hang".into()),
         limit: Some(1),
+        result_mode: None,
     };
     let first = repository.query_knowledge(&input).unwrap();
     let second = repository.query_knowledge(&input).unwrap();
@@ -54,6 +56,71 @@ fn complete_query_is_project_scoped_composable_and_deterministic() {
 }
 
 #[test]
+fn query_defaults_to_one_best_node_per_case_and_allows_node_expansion() {
+    let path = database("case-diversity");
+    let connection = Connection::open(&path).unwrap();
+    connection.execute_batch(
+        "INSERT INTO cases VALUES ('case-c','project-a','Camera fallback','candidate','2026-07-16T02:00:00Z');
+         INSERT INTO nodes VALUES ('problem-c','case-c','Problem','open','{\"summary\":\"camera session fallback\",\"domain\":\"ios\"}','2026-07-16T02:00:00Z');
+         INSERT INTO node_search VALUES ('project-a','problem-c','Camera fallback','camera session fallback ios');",
+    ).unwrap();
+    for index in 0..70 {
+        let node_id = format!("crowd-{index:02}");
+        let created_at = format!("2026-07-16T{:02}:{:02}:00Z", 3 + index / 60, index % 60);
+        connection.execute(
+            "INSERT INTO nodes VALUES (?, 'case-a', 'Attempt', 'candidate', '{\"summary\":\"camera session crowd\"}', ?)",
+            rusqlite::params![node_id, created_at],
+        ).unwrap();
+        connection.execute(
+            "INSERT INTO node_search VALUES ('project-a', ?, 'Camera lifecycle', 'camera session crowd')",
+            rusqlite::params![node_id],
+        ).unwrap();
+    }
+    drop(connection);
+    let repository = ReadRepository::open(path.to_str().unwrap()).unwrap();
+    let mut input = QueryKnowledgeInput {
+        project: ProjectReference {
+            project_id: Some("project-a".into()),
+            project_root: None,
+        },
+        text: Some("camera session".into()),
+        domain: None,
+        node_types: None,
+        statuses: None,
+        file: None,
+        command: None,
+        fingerprint: None,
+        result_mode: None,
+        limit: Some(5),
+    };
+
+    let diverse = repository.query_knowledge(&input).unwrap();
+    assert_eq!(
+        diverse
+            .items
+            .iter()
+            .map(|item| &item.case_id)
+            .collect::<std::collections::BTreeSet<_>>()
+            .len(),
+        diverse.items.len()
+    );
+    assert!(diverse.items.iter().any(|item| item.case_id == "case-a"));
+    assert!(diverse.items.iter().any(|item| item.case_id == "case-c"));
+
+    input.result_mode = Some(QueryResultMode::Nodes);
+    let expanded = repository.query_knowledge(&input).unwrap();
+    assert!(
+        expanded
+            .items
+            .iter()
+            .filter(|item| item.case_id == "case-a")
+            .count()
+            > 1
+    );
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
 fn aliases_resolve_and_identical_other_project_text_never_leaks() {
     let path = database("alias");
     let repository = ReadRepository::open(path.to_str().unwrap()).unwrap();
@@ -71,6 +138,7 @@ fn aliases_resolve_and_identical_other_project_text_never_leaks() {
             command: None,
             fingerprint: None,
             limit: Some(10),
+            result_mode: None,
         })
         .unwrap();
     assert!(!result.items.is_empty());
@@ -102,6 +170,7 @@ fn limit_has_stable_truncation_without_mutating_schema_v7() {
             command: None,
             fingerprint: None,
             limit: Some(1),
+            result_mode: None,
         })
         .unwrap();
     assert_eq!(result.items.len(), 1);
@@ -176,6 +245,7 @@ fn production_query_routes_then_expands_to_a_filtered_multihop_solution() {
             command: None,
             fingerprint: None,
             limit: Some(5),
+            result_mode: None,
         })
         .unwrap();
 
@@ -217,6 +287,7 @@ fn retrieval_cache_rebuilds_when_the_project_event_revision_changes() {
         command: None,
         fingerprint: None,
         limit: Some(5),
+        result_mode: None,
     };
     assert!(repository.query_knowledge(&input).unwrap().items.is_empty());
 
@@ -254,6 +325,7 @@ fn unmatched_text_returns_a_bounded_deterministic_exact_fallback() {
         command: None,
         fingerprint: None,
         limit: Some(5),
+        result_mode: None,
     };
     let first = repository.query_knowledge(&input).unwrap();
     let second = repository.query_knowledge(&input).unwrap();

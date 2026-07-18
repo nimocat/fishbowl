@@ -93,22 +93,22 @@ fishbowl checkpoint \
   --summary "Moved composition work off the main actor and passed focused verification."
 ```
 
-## Give Fishbowl to an Agent
+## Give Fishbowl to Codex or Another Agent
 
-Copy the [Agent Quick Start Prompt](docs/agent-bootstrap-prompt.md) into a coding agent. It tells the agent to:
+Configure the user-level stdio MCP server once, then copy the [MCP Agent Session Prompt](docs/agent-bootstrap-prompt.md) into a coding agent. It tells the agent to:
 
-1. Install Fishbowl locally and start its daemon.
-2. Register or resolve the current repository.
-3. Query relevant history before substantive work.
-4. Save a concise, redacted checkpoint when the task ends.
+1. Call Fishbowl MCP tools directly for project resolution and preflight.
+2. Query relevant history before substantive work.
+3. Save concise, redacted checkpoints through MCP when the task ends.
+4. Report an unavailable MCP server instead of falling back to the CLI.
 
-For persistent integration, start the stdio MCP bridge:
+The MCP client starts this persistent stdio bridge from its server configuration:
 
 ```bash
 node /absolute/path/to/fishbowl/dist/cli/main.js mcp --stdio
 ```
 
-See the ready-to-copy [MCP client configurations](docs/mcp-client-configuration.md). The process writes protocol frames to stdout, so do not wrap it in commands that print banners.
+See the ready-to-copy [MCP client configurations](docs/mcp-client-configuration.md). Codex must not launch this command itself or use CLI query/write commands. The configured MCP host owns the process and its stdout protocol frames.
 
 ## The Engineering Loop
 

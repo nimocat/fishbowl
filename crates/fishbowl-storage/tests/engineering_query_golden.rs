@@ -32,6 +32,7 @@ fn production_query_pipeline_meets_real_engineering_recall_and_budget_gates() {
                     command: None,
                     fingerprint: None,
                     limit: Some(5),
+                    result_mode: None,
                 })
                 .unwrap();
             if result

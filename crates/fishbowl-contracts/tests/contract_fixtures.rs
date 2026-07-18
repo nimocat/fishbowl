@@ -130,6 +130,7 @@ fn write_outputs_omit_absent_optional_fields() {
         promotion: PromotionStatus {
             status: NodeStatus::Candidate,
             missing_requirements: Vec::new(),
+            next_actions: Vec::new(),
         },
     })
     .unwrap();

@@ -1,3 +1,5 @@
+import type { OperationMetricAggregate } from './contracts.js'
+
 export interface OperationMetricSample {
   operation: string
   ok: boolean
@@ -11,21 +13,6 @@ export interface OperationMetricSample {
   daemonSerializationMs?: number
   transportMs?: number
   mcpHostMs?: number
-}
-
-export interface OperationMetricAggregate {
-  operation: string
-  count: number
-  errors: number
-  p50DurationMs: number
-  p95DurationMs: number
-  maxDurationMs: number
-  maxResponseBytes: number
-  p95DaemonQueueMs: number
-  p95DaemonExecutionMs: number
-  p95DaemonSerializationMs: number
-  p95TransportMs: number
-  p95McpHostMs: number
 }
 
 interface StoredMetric {

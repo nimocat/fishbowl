@@ -175,6 +175,26 @@ The seven compatibility-focused TDD tasks are complete: schema-v6 indexed Case h
 - Redaction must occur before events, search data, exports, and browser responses.
 - The first-release CLI has no built-in `--help`; keep README examples synchronized with parser tests until help is added.
 
+## Codex MCP-only Fishbowl access
+
+**Status:** Complete (2026-07-18)
+
+**Scope:** Make direct Fishbowl MCP tool calls the only agent-session path for Codex while retaining CLI and stdio process commands as human installation, diagnostics, and recovery boundaries.
+
+**Implementation:** Added a documentation policy regression test; rewrote the Agent session prompt and Codex MCP configuration guidance; made the user-level server required; documented the no-CLI-fallback decision in repository rules, public READMEs, context, and ADR. The installed Codex policy uses one user-level `fishbowl` server. A registered iOS repository's project-local MCP override was retired, and its Agent rules, Fishbowl skill, and workflow now prohibit CLI, shell-wrapper, daemon-HTTP, and direct-SQLite fallback.
+
+**TDD gate:** `tests/docs/codex-mcp-policy.test.ts` failed against the CLI bootstrap and optional MCP configuration, then passed after MCP-only guidance was installed.
+
+## Protocol reliability and daemon observability
+
+**Status:** Complete; blocking review and release gates passed (2026-07-18)
+
+**Scope:** Eliminate ambiguous-write retry risk, retain validation detail, move metrics to the persistent daemon, improve bounded retrieval diversity, and make strict promotion requirements actionable.
+
+**Implementation:** Added project-scoped durable operation-result lookup; bounded project-owned native daemon metric aggregation; bounded dynamic `VALIDATION_FAILED` messages and MCP field paths; default Case-diverse query results with explicit `nodes` compatibility mode; and promotion `nextActions` plus an explicit `close_case` promotion description. The change is additive under protocol generation 2 and requires no SQLite migration.
+
+**TDD gate:** New MCP, native HTTP, storage transaction, query, and promotion assertions failed before implementation. Focused suites, 59/59 Vitest tests, the complete Rust workspace suite, production build, formatting, and diff checks pass after implementation. The repository's `test:acceptance` script currently selects a missing `tests/acceptance` directory and therefore reports “No test files found”; no acceptance test was silently skipped or claimed as passing.
+
 ## Rust Core Migration
 
 **Status:** Stage 5 complete; Stage 6 in progress (2026-07-16)

@@ -55,6 +55,7 @@ export interface OperationIdentity {
 export interface PromotionStatus {
   status: 'candidate' | 'verified'
   missingRequirements: string[]
+  nextActions?: string[]
 }
 
 export interface NodeWriteResult {
@@ -87,6 +88,41 @@ export interface QueryKnowledgeInput {
   command?: string
   fingerprint?: string
   limit?: number
+  resultMode?: 'case-diverse' | 'nodes'
+}
+
+export interface GetOperationResultInput {
+  project: ProjectReference
+  operationId: string
+  kind?: string
+}
+
+export interface OperationResultLookup {
+  found: boolean
+  operationId: string
+  kind?: string
+  result?: unknown
+  createdAt?: string
+}
+
+export interface OperationMetricAggregate {
+  operation: string
+  daemonPhaseDetail?: 'dispatch-total'
+  count: number
+  errors: number
+  p50DurationMs: number
+  p95DurationMs: number
+  maxDurationMs: number
+  maxResponseBytes: number
+  p95DaemonQueueMs: number
+  p95DaemonExecutionMs: number
+  p95DaemonSerializationMs: number
+  p95TransportMs: number
+  p95McpHostMs: number
+}
+
+export interface GetOperationMetricsInput {
+  project: ProjectReference
 }
 
 export interface KnowledgeQueryItem {
@@ -559,6 +595,8 @@ export interface KnowledgeServiceContract {
   resolveProject(reference: ProjectReference): ProjectResult
   updateProject(input: UpdateProjectInput): ProjectWithAliases
   queryKnowledge(input: QueryKnowledgeInput): KnowledgeQueryResult
+  getOperationResult(input: GetOperationResultInput): OperationResultLookup
+  getOperationMetrics(input: GetOperationMetricsInput): OperationMetricAggregate[]
   getCase(input: GetCaseInput): CaseDetail
   listRecentActivity(input: RecentActivityInput): RecentActivityResult
   preflight(input: PreflightInput): PreflightResult

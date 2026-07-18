@@ -77,6 +77,11 @@ Fishbowl (Fishbowl) is a local-first service for preserving the path from engine
 - Command-log Artifacts retain validated digest algorithm, accepted and retained byte sizes, segment count, truncation state, and retained paths.
 - Browser Case selection aborts the prior detail request and uses a monotonic token so stale same-project responses cannot replace the latest selection.
 - MCP uses pinned `@modelcontextprotocol/sdk` 1.29.0 with Zod 3.25.76; tool inputs require explicit project references and apply protocol-level size/count constraints.
+- Codex uses the user-level Fishbowl server through direct MCP tool calls only. It never falls back to CLI, direct SQLite access, or a shell wrapper; CLI startup, diagnostics, and recovery are human-operated boundaries.
+- Ambiguous idempotent writes are resolved through project-scoped `get_operation_result` before retry. It reads the existing durable operation ledger and requires no schema migration.
+- `get_operation_metrics` requires an explicit project and returns that project's bounded 1,000-sample window owned by the persistent native daemon. `daemonPhaseDetail: "dispatch-total"` explicitly marks native lock/work/encoding as one phase; host/transport fields remain zero until those phases can be attributed to a project.
+- `query_knowledge` is Case-diverse by default; `resultMode: "nodes"` explicitly expands multiple matching nodes per Case.
+- Promotion responses retain machine-readable `missingRequirements` and add actionable `nextActions`; `close_case` is the explicit evaluation and promotion call.
 - MCP publishes concrete string item schemas for files and evidence; `finalize_work` mirrors application cross-field validation and reports precise field paths.
 - HTTP requires a loopback `Host`, rejects non-matching `Origin`, emits no permissive CORS headers, and caps URLs, JSON bytes, graph Cases, and per-Case graph complexity.
 - SSE resumes from `Last-Event-ID` before the `after` query cursor, polls project-filtered SQLite-backed activity in bounded batches, and emits `snapshot_required` rather than skipping an excessive gap.

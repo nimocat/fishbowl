@@ -1,17 +1,25 @@
 use std::env;
 use std::fs;
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use chrono::{SecondsFormat, Utc};
-use fishbowl_contracts::PROTOCOL_VERSION;
+use fishbowl_contracts::{DaemonOperation, PROTOCOL_VERSION};
 use fishbowl_daemon::http::{DaemonHttpConfig, RpcDispatcher, serve_loopback};
 use fishbowl_daemon::native::NativeDispatcher;
-use fishbowl_daemon::protocol::ProtocolSession;
+use fishbowl_daemon::protocol::{ProtocolError, ProtocolSession};
 use fishbowl_storage::DatabaseManager;
-use serde_json::json;
+use serde_json::{Value, json};
 use uuid::Uuid;
+
+const MAX_STDIO_REQUEST_BYTES: usize = 64 * 1024;
+
+enum StdioFrame {
+    EndOfInput,
+    Request(Vec<u8>),
+    TooLarge,
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -60,14 +68,112 @@ fn run_stdio(arguments: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         .map_err(|_| "failed to open Rust native repository")?;
     let mut protocol = ProtocolSession::new(1024);
     let stdin = io::stdin();
+    let mut input = stdin.lock();
     let mut stdout = io::BufWriter::new(io::stdout().lock());
-    for line in stdin.lock().lines() {
-        let response = protocol.handle_line(&line?, |operation| dispatcher.dispatch(operation));
+    loop {
+        let response = match read_stdio_frame(&mut input)? {
+            StdioFrame::EndOfInput => break,
+            StdioFrame::TooLarge => ProtocolSession::payload_too_large_response(),
+            StdioFrame::Request(line) => handle_stdio_request(&mut protocol, &line, |operation| {
+                dispatcher.dispatch(operation)
+            }),
+        };
         stdout.write_all(response.as_bytes())?;
         stdout.write_all(b"\n")?;
         stdout.flush()?;
     }
     Ok(())
+}
+
+fn handle_stdio_request<F>(protocol: &mut ProtocolSession, line: &[u8], dispatch: F) -> String
+where
+    F: FnMut(&DaemonOperation) -> Result<Value, ProtocolError>,
+{
+    match std::str::from_utf8(line) {
+        Ok(line) => protocol.handle_line(line, dispatch),
+        Err(_) => ProtocolSession::invalid_utf8_response(),
+    }
+}
+
+fn read_stdio_frame(reader: &mut impl BufRead) -> io::Result<StdioFrame> {
+    let mut line = Vec::with_capacity(1024);
+    let bytes_read = {
+        let mut bounded = Read::take(&mut *reader, (MAX_STDIO_REQUEST_BYTES + 1) as u64);
+        bounded.read_until(b'\n', &mut line)?
+    };
+    if bytes_read == 0 {
+        return Ok(StdioFrame::EndOfInput);
+    }
+    if bytes_read <= MAX_STDIO_REQUEST_BYTES {
+        return Ok(StdioFrame::Request(line));
+    }
+    if line.last() != Some(&b'\n') {
+        discard_until_newline(reader)?;
+    }
+    Ok(StdioFrame::TooLarge)
+}
+
+fn discard_until_newline(reader: &mut impl BufRead) -> io::Result<()> {
+    loop {
+        let available = reader.fill_buf()?;
+        if available.is_empty() {
+            return Ok(());
+        }
+        if let Some(position) = available.iter().position(|byte| *byte == b'\n') {
+            reader.consume(position + 1);
+            return Ok(());
+        }
+        let length = available.len();
+        reader.consume(length);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+    use std::io::Cursor;
+
+    use fishbowl_daemon::protocol::ProtocolSession;
+    use serde_json::{Value, json};
+
+    use super::{MAX_STDIO_REQUEST_BYTES, StdioFrame, handle_stdio_request, read_stdio_frame};
+
+    #[test]
+    fn oversized_boundary_frame_does_not_consume_the_next_request() {
+        let mut bytes = vec![b'x'; MAX_STDIO_REQUEST_BYTES];
+        bytes.push(b'\n');
+        bytes.extend_from_slice(b"{\"requestId\":\"next\"}\n");
+        let mut reader = Cursor::new(bytes);
+
+        assert!(matches!(
+            read_stdio_frame(&mut reader).unwrap(),
+            StdioFrame::TooLarge
+        ));
+        let StdioFrame::Request(next) = read_stdio_frame(&mut reader).unwrap() else {
+            panic!("next request must remain framed");
+        };
+        assert_eq!(next, b"{\"requestId\":\"next\"}\n");
+    }
+
+    #[test]
+    fn invalid_utf8_never_dispatches_or_mutates_text() {
+        let mut line = br#"{"protocolVersion":2,"requestId":"bad-utf8","operation":"queryKnowledge","input":{"project":{"projectId":"alpha"},"text":""#
+            .to_vec();
+        line.push(0xff);
+        line.extend_from_slice(br#""}}"#);
+        let calls = Cell::new(0);
+        let mut protocol = ProtocolSession::new(4);
+
+        let response = handle_stdio_request(&mut protocol, &line, |_| {
+            calls.set(calls.get() + 1);
+            Ok(json!({}))
+        });
+
+        assert_eq!(calls.get(), 0);
+        let response: Value = serde_json::from_str(&response).unwrap();
+        assert_eq!(response["error"]["code"], "INVALID_REQUEST");
+        assert_eq!(response["error"]["message"], "Request must be UTF-8");
+    }
 }
 
 async fn run_daemon(arguments: &[String]) -> Result<(), Box<dyn std::error::Error>> {

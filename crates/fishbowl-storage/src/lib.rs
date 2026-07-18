@@ -20,13 +20,13 @@ use std::time::Instant;
 use fishbowl_contracts::{
     ArtifactRecord, CaseCounts, CaseDetailLevel, CleanupDisposition, CommandRunRecord,
     DiskArtifactKind, DiskCleanupCandidate, DiskObservationSummary, EdgeRecord, ErrorCode,
-    EvidenceKind, EvidenceRecord, GetCaseInput, GetCaseResult, KnowledgeEvent, KnowledgeQueryItem,
-    ListCleanupCandidatesInput, ListCleanupCandidatesResult, ListDiskObservationsInput,
-    ListDiskObservationsResult, NodeRecord, NodeStatus, NodeType, PreflightGuardrail,
-    PreflightInput, PreflightResult, ProjectAliasRecord, ProjectRecord, ProjectReference,
-    ProjectWithAliasesRecord, QueryKnowledgeInput, QueryKnowledgeResult, RecentActivityInput,
-    RecentActivityResult, RelationType, RetrievalDiagnostics, RetrievalMatchKind, RetrievalMode,
-    RetrievalReason, Validate,
+    EvidenceKind, EvidenceRecord, GetCaseInput, GetCaseResult, GetOperationResultInput,
+    KnowledgeEvent, KnowledgeQueryItem, ListCleanupCandidatesInput, ListCleanupCandidatesResult,
+    ListDiskObservationsInput, ListDiskObservationsResult, NodeRecord, NodeStatus, NodeType,
+    OperationResultLookup, PreflightGuardrail, PreflightInput, PreflightResult, ProjectAliasRecord,
+    ProjectRecord, ProjectReference, ProjectWithAliasesRecord, QueryKnowledgeInput,
+    QueryKnowledgeResult, QueryResultMode, RecentActivityInput, RecentActivityResult, RelationType,
+    RetrievalDiagnostics, RetrievalMatchKind, RetrievalMode, RetrievalReason, Validate,
 };
 use fishbowl_core::{
     ExpansionConfig, ExpansionEdge, ExpansionNode, ExpansionResult, GuardrailContext,
@@ -125,6 +125,9 @@ impl ReadRepository {
             }
         }
         if text.is_none() || !exact.is_empty() {
+            if !matches!(input.result_mode, Some(QueryResultMode::Nodes)) {
+                retain_first_per_case(&mut exact);
+            }
             let truncated = exact.len() > limit;
             exact.truncate(limit);
             return Ok(QueryKnowledgeResult {
@@ -142,6 +145,38 @@ impl ReadRepository {
             });
         }
         self.query_hybrid(input, &project_id, text.unwrap(), limit, exact)
+    }
+
+    pub fn get_operation_result(
+        &self,
+        input: &GetOperationResultInput,
+    ) -> Result<OperationResultLookup, StorageError> {
+        input.validate().map_err(StorageError::Contract)?;
+        let project_id = self.resolve_project(&input.project)?;
+        let row = self.connection.query_row(
+            "SELECT kind, result, created_at FROM operation_results WHERE project_id = ? AND operation_id = ? AND (? IS NULL OR kind = ?)",
+            params![project_id, input.operation_id, input.kind, input.kind],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?)),
+        ).optional()?;
+        let Some((kind, result, created_at)) = row else {
+            return Ok(OperationResultLookup {
+                found: false,
+                operation_id: input.operation_id.clone(),
+                kind: None,
+                result: None,
+                created_at: None,
+            });
+        };
+        Ok(OperationResultLookup {
+            found: true,
+            operation_id: input.operation_id.clone(),
+            kind: Some(kind),
+            result: Some(
+                serde_json::from_str(&result)
+                    .map_err(|_| StorageError::InvalidStoredData("operation result"))?,
+            ),
+            created_at: Some(created_at),
+        })
     }
 
     fn query_exact_items(
@@ -210,10 +245,18 @@ impl ReadRepository {
         }
         parameters.push(SqlValue::Integer((limit + 1) as i64));
         let exact_reasons = exact_reasons(input);
-        let sql = format!(
-            "SELECT nodes.id, nodes.case_id, nodes.type, nodes.status, nodes.data, nodes.created_at, cases.project_id, cases.title FROM nodes JOIN cases ON cases.id = nodes.case_id {search_join} WHERE {} ORDER BY nodes.created_at DESC, nodes.id DESC LIMIT ?",
-            conditions.join(" AND ")
-        );
+        let select = "nodes.id AS node_id, nodes.case_id AS case_id, nodes.type AS node_type, nodes.status AS node_status, nodes.data AS node_data, nodes.created_at AS node_created_at, cases.project_id AS project_id, cases.title AS case_title";
+        let sql = if matches!(input.result_mode, Some(QueryResultMode::Nodes)) {
+            format!(
+                "SELECT {select} FROM nodes JOIN cases ON cases.id = nodes.case_id {search_join} WHERE {} ORDER BY nodes.created_at DESC, nodes.id DESC LIMIT ?",
+                conditions.join(" AND ")
+            )
+        } else {
+            format!(
+                "SELECT node_id, case_id, node_type, node_status, node_data, node_created_at, project_id, case_title FROM (SELECT {select}, row_number() OVER (PARTITION BY nodes.case_id ORDER BY nodes.created_at DESC, nodes.id DESC) AS case_rank FROM nodes JOIN cases ON cases.id = nodes.case_id {search_join} WHERE {}) WHERE case_rank = 1 ORDER BY node_created_at DESC, node_id DESC LIMIT ?",
+                conditions.join(" AND ")
+            )
+        };
         let mut statement = self.connection.prepare(&sql)?;
         let rows = statement.query_map(params_from_iter(parameters), |row| {
             let data_text: String = row.get(4)?;
@@ -480,6 +523,10 @@ impl ReadRepository {
                 .cmp(&left.score)
                 .then_with(|| left.item.node.id.cmp(&right.item.node.id))
         });
+        if !matches!(input.result_mode, Some(QueryResultMode::Nodes)) {
+            let mut cases = BTreeSet::new();
+            ranked.retain(|ranked| cases.insert(ranked.item.case_id.clone()));
+        }
         let truncated = ranked.len() > limit;
         let items = ranked
             .into_iter()
@@ -1946,6 +1993,10 @@ fn push_term(terms: &mut Vec<String>, term: String) {
 
 fn trimmed(value: &Option<String>) -> Option<&str> {
     value.as_deref().map(str::trim).filter(|v| !v.is_empty())
+}
+fn retain_first_per_case(items: &mut Vec<KnowledgeQueryItem>) {
+    let mut cases = BTreeSet::new();
+    items.retain(|item| cases.insert(item.case_id.clone()));
 }
 fn placeholders(count: usize) -> String {
     std::iter::repeat_n("?", count)

@@ -670,6 +670,13 @@ fn checkpoint_work_and_finalize_are_atomic_compact_and_idempotent() {
     assert_eq!(result.attempt_ids.len(), 1);
     assert_eq!(result.verification_ids.len(), 1);
     assert_eq!(result.artifact_ids.len(), 2);
+    assert!(
+        result
+            .promotion
+            .next_actions
+            .iter()
+            .any(|action| action.contains("RootCause"))
+    );
     let replay = repository.finalize_work(finalize).unwrap();
     assert_eq!(replay, result);
     drop(repository);
@@ -684,6 +691,39 @@ fn checkpoint_work_and_finalize_are_atomic_compact_and_idempotent() {
             .unwrap(),
         2
     );
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn operation_result_lookup_is_project_scoped_and_reports_missing_without_mutation() {
+    let path = database("operation-result");
+    let mut writer = WriteRepository::open(path.to_str().unwrap()).unwrap();
+    let written = writer
+        .record_problem(problem_input("lookup-operation"))
+        .unwrap();
+    drop(writer);
+
+    let reader = ReadRepository::open(path.to_str().unwrap()).unwrap();
+    let found = reader
+        .get_operation_result(&fishbowl_contracts::GetOperationResultInput {
+            project: project("project-a"),
+            operation_id: "lookup-operation".into(),
+            kind: Some("record_problem".into()),
+        })
+        .unwrap();
+    assert!(found.found);
+    assert_eq!(found.kind.as_deref(), Some("record_problem"));
+    assert_eq!(found.result.as_ref().unwrap()["caseId"], written.case_id);
+
+    let missing = reader
+        .get_operation_result(&fishbowl_contracts::GetOperationResultInput {
+            project: project("project-b"),
+            operation_id: "lookup-operation".into(),
+            kind: None,
+        })
+        .unwrap();
+    assert!(!missing.found);
+    assert!(missing.result.is_none());
     std::fs::remove_file(path).unwrap();
 }
 

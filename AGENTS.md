@@ -5,3 +5,10 @@
 - Keep SQLite project scoping explicit in every query and mutation.
 - Never persist raw logs, environment values, or unredacted excerpts in SQLite.
 - Run `npm run typecheck`, `npm test`, and `npm run build` before declaring completion.
+
+## Fishbowl Access From Codex
+
+- Use direct Fishbowl MCP tool calls for all agent queries and writes.
+- Never fall back to the Fishbowl CLI, `node .../dist/cli/main.js`, direct SQLite access, or shell wrappers when MCP is unavailable.
+- Treat the CLI as a human-operated installation, diagnostics, and recovery interface only.
+- If the MCP server is unavailable, report that Fishbowl persistence was skipped and continue the core task only when doing so is safe.

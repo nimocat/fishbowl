@@ -209,7 +209,38 @@ const finalizeWorkInputBase = z.object({
   }).strict(),
 }).strict()
 
-const finalizeWorkInput = finalizeWorkInputBase
+const finalizeWorkInput = finalizeWorkInputBase.superRefine((input, context) => {
+  const issue = (path: Array<string | number>, message: string) => context.addIssue({
+    code: z.ZodIssueCode.custom,
+    path,
+    message,
+  })
+  if (input.outcome === 'succeeded') {
+    if (input.commit === undefined) issue(['commit'], 'commit is required when outcome is succeeded')
+    if (!input.verifications?.some((verification) => verification.succeeded)) {
+      issue(['verifications'], 'at least one successful verification is required when outcome is succeeded')
+    }
+  } else if (!input.failedAttempts?.length) {
+    issue(['failedAttempts'], 'at least one failed attempt is required when outcome is not succeeded')
+  }
+  if (input.verifications?.length && input.solution === undefined) {
+    issue(['solution'], 'solution is required when verifications are present')
+  }
+  if (input.solution !== undefined && input.rootCause === undefined) {
+    issue(['rootCause'], 'rootCause is required when solution is present')
+  }
+  input.verifications?.forEach((verification, index) => {
+    if (verification.kind === 'automated' && !verification.command?.length) {
+      issue(['verifications', index, 'command'], 'command is required for automated verification')
+    }
+    if (verification.kind === 'device' && !verification.environment?.destination?.trim()) {
+      issue(['verifications', index, 'environment', 'destination'], 'destination is required for device verification')
+    }
+    if (verification.kind === 'automated' && verification.humanConfirmed === true) {
+      issue(['verifications', index, 'humanConfirmed'], 'automated verification cannot be human-confirmed')
+    }
+  })
+})
 
 const artifactData = z
   .object({
@@ -329,6 +360,7 @@ const projectWithAliasesResult = projectResult.extend({
 const promotionResult = z.object({
   status: z.enum(['candidate', 'verified']),
   missingRequirements: stringList,
+  nextActions: stringList.optional(),
 })
 const nodeWriteResult = z.object({
   caseId: id,
@@ -593,6 +625,8 @@ export function createMcpServer(
           command: text.optional(),
           fingerprint: text.optional(),
           limit: z.number().int().min(1).max(100).optional(),
+          resultMode: z.enum(['case-diverse', 'nodes']).optional()
+            .describe('Default case-diverse returns one best node per Case; nodes expands matching nodes.'),
         })
         .strict(),
       outputSchema: outputSchema(
@@ -614,6 +648,27 @@ export function createMcpServer(
       annotations: readOnly,
     },
     (input) => invoke('query_knowledge', () => service.queryKnowledge(input)),
+  )
+
+  server.registerTool(
+    'get_operation_result',
+    {
+      description: 'Resolve an ambiguous idempotent write by project, operationId, and optional operation kind.',
+      inputSchema: z.object({
+        project: projectReference,
+        operationId: id,
+        kind: text.optional(),
+      }).strict(),
+      outputSchema: outputSchema(z.object({
+        found: z.boolean(),
+        operationId: id,
+        kind: text.optional(),
+        result: boundedJsonValue.optional(),
+        createdAt: timestamp.optional(),
+      }).strict()),
+      annotations: readOnly,
+    },
+    (input) => invoke('get_operation_result', () => service.getOperationResult(input)),
   )
 
   server.registerTool(
@@ -801,10 +856,11 @@ export function createMcpServer(
   server.registerTool(
     'get_operation_metrics',
     {
-      description: 'Return bounded in-memory latency, error, and response-size aggregates for this server process.',
-      inputSchema: z.object({}).strict(),
+      description: 'Return project-scoped bounded latency, error, and response-size aggregates from the persistent daemon.',
+      inputSchema: z.object({ project: projectReference }).strict(),
       outputSchema: outputSchema(z.array(z.object({
         operation: text,
+        daemonPhaseDetail: z.literal('dispatch-total').optional(),
         count: z.number().int().nonnegative(),
         errors: z.number().int().nonnegative(),
         p50DurationMs: z.number().nonnegative(),
@@ -819,7 +875,7 @@ export function createMcpServer(
       }).strict()).max(100)),
       annotations: readOnly,
     },
-    () => invoke('get_operation_metrics', () => metrics.aggregates()),
+    (input) => invoke('get_operation_metrics', () => service.getOperationMetrics(input)),
   )
 
   server.registerTool(
@@ -1160,7 +1216,7 @@ export function createMcpServer(
   server.registerTool(
     'close_case',
     {
-      description: 'Evaluate promotion requirements and close one project-owned Case.',
+      description: 'Explicitly evaluate and promote one project-owned Case when all returned promotion requirements are satisfied.',
       inputSchema: z
         .object({ project: projectReference, caseId: id, operationId: id })
         .strict(),

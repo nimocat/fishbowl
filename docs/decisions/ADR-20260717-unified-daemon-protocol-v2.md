@@ -14,7 +14,11 @@ daemon, which could report only `Request shape or operation is invalid`.
 ## Decision
 
 - Codex configures one user-level stdio MCP entry with an absolute Node path and
-  no `FISHBOWL_DATA_DIR`.
+  no `FISHBOWL_DATA_DIR`; the entry is required for MCP-enabled sessions.
+- Codex performs all Fishbowl project resolution, preflight, query, and write
+  operations as direct MCP tool calls. It never falls back to CLI, direct
+  SQLite access, or a shell wrapper. CLI installation, diagnostics, and
+  recovery remain human-operated boundaries.
 - Normal CLI, MCP, and LaunchAgent traffic uses the platform-default store.
   Alternate data directories are explicit test/recovery boundaries only.
 - The public RPC generation is 2. Generation-1 descriptors are rejected.
@@ -30,7 +34,8 @@ There is one production writer and one authoritative knowledge store. Stale
 clients fail deterministically instead of talking to an incompatible daemon.
 Malformed checkpoint data receives a field-specific local error. Isolated
 recovery stores remain possible, but callers must opt into them explicitly and
-must stop any existing writer first.
+must stop any existing writer first. An unavailable MCP server is now visible
+to Codex instead of being masked by a sandbox-sensitive CLI fallback.
 
 ## Executed production record
 

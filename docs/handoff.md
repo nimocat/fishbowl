@@ -267,3 +267,33 @@ is complete: hashed backups retain both inputs, the HarmonyOS project and raw
 logs were migrated, SQLite quick/foreign-key checks passed, one protocol-v2
 LaunchAgent owns the store, and a well-formed checkpoint succeeded. The legacy
 directory remains only as `backups/unified-entry-20260717-153746/retired-legacy-data`.
+
+## Codex MCP-only handoff (2026-07-18)
+
+Codex Fishbowl operations now have one supported runtime path: direct calls to
+the required user-level `fishbowl` MCP server. Global and project rules forbid
+CLI, Node-entry, shell-wrapper, daemon-HTTP, and direct-SQLite fallback. The
+stdio command in `~/.codex/config.toml` remains only the MCP Host process
+descriptor. The registered iOS repository's project configuration no longer
+overrides the user-level service, and its Fishbowl skill records observed shell/Xcode results
+afterward through MCP. Restart Codex or open a new task to load the renamed
+`fishbowl` namespace; the already-running task may retain the former
+`engineering_knowledge_graph` namespace until then.
+
+## Protocol reliability handoff (2026-07-18)
+
+Protocol generation 2 now has `getOperationResult` and project-scoped
+`getOperationMetrics` operations. The first provides project-scoped durable
+confirmation for an ambiguous idempotent write; the second reads the native
+daemon's bounded shared metric window instead of an ephemeral MCP-only window.
+The MCP metrics input now requires `project`; this intentionally replaces the
+pre-release unscoped form so metrics cannot cross project boundaries.
+Rust write validation retains actionable detail, while MCP `finalize_work`
+cross-field failures include exact paths. Query results are Case-diverse by
+default and retain `resultMode: "nodes"` compatibility. Promotion results add
+`nextActions`; `close_case` remains the explicit promotion gate and never
+creates human confirmation. Stdio requests are capped, parser details are
+bounded, and invalid UTF-8 never dispatches. Final blocking review, TypeScript
+typecheck, 59/59 Vitest tests, the complete Rust workspace, production build,
+formatting, and diff checks passed. The configured acceptance target currently
+contains no test files. No SQLite migration is required.

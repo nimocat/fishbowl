@@ -659,3 +659,52 @@
   referenced raw logs were preserved; the legacy directory is a private retired
   archive. Installed protocol 2 passed integrity, project-list, malformed-local-
   rejection, and structured-checkpoint acceptance.
+
+## 2026-07-18 — Codex Fishbowl MCP-only policy
+
+- Added a RED documentation test that exposed the old Agent CLI bootstrap,
+  CLI query/write examples, optional Codex MCP server, and CLI fallback.
+- Replaced Agent runtime guidance with direct, explicitly project-scoped MCP
+  calls for resolution, preflight, query, observation, checkpoint, and finalization.
+- Renamed the installed user-level Codex server to `fishbowl`, made it required,
+  and added a global rule prohibiting Fishbowl CLI, shell-wrapper, daemon-HTTP,
+  direct-SQLite, and Node-entry fallback from Codex tasks.
+- Retired a duplicate registered iOS project MCP descriptor so all of its
+  worktrees inherit the user-level service. Updated its repository rules,
+  Fishbowl skill, and workflow to match.
+- Verified the current pre-restart MCP directly with `resolve_project`,
+  `get_preflight_guidance`, and `query_knowledge`; no CLI was used.
+- Final gates passed: TypeScript typecheck, 57/57 Vitest tests across 15 files,
+  production build, and both repository diff checks. The unrelated existing
+  unrelated iOS String Catalog change was preserved untouched.
+- The already-running pre-restart MCP process still emitted its old optional-
+  `null` checkpoint response and the host reported output validation failure.
+  A direct MCP query confirmed the idempotent checkpoint had been durably
+  written. No CLI fallback was used; a fresh Codex task loads the rebuilt
+  null-normalizing adapter under the renamed `fishbowl` server.
+
+## 2026-07-18 — protocol reliability and daemon observability
+
+- Converted the remote Agent's 7.5/10 review into RED tests for durable
+  operation status, cross-field validation paths, daemon metrics, Case-diverse
+  retrieval, and actionable promotion requirements.
+- Added `getOperationResult`/`get_operation_result` over the existing
+  project-scoped operation ledger. Ambiguous writes can now be confirmed before
+  retry without a schema change or direct SQLite access.
+- Moved the bounded metric window into the native dispatcher. MCP returns only
+  project-owned daemon counts and dispatch latency; unattributed process-local
+  host and transport timings remain zero instead of leaking across projects.
+- Native validation now preserves a bounded detailed message under
+  `VALIDATION_FAILED`; `finalize_work` mirrors conditional rules with MCP field
+  paths before daemon dispatch.
+- Retrieval defaults to one highest-ranked node per Case and supports explicit
+  `resultMode: "nodes"` expansion. Promotion responses add concrete next steps
+  without weakening evidence or human-confirmation policy.
+- Final blocking review passed after project-isolating metrics, capping parser
+  detail, bounding stdio frames, preserving the request after an oversized
+  boundary frame, and rejecting invalid UTF-8 without dispatch.
+- Final verification: TypeScript typecheck, 59/59 Vitest tests, the full Rust
+  workspace, production build, Rust formatting, and diff checks passed. The
+  configured acceptance command found no `tests/acceptance` files. Strict
+  Clippy additionally surfaced two unrelated pre-existing lints in snapshot
+  test placement and disk-watch condition structure; neither file was changed.

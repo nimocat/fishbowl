@@ -23,6 +23,7 @@ const queryInputSchema = z.object({
   command: boundedText.optional(),
   fingerprint: boundedText.optional(),
   limit: z.number().int().min(1).max(1000).optional(),
+  resultMode: z.enum(['case-diverse', 'nodes']).optional(),
 }).strict()
 
 const preflightInputSchema = z.object({

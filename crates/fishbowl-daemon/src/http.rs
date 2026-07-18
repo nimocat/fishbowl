@@ -259,6 +259,7 @@ async fn browser_graph(
         command: None,
         fingerprint: None,
         limit: Some(browser_limit(&parameters)),
+        result_mode: None,
     };
     let result = match state
         .dispatcher

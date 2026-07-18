@@ -162,6 +162,7 @@ export function createDaemonBackend(client: DaemonClient): AwaitableKnowledgeBac
   const backend: Record<string, UnaryMethod> = {}
   const operations: DaemonOperation[] = [
     'registerProject', 'resolveProject', 'updateProject', 'queryKnowledge', 'getCase',
+    'getOperationResult', 'getOperationMetrics',
     'listRecentActivity', 'preflight', 'recordProblem', 'recordAttempt', 'recordRootCause',
     'recordSolution', 'recordVerification', 'recordArtifactReference', 'recordGuardrail',
     'recordCheckpoint', 'checkpointWork', 'finalizeWork', 'startDiskObservation', 'finishDiskObservation',

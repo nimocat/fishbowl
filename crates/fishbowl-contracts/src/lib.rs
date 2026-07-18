@@ -394,6 +394,8 @@ pub struct SourceKey {
 pub struct PromotionStatus {
     pub status: NodeStatus,
     pub missing_requirements: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub next_actions: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -1239,6 +1241,10 @@ pub enum DaemonOperation {
     UpdateProject(UpdateProjectInput),
     #[serde(rename = "queryKnowledge")]
     QueryKnowledge(QueryKnowledgeInput),
+    #[serde(rename = "getOperationResult")]
+    GetOperationResult(GetOperationResultInput),
+    #[serde(rename = "getOperationMetrics")]
+    GetOperationMetrics(GetOperationMetricsInput),
     #[serde(rename = "preflight")]
     Preflight(PreflightInput),
     #[serde(rename = "getCase")]
@@ -1301,6 +1307,8 @@ impl Validate for DaemonOperation {
     fn validate(&self) -> Result<(), ErrorCode> {
         match self {
             Self::QueryKnowledge(value) => value.validate(),
+            Self::GetOperationResult(value) => value.validate(),
+            Self::GetOperationMetrics(value) => value.validate(),
             Self::Preflight(value) => value.validate(),
             Self::GetCase(value) => value.validate(),
             Self::ResolveProject(value) => value.validate(),
@@ -1415,6 +1423,15 @@ pub struct QueryKnowledgeInput {
     pub fingerprint: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limit: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result_mode: Option<QueryResultMode>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum QueryResultMode {
+    CaseDiverse,
+    Nodes,
 }
 
 impl Validate for QueryKnowledgeInput {
@@ -1435,6 +1452,73 @@ impl Validate for QueryKnowledgeInput {
         validate_len(self.node_types.as_deref(), MAX_FILTERS)?;
         validate_len(self.statuses.as_deref(), MAX_FILTERS)?;
         validate_limit(self.limit)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct GetOperationResultInput {
+    pub project: ProjectReference,
+    pub operation_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+}
+
+impl Validate for GetOperationResultInput {
+    fn validate(&self) -> Result<(), ErrorCode> {
+        self.project.validate()?;
+        validate_string(
+            &self.operation_id,
+            MAX_REQUEST_ID,
+            ErrorCode::InvalidArgument,
+        )?;
+        if let Some(kind) = &self.kind {
+            validate_string(kind, MAX_REFERENCE, ErrorCode::InvalidArgument)?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct OperationResultLookup {
+    pub found: bool,
+    pub operation_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct OperationMetricAggregate {
+    pub operation: String,
+    pub daemon_phase_detail: String,
+    pub count: u64,
+    pub errors: u64,
+    pub p50_duration_ms: u64,
+    pub p95_duration_ms: u64,
+    pub max_duration_ms: u64,
+    pub max_response_bytes: u64,
+    pub p95_daemon_queue_ms: u64,
+    pub p95_daemon_execution_ms: u64,
+    pub p95_daemon_serialization_ms: u64,
+    pub p95_transport_ms: u64,
+    pub p95_mcp_host_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct GetOperationMetricsInput {
+    pub project: ProjectReference,
+}
+
+impl Validate for GetOperationMetricsInput {
+    fn validate(&self) -> Result<(), ErrorCode> {
+        self.project.validate()
     }
 }
 

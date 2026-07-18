@@ -2001,33 +2001,52 @@ fn case_anchor(
 }
 
 fn validate_finalize(input: &FinalizeWorkInput) -> Result<(), WriteError> {
-    if input.operation_id.trim().is_empty()
-        || input.task.trim().is_empty()
-        || input.summary.trim().is_empty()
-        || !matches!(
-            input.outcome.as_str(),
-            "failed" | "succeeded" | "inconclusive"
-        )
-        || !matches!(
-            input.merge.status.as_str(),
-            "merged" | "pending" | "not-required" | "conflict"
-        )
-    {
-        return Err(WriteError::Validation("finalize"));
+    if input.operation_id.trim().is_empty() {
+        return Err(WriteError::Validation("operationId must be non-empty"));
+    }
+    if input.task.trim().is_empty() {
+        return Err(WriteError::Validation("task must be non-empty"));
+    }
+    if input.summary.trim().is_empty() {
+        return Err(WriteError::Validation("summary must be non-empty"));
+    }
+    if !matches!(
+        input.outcome.as_str(),
+        "failed" | "succeeded" | "inconclusive"
+    ) {
+        return Err(WriteError::Validation(
+            "outcome must be failed, succeeded, or inconclusive",
+        ));
+    }
+    if !matches!(
+        input.merge.status.as_str(),
+        "merged" | "pending" | "not-required" | "conflict"
+    ) {
+        return Err(WriteError::Validation(
+            "merge.status must be merged, pending, not-required, or conflict",
+        ));
     }
     if input.outcome == "succeeded"
         && (input.commit.is_none() || !input.verifications.iter().any(|item| item.succeeded))
     {
-        return Err(WriteError::Validation("successful finalize evidence"));
+        return Err(WriteError::Validation(
+            "commit and at least one successful verifications item are required when outcome is succeeded",
+        ));
     }
     if input.outcome != "succeeded" && input.failed_attempts.is_empty() {
-        return Err(WriteError::Validation("failed finalize attempts"));
+        return Err(WriteError::Validation(
+            "failedAttempts must contain at least one item when outcome is not succeeded",
+        ));
     }
     if !input.verifications.is_empty() && input.solution.is_none() {
-        return Err(WriteError::Validation("finalize verification solution"));
+        return Err(WriteError::Validation(
+            "solution is required when verifications are present",
+        ));
     }
     if input.solution.is_some() && input.root_cause.is_none() {
-        return Err(WriteError::Validation("finalize solution root cause"));
+        return Err(WriteError::Validation(
+            "rootCause is required when solution is present",
+        ));
     }
     for verification in &input.verifications {
         if !matches!(verification.kind.as_str(), "automated" | "device" | "human")
@@ -2040,7 +2059,9 @@ fn validate_finalize(input: &FinalizeWorkInput) -> Result<(), WriteError> {
                     .is_none_or(|value| value.trim().is_empty())
             || verification.kind == "automated" && verification.human_confirmed
         {
-            return Err(WriteError::Validation("finalize verification"));
+            return Err(WriteError::Validation(
+                "verifications item has an invalid kind, command, destination, or humanConfirmed value",
+            ));
         }
     }
     Ok(())
@@ -2743,18 +2764,24 @@ fn evaluate_case_promotion(
             )?;
         }
     }
+    let missing_requirements = evaluation
+        .missing_requirements
+        .into_iter()
+        .map(requirement_text)
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    let next_actions = missing_requirements
+        .iter()
+        .map(|requirement| promotion_next_action(requirement).to_owned())
+        .collect();
     Ok(PromotionStatus {
         status: if evaluation.eligible {
             NodeStatus::Verified
         } else {
             NodeStatus::Candidate
         },
-        missing_requirements: evaluation
-            .missing_requirements
-            .into_iter()
-            .map(requirement_text)
-            .map(str::to_owned)
-            .collect(),
+        missing_requirements,
+        next_actions,
     })
 }
 
@@ -2770,6 +2797,28 @@ fn requirement_text(requirement: PromotionRequirement) -> &'static str {
         PromotionRequirement::Applicability => "applicability",
         PromotionRequirement::Limitations => "limitations",
         PromotionRequirement::DecisiveDifference => "decisive-difference",
+    }
+}
+
+fn promotion_next_action(requirement: &str) -> &'static str {
+    match requirement {
+        "root-cause-evidence" => "Add bounded evidence to the RootCause before promotion.",
+        "verified-root-cause" => {
+            "Confirm the evidenced RootCause with record_root_cause status=verified and humanConfirmed=true."
+        }
+        "automated-verification-or-exception" => {
+            "Record a successful automated Verification or a bounded non-automatable reason."
+        }
+        "required-human-verification" => "Record the required successful human Verification.",
+        "human-confirmation" => {
+            "Record an explicit successful human Verification with humanConfirmed=true."
+        }
+        "applicability" => "Add non-empty Solution applicability.",
+        "limitations" => "Add non-empty Solution limitations.",
+        "decisive-difference" => {
+            "Describe the Solution's decisive difference from failed Attempts."
+        }
+        _ => "Review the missing promotion requirement and add the corresponding evidence.",
     }
 }
 
@@ -3035,6 +3084,15 @@ fn result(case_id: String, node_id: String, created: bool) -> NodeWriteResult {
                 "applicability".into(),
                 "limitations".into(),
                 "decisive-difference".into(),
+            ],
+            next_actions: vec![
+                "Add bounded evidence to the RootCause before promotion.".into(),
+                "Confirm the evidenced RootCause with record_root_cause status=verified and humanConfirmed=true.".into(),
+                "Record a successful automated Verification or a bounded non-automatable reason.".into(),
+                "Record an explicit successful human Verification with humanConfirmed=true.".into(),
+                "Add non-empty Solution applicability.".into(),
+                "Add non-empty Solution limitations.".into(),
+                "Describe the Solution's decisive difference from failed Attempts.".into(),
             ],
         },
         created,

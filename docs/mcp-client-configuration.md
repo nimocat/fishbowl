@@ -46,12 +46,14 @@ Codex's native configuration is TOML, not JSON. The equivalent `~/.codex/config.
 command = "/absolute/path/to/node"
 args = ["/Users/eric/fishbowl/dist/cli/main.js", "mcp", "--stdio"]
 enabled = true
-required = false
+required = true
 startup_timeout_sec = 30
 tool_timeout_sec = 60
 default_tools_approval_mode = "writes"
 
 ```
+
+Configure this entry once at user level. During a Codex task, use direct Fishbowl MCP tool calls for project resolution, preflight, queries, and writes. Never fall back to the Fishbowl CLI or launch the stdio command from Codex's shell when an MCP call fails. Report the unavailable server instead; the command above is only the MCP host's process descriptor.
 
 The same configuration can be added without editing a file:
 
@@ -98,7 +100,7 @@ Add this entry to `opencode.json` or `opencode.jsonc`:
 
 ## Verify The Connection
 
-Use the client's MCP server list to confirm that `fishbowl` exposes tools such as `get_preflight_guidance`, `checkpoint_work`, `finalize_work`, `report_relevance`, and `suggest_case_merges`. CLI and every MCP client share the daemon-owned database automatically. Configure this server at Codex's user level and do not add `FISHBOWL_DATA_DIR` to user or workspace MCP configuration. An explicit alternate directory is reserved for isolated tests or recovery and must never be allowed to become a second production writer.
+Use the client's MCP server list to confirm that `fishbowl` exposes tools such as `get_preflight_guidance`, `checkpoint_work`, `finalize_work`, `get_operation_result`, `get_operation_metrics`, `report_relevance`, and `suggest_case_merges`. Human-operated CLI diagnostics and every MCP client share the daemon-owned database automatically. Configure this server at Codex's user level and do not add `FISHBOWL_DATA_DIR` to user or workspace MCP configuration. An explicit alternate directory is reserved for isolated tests or recovery and must never be allowed to become a second production writer.
 
 The daemon RPC contract is versioned. Protocol generation 2 rejects generation
 1 descriptors so a stale installed process cannot silently receive requests
@@ -106,7 +108,9 @@ whose operation or response shape has changed.
 
 Use `finalize_work` as the fixed “提交事实＋验证事实＋合并事实” recording template. It never runs Git or validation commands. Its arrays contain strings, its retry key is `operationId`, and device evidence does not become human-confirmed unless the caller explicitly supplies `humanConfirmed: true`. Prefer an explicit `caseId`; without one, only an exact normalized fingerprint may reuse a Case.
 
-If startup fails, verify all three directly:
+If a write response is ambiguous, call `get_operation_result` with the same project, `operationId`, and operation kind before retrying. `get_operation_metrics` also requires an explicit project and is aggregated by the persistent daemon, so project-owned counts survive MCP bridge restarts but reset with the daemon process.
+
+If startup fails, leave the Codex task on MCP-only behavior and perform these human-operated diagnostics outside the agent session:
 
 ```bash
 node --version

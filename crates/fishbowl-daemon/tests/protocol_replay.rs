@@ -53,12 +53,41 @@ fn protocol_failures_are_stable_bounded_and_actionable() {
     assert!(!hostile.contains("do-not-echo"));
     assert!(hostile.contains("INVALID_REQUEST"));
 
+    let oversized_operation = "x".repeat(10_000);
+    let oversized = session.handle_line(
+        &format!(
+            r#"{{"protocolVersion":2,"requestId":"oversized-1","operation":"{oversized_operation}","input":{{}}}}"#
+        ),
+        |_| panic!("invalid request must not dispatch"),
+    );
+    let oversized_json: Value = serde_json::from_str(&oversized).unwrap();
+    let oversized_message = oversized_json["error"]["message"].as_str().unwrap();
+    assert!(oversized_message.starts_with("Request shape validation failed:"));
+    assert!(oversized_message.chars().count() <= 545);
+    assert!(oversized.len() < 800);
+
     let first = r#"{"protocolVersion":2,"requestId":"reused-1","operation":"queryKnowledge","input":{"project":{"projectId":"alpha"},"text":"first"}}"#;
     let changed = r#"{"protocolVersion":2,"requestId":"reused-1","operation":"queryKnowledge","input":{"project":{"projectId":"alpha"},"text":"changed-secret"}}"#;
     session.handle_line(first, |_| Ok(json!({"items": []})));
     let conflict = session.handle_line(changed, |_| panic!("conflicting replay must not dispatch"));
     assert!(conflict.contains("OPERATION_CONFLICT"));
     assert!(!conflict.contains("changed-secret"));
+}
+
+#[test]
+fn oversized_transport_response_is_bounded() {
+    let response = ProtocolSession::payload_too_large_response();
+    assert_eq!(
+        serde_json::from_str::<Value>(&response).unwrap(),
+        json!({
+            "ok": false,
+            "requestId": "unknown",
+            "error": {
+                "code": "PAYLOAD_TOO_LARGE",
+                "message": "Request exceeds bounded contract limits"
+            }
+        })
+    );
 }
 
 #[test]

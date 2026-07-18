@@ -93,22 +93,22 @@ fishbowl checkpoint \
   --summary "将组合处理移出主线程，并完成聚焦验证。"
 ```
 
-## 一段提示词交给 Agent
+## 让 Codex 或其他 Agent 使用 Fishbowl
 
-把 [Agent 快捷启动提示](docs/agent-bootstrap-prompt.md) 原样复制给编码 Agent。它会要求 Agent：
+先一次性配置用户级 stdio MCP 服务，再把 [MCP Agent 会话提示](docs/agent-bootstrap-prompt.md) 原样复制给编码 Agent。它会要求 Agent：
 
-1. 在本机安装 Fishbowl 并启动守护进程。
-2. 登记或解析当前仓库。
-3. 开始实质工作前查询相关历史。
-4. 任务结束时写入简洁、脱敏的检查点。
+1. 直接调用 Fishbowl MCP 工具完成项目解析和预检。
+2. 开始实质工作前查询相关历史。
+3. 任务结束时通过 MCP 写入简洁、脱敏的检查点。
+4. MCP 不可用时上报问题，不降级到 CLI。
 
-需要持久化 MCP 接入时，启动 stdio 服务：
+MCP 客户端会根据服务配置启动这个持久化 stdio 桥接进程：
 
 ```bash
 node /absolute/path/to/fishbowl/dist/cli/main.js mcp --stdio
 ```
 
-可直接复制的客户端配置见 [MCP 配置说明](docs/mcp-client-configuration.md)。该进程通过 stdout 输出协议帧，不要外包会向 stdout 打印横幅的命令。
+可直接复制的客户端配置见 [MCP 配置说明](docs/mcp-client-configuration.md)。Codex 不应自行启动该命令，也不应调用 CLI 查询或写入；进程及其 stdout 协议帧由配置好的 MCP Host 管理。
 
 ## 工程工作循环
 

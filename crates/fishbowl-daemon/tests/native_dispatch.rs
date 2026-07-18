@@ -119,6 +119,68 @@ async fn native_http_dispatches_a_transactional_write_then_reads_it_without_type
     assert_eq!(problem["result"]["created"], true);
     let case_id = problem["result"]["caseId"].as_str().unwrap();
 
+    let operation_result = call(
+        &app,
+        json!({
+            "protocolVersion": 2,
+            "requestId": "operation-result-1",
+            "operation": "getOperationResult",
+            "input": {
+                "project": {"projectId": project_id},
+                "operationId": "problem-operation-1",
+                "kind": "record_problem"
+            }
+        }),
+    )
+    .await;
+    assert_eq!(operation_result["ok"], true);
+    assert_eq!(operation_result["result"]["found"], true);
+    assert_eq!(operation_result["result"]["result"]["caseId"], case_id);
+
+    let invalid_finalize = call(
+        &app,
+        json!({
+            "protocolVersion": 2,
+            "requestId": "invalid-finalize-1",
+            "operation": "finalizeWork",
+            "input": {
+                "project": {"projectId": project_id},
+                "operationId": "invalid-finalize-operation-1",
+                "task": "finish native work",
+                "outcome": "succeeded",
+                "summary": "missing required evidence",
+                "merge": {"status": "pending"}
+            }
+        }),
+    )
+    .await;
+    assert_eq!(invalid_finalize["ok"], false);
+    assert_eq!(invalid_finalize["error"]["code"], "VALIDATION_FAILED");
+    assert!(
+        invalid_finalize["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("commit")
+    );
+
+    let metrics = call(
+        &app,
+        json!({
+            "protocolVersion": 2,
+            "requestId": "metrics-1",
+            "operation": "getOperationMetrics",
+            "input": {"project": {"projectId": project_id}}
+        }),
+    )
+    .await;
+    assert_eq!(metrics["ok"], true);
+    assert!(metrics["result"].as_array().unwrap().iter().any(|item| {
+        item["operation"] == "record_problem" && item["count"].as_u64().unwrap() >= 1
+    }));
+    assert!(metrics["result"].as_array().unwrap().iter().any(|item| {
+        item["operation"] == "finalize_work" && item["errors"].as_u64().unwrap() >= 1
+    }));
+
     let case_detail = call(
         &app,
         json!({

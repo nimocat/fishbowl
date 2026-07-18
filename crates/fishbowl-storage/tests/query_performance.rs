@@ -135,5 +135,6 @@ fn request() -> QueryKnowledgeInput {
         command: None,
         fingerprint: None,
         limit: Some(5),
+        result_mode: None,
     }
 }

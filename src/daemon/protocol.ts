@@ -8,6 +8,8 @@ export const DAEMON_OPERATIONS = [
   'resolveProject',
   'updateProject',
   'queryKnowledge',
+  'getOperationResult',
+  'getOperationMetrics',
   'getCase',
   'listRecentActivity',
   'preflight',
