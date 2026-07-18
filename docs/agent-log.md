@@ -1,5 +1,25 @@
 # Agent Log
 
+## 2026-07-19 - Explicit curation and disk-observation retirement
+
+- Feedback: meaningful failed attempts were missing, checkpoint/finalize could
+  duplicate near-equivalent nodes, obsolete compression advice remained active,
+  unrelated problems shared Cases, and zero-result disk observation added cost.
+- RED: focused MCP and policy tests failed on the missing supersession tool and
+  provenance fields; CLI/MCP surface tests still exposed disk operations.
+- GREEN: added `failedAttemptIds`, explicit `checkpointOperationId` reuse,
+  project/Case/edge validation, `supersede_solution`, retired-by-default
+  retrieval, immediate-failure/one-problem/human-close Agent policy, and
+  removed every disk-observation runtime/public path.
+- Compatibility: schema-v8/v9 disk tables remain inert so no existing database
+  is destructively rewritten and historical rows survive upgrades.
+- Verification: `npm run typecheck`, 101/101 Vitest tests, the complete Rust
+  workspace, rustfmt, production build, and diff checks pass. Independent
+  review found checkpoint outcome, retired-Case status-filter, MCP-description,
+  and supersession trust/cycle gaps. All are fixed with focused regressions;
+  Standards and Spec re-reviews report no remaining Critical or Important
+  findings.
+
 ## 2026-07-18 - Checkpoint MCP Output Compatibility
 
 - Symptom: `checkpoint_work` committed successfully through the native daemon, but MCP reported an output validation error; the caller fell back to lower-level record tools.

@@ -18,7 +18,10 @@ Fishbowl (Fishbowl) is a local-first service for preserving the path from engine
   adapter validates transport shape only and imports neither storage nor
   policy.
 - SQLite in WAL mode is the authoritative materialized store.
-- Schema v8 adds a task disk-growth ledger. Schema v9 adds a project-scoped persistent measurement cache for that ledger. Rust captures bounded metadata-only snapshots of known regenerable roots, stores only project-relative paths, byte counts, and directory modification stamps, marks cached and overlapping evidence for review, and never deletes candidates.
+- Schema-v8/v9 disk-observation tables are retained only as historical,
+  non-destructive migration data. The scanner, watcher, contracts, repository
+  operations, daemon routes, MCP tools, and CLI commands have been retired;
+  Fishbowl performs no project disk observation.
 - The append-only `events` table is an audit log and live-update cursor, not a complete event-sourcing replay log.
 - `KnowledgeService` is the transport-neutral application boundary.
 - A persistent authenticated loopback daemon is the normal SQLite owner. Thin stdio MCP and CLI adapters call its protocol-generation-2 RPC allowlist; generation-1 descriptors are retired. Normal clients use the platform-default data directory, while explicit `--embedded`/`--data-dir` remains for tests and recovery only. One owner-only high loopback port is persisted as `daemon.port`; compatible upgrades adopt the last valid descriptor port, and every later start reuses it instead of requesting an ephemeral port.
@@ -56,7 +59,10 @@ Fishbowl (Fishbowl) is a local-first service for preserving the path from engine
 - All project-scoped reads require an explicit project reference.
 - Browser mutations are out of scope for the first release.
 - IDs are UUIDs; timestamps are UTC ISO 8601 strings.
-- New databases carry the Fishbowl SQLite `application_id`; schema version 9 adds persistent disk-measurement cache rows while retaining task observations, relevance, merge, and supersession data. Older files remain backup-first and transactionally upgradeable.
+- New databases carry the Fishbowl SQLite `application_id`. Schema version 9
+  still creates the historical disk tables so existing files remain
+  backup-first and transactionally compatible, but no runtime code reads or
+  writes those tables.
 - Promotion requires explicit `humanConfirmed` evidence, and Verification environments use a fixed non-secret allowlist.
 - Import sources are explicit project-contained files or explicit Git `base..head` ranges; no service scans project trees.
 - Portable snapshot imports never confer verified trust: verified Case, RootCause, Solution, SuccessCase, and Guardrail assertions become candidates, and blocking Guardrails therefore cannot arrive verified by assertion alone.
@@ -71,8 +77,8 @@ Fishbowl (Fishbowl) is a local-first service for preserving the path from engine
 - `record_checkpoint` atomically dispatches up to 25 existing write commands under one project and one idempotency key.
 - `checkpoint_work` is the concise capture path: failures always record; routine successes may skip; optional RootCause/Solution assertions remain candidates until mixed verification. CLI checkpoint payloads are locally shape-validated so malformed structured assertions never collapse into a generic daemon protocol error.
 - Native checkpoint/finalize responses omit absent optional IDs. The MCP adapter also strips legacy daemon `null` values for those optional fields before SDK output validation, so a successful idempotent write cannot be misreported as a response-shape failure during upgrades.
-- `finalize_work` atomically records a completed engineering delivery and its failed Attempts, RootCause, Solution, Verifications, commit, and merge disposition. It is idempotent, never executes Git or validation commands, and reuses Cases only through explicit `caseId` or an exact normalized fingerprint.
-- `finalize_work` is the single final-delivery write after commit and verification. `checkpoint_work` is reserved for real interruption, compaction, cross-day pause, or handoff; when a later finalization supplies the same Case, project-scoped exact-equivalent Attempt/RootCause/Solution nodes and their causal target are reused. Human Verification is never inferred from automation or device evidence.
+- `finalize_work` atomically records a completed engineering delivery and its failed Attempts, RootCause, Solution, Verifications, commit, and merge disposition. It is idempotent, never executes Git or validation commands, and reuses Cases only through explicit `caseId` or an exact normalized fingerprint. `failedAttemptIds` links Attempts recorded at failure time without restating them.
+- `finalize_work` is the single final-delivery write after commit and verification. `checkpoint_work` is reserved for real interruption, compaction, cross-day pause, or handoff; a later finalization passes the explicit `checkpointOperationId` to reuse the checkpoint's project-scoped Case, Attempt, RootCause, and Solution even when the final wording is refined. No fuzzy write-time merge occurs. Human Verification is never inferred from automation or device evidence.
 - Default Preflight is Case-ranked, explainable, cached by project event revision, capped at five cards, and compacted below 12 KiB.
 - Case-scoped event writes persist explicit `case_id`; history paging and cycle prevention use indexed Case-local queries rather than JSON extraction or whole-graph loading.
 - Command-log Artifacts retain validated digest algorithm, accepted and retained byte sizes, segment count, truncation state, and retained paths.
@@ -82,6 +88,10 @@ Fishbowl (Fishbowl) is a local-first service for preserving the path from engine
 - Ambiguous idempotent writes are resolved through project-scoped `get_operation_result` before retry. It reads the existing durable operation ledger and requires no schema migration.
 - `get_operation_metrics` with an explicit project returns that project's bounded 1,000-sample window owned by the persistent native daemon. The legacy empty request remains compatible and returns only the current MCP bridge session's bounded global aggregates; it never asks the daemon for cross-project metrics.
 - `query_knowledge` is Case-diverse by default. MCP injects a five-item compact projection and exposes match explanations/diagnostics; `resultMode: "nodes"` explicitly expands multiple full matching nodes per Case. Text candidates are ordered by FTS relevance rather than creation time.
+- `supersede_solution` records a replacement Solution → prior Solution
+  `SUPERSEDES` edge and retires the prior node in place. Default query and
+  Preflight omit retired Cases/nodes; callers may explicitly request retired
+  node status for historical inspection.
 - Promotion responses retain machine-readable `missingRequirements` and actionable `nextActions`. `promote_root_cause` upgrades a confirmed candidate in place, and Case verification requires one connected RootCause→Solution→Verification chain.
 - MCP publishes concrete string item schemas for files and evidence; `finalize_work` mirrors application cross-field validation and reports precise field paths.
 - MCP structured output uses one exact `outcome` discriminated union: success is `{ok:true,result,error:null}` and failure is `{ok:false,result:null,error}`. This prevents contradictory or partially populated success/error envelopes from passing validation.

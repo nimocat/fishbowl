@@ -1,15 +1,10 @@
 //! Project-scoped, query-only repository for the existing Fishbowl SQLite schema.
 
-mod disk;
 mod import;
 mod schema;
 mod snapshot;
 mod write;
 
-pub use disk::{
-    DiskCapture, DiskDirectoryStamp, DiskMeasurementCacheEntry, DiskSnapshot, DiskSnapshotEntry,
-    capture_project_disk, capture_project_disk_cached, capture_project_disk_incremental,
-};
 pub use schema::*;
 pub use write::*;
 
@@ -18,15 +13,13 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::time::Instant;
 
 use fishbowl_contracts::{
-    ArtifactRecord, CaseCounts, CaseDetailLevel, CleanupDisposition, CommandRunRecord,
-    DiskArtifactKind, DiskCleanupCandidate, DiskObservationSummary, EdgeRecord, ErrorCode,
+    ArtifactRecord, CaseCounts, CaseDetailLevel, CommandRunRecord, EdgeRecord, ErrorCode,
     EvidenceKind, EvidenceRecord, GetCaseInput, GetCaseResult, GetOperationResultInput,
-    KnowledgeEvent, KnowledgeQueryItem, ListCleanupCandidatesInput, ListCleanupCandidatesResult,
-    ListDiskObservationsInput, ListDiskObservationsResult, NodeRecord, NodeStatus, NodeType,
-    OperationResultLookup, PreflightGuardrail, PreflightInput, PreflightResult, ProjectAliasRecord,
-    ProjectRecord, ProjectReference, ProjectWithAliasesRecord, QueryKnowledgeInput,
-    QueryKnowledgeResult, QueryResultMode, RecentActivityInput, RecentActivityResult, RelationType,
-    RetrievalDiagnostics, RetrievalMatchKind, RetrievalMode, RetrievalReason, Validate,
+    KnowledgeEvent, KnowledgeQueryItem, NodeRecord, NodeStatus, NodeType, OperationResultLookup,
+    PreflightGuardrail, PreflightInput, PreflightResult, ProjectAliasRecord, ProjectRecord,
+    ProjectReference, ProjectWithAliasesRecord, QueryKnowledgeInput, QueryKnowledgeResult,
+    QueryResultMode, RecentActivityInput, RecentActivityResult, RelationType, RetrievalDiagnostics,
+    RetrievalMatchKind, RetrievalMode, RetrievalReason, Validate,
 };
 use fishbowl_core::{
     ExpansionConfig, ExpansionEdge, ExpansionNode, ExpansionResult, GuardrailContext,
@@ -214,7 +207,8 @@ impl ReadRepository {
                     .map(|value| SqlValue::Text(node_type_text(*value).to_owned())),
             );
         }
-        if let Some(statuses) = input.statuses.as_deref().filter(|v| !v.is_empty()) {
+        let requested_statuses = input.statuses.as_deref().filter(|v| !v.is_empty());
+        if let Some(statuses) = requested_statuses {
             conditions.push(format!(
                 "nodes.status IN ({})",
                 placeholders(statuses.len())
@@ -224,6 +218,11 @@ impl ReadRepository {
                     .iter()
                     .map(|value| SqlValue::Text(status_text(*value).to_owned())),
             );
+        } else {
+            conditions.push("nodes.status <> 'retired'".to_owned());
+        }
+        if requested_statuses.is_none_or(|statuses| !statuses.contains(&NodeStatus::Retired)) {
+            conditions.push("cases.status <> 'retired'".to_owned());
         }
         if let Some(domain) = trimmed(&input.domain) {
             conditions.push("EXISTS (SELECT 1 FROM nodes domain_node WHERE domain_node.case_id = cases.id AND domain_node.type = 'Problem' AND json_extract(domain_node.data, '$.domain') = ?)".to_owned());
@@ -614,6 +613,13 @@ impl ReadRepository {
         let mut values = vec![SqlValue::Text(project_id.to_owned())];
         values.extend(case_ids.iter().cloned().map(SqlValue::Text));
         let mut conditions = vec![format!("cases.id IN ({})", placeholders(case_ids.len()))];
+        if input
+            .statuses
+            .as_deref()
+            .is_none_or(|statuses| statuses.is_empty() || !statuses.contains(&NodeStatus::Retired))
+        {
+            conditions.push("cases.status <> 'retired'".into());
+        }
         if let Some(domain) = trimmed(&input.domain) {
             conditions.push("EXISTS (SELECT 1 FROM nodes domain_node WHERE domain_node.case_id = cases.id AND domain_node.type = 'Problem' AND json_extract(domain_node.data, '$.domain') = ?)".into());
             values.push(SqlValue::Text(domain.to_owned()));
@@ -741,156 +747,6 @@ impl ReadRepository {
             limit,
             truncated,
             next_sequence,
-        })
-    }
-
-    pub fn list_disk_observations(
-        &self,
-        input: &ListDiskObservationsInput,
-    ) -> Result<ListDiskObservationsResult, StorageError> {
-        input.validate().map_err(StorageError::Contract)?;
-        let project_id = self.resolve_project(&input.project)?;
-        let limit = input.limit.unwrap_or(25);
-        let mut statement = self.connection.prepare(
-            "SELECT id,task,status,started_at,finished_at,baseline_tracked_bytes,final_tracked_bytes,delta_bytes,positive_growth_bytes,overlapping_observations,scan_truncated FROM disk_observations WHERE project_id=? ORDER BY COALESCE(finished_at,started_at) DESC,id DESC LIMIT ?",
-        )?;
-        let mut observations = statement
-            .query_map(params![project_id, limit + 1], |row| {
-                Ok(DiskObservationSummary {
-                    observation_id: row.get(0)?,
-                    task: row.get(1)?,
-                    status: row.get(2)?,
-                    started_at: row.get(3)?,
-                    finished_at: row.get(4)?,
-                    baseline_tracked_bytes: row.get::<_, i64>(5)? as u64,
-                    final_tracked_bytes: row.get::<_, Option<i64>>(6)?.map(|value| value as u64),
-                    delta_bytes: row.get(7)?,
-                    positive_growth_bytes: row.get::<_, Option<i64>>(8)?.map(|value| value as u64),
-                    overlapping_observations: row.get::<_, i64>(9)? as usize,
-                    scan_truncated: row.get::<_, i64>(10)? != 0,
-                })
-            })?
-            .collect::<Result<Vec<_>, _>>()?;
-        let truncated = observations.len() > limit;
-        observations.truncate(limit);
-        Ok(ListDiskObservationsResult {
-            observations,
-            limit,
-            truncated,
-        })
-    }
-
-    pub fn load_disk_measurement_cache(
-        &self,
-        reference: &ProjectReference,
-    ) -> Result<Vec<DiskMeasurementCacheEntry>, StorageError> {
-        reference.validate().map_err(StorageError::Contract)?;
-        let project_id = self.resolve_project(reference)?;
-        let mut statement = self.connection.prepare(
-            "SELECT relative_path,kind,bytes,truncated,directory_stamps FROM disk_measurement_cache WHERE project_id=? ORDER BY relative_path LIMIT 257",
-        )?;
-        let rows = statement
-            .query_map(params![project_id], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, i64>(2)?,
-                    row.get::<_, i64>(3)?,
-                    row.get::<_, String>(4)?,
-                ))
-            })?
-            .collect::<Result<Vec<_>, _>>()?;
-        if rows.len() > 256 {
-            return Err(StorageError::InvalidStoredData("disk cache rows"));
-        }
-        let mut stamp_count = 0_usize;
-        let mut entries = Vec::with_capacity(rows.len());
-        for (relative_path, kind, bytes, truncated, stamps) in rows {
-            if stamps.len() > 16 * 1024 * 1024 {
-                return Err(StorageError::InvalidStoredData("disk cache bytes"));
-            }
-            let directory_stamps: Vec<DiskDirectoryStamp> = serde_json::from_str(&stamps)
-                .map_err(|_| StorageError::InvalidStoredData("disk cache stamps"))?;
-            stamp_count = stamp_count
-                .checked_add(directory_stamps.len())
-                .ok_or(StorageError::InvalidStoredData("disk cache bounds"))?;
-            if stamp_count > 250_000 {
-                return Err(StorageError::InvalidStoredData("disk cache bounds"));
-            }
-            entries.push(DiskMeasurementCacheEntry {
-                relative_path,
-                kind: parse_disk_artifact_kind(&kind)
-                    .ok_or(StorageError::InvalidStoredData("disk cache kind"))?,
-                bytes: u64::try_from(bytes)
-                    .map_err(|_| StorageError::InvalidStoredData("disk cache bytes"))?,
-                truncated: truncated != 0,
-                directory_stamps,
-            });
-        }
-        Ok(entries)
-    }
-
-    pub fn list_cleanup_candidates(
-        &self,
-        input: &ListCleanupCandidatesInput,
-    ) -> Result<ListCleanupCandidatesResult, StorageError> {
-        input.validate().map_err(StorageError::Contract)?;
-        let project_id = self.resolve_project(&input.project)?;
-        let limit = input.limit.unwrap_or(25);
-        let mut statement = self.connection.prepare(
-            "WITH ranked AS (SELECT entries.observation_id,observations.task,entries.relative_path,entries.kind,entries.delta_bytes,entries.final_bytes,entries.created_by_observation,entries.cleanup_disposition,observations.finished_at,ROW_NUMBER() OVER (PARTITION BY entries.relative_path ORDER BY observations.finished_at DESC,observations.id DESC) AS path_rank FROM disk_observation_entries entries JOIN disk_observations observations ON observations.id=entries.observation_id AND observations.project_id=entries.project_id WHERE entries.project_id=? AND observations.status='completed') SELECT observation_id,task,relative_path,kind,delta_bytes,final_bytes,created_by_observation,cleanup_disposition,finished_at FROM ranked WHERE path_rank=1 AND delta_bytes>0 ORDER BY delta_bytes DESC,relative_path LIMIT ?",
-        )?;
-        let rows = statement
-            .query_map(params![project_id, limit + 1], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, i64>(4)?,
-                    row.get::<_, i64>(5)?,
-                    row.get::<_, i64>(6)?,
-                    row.get::<_, String>(7)?,
-                    row.get::<_, String>(8)?,
-                ))
-            })?
-            .collect::<Result<Vec<_>, _>>()?;
-        let mut candidates = rows
-            .into_iter()
-            .map(
-                |(
-                    observation_id,
-                    task,
-                    relative_path,
-                    kind,
-                    growth,
-                    final_bytes,
-                    created,
-                    disposition,
-                    finished_at,
-                )| {
-                    Ok(DiskCleanupCandidate {
-                        observation_id,
-                        task,
-                        relative_path,
-                        kind: parse_disk_artifact_kind(&kind)
-                            .ok_or(StorageError::InvalidStoredData("disk kind"))?,
-                        attributed_growth_bytes: growth as u64,
-                        reclaimable_bytes: final_bytes as u64,
-                        created_by_observation: created != 0,
-                        cleanup_disposition: parse_cleanup_disposition(&disposition)
-                            .ok_or(StorageError::InvalidStoredData("cleanup disposition"))?,
-                        finished_at,
-                    })
-                },
-            )
-            .collect::<Result<Vec<_>, StorageError>>()?;
-        let truncated = candidates.len() > limit;
-        candidates.truncate(limit);
-        Ok(ListCleanupCandidatesResult {
-            candidates,
-            limit,
-            truncated,
         })
     }
 
@@ -1409,7 +1265,7 @@ impl ReadRepository {
         let candidate_case_ids = self.candidate_case_ids(project_id, &context_text)?;
         let fingerprint_case_ids = if let Some(fingerprint) = trimmed(&input.fingerprint) {
             let mut statement = self.connection.prepare(
-                "SELECT DISTINCT nodes.case_id FROM fingerprints JOIN nodes ON nodes.id = fingerprints.problem_node_id JOIN cases ON cases.id = nodes.case_id WHERE fingerprints.project_id = ? AND cases.project_id = ? AND fingerprints.value = ?",
+                "SELECT DISTINCT nodes.case_id FROM fingerprints JOIN nodes ON nodes.id = fingerprints.problem_node_id JOIN cases ON cases.id = nodes.case_id WHERE fingerprints.project_id = ? AND cases.project_id = ? AND cases.status <> 'retired' AND fingerprints.value = ?",
             )?;
             statement
                 .query_map(params![project_id, project_id, fingerprint], |row| {
@@ -1420,9 +1276,10 @@ impl ReadRepository {
             Vec::new()
         };
         let mut nodes = self.nodes_for_cases(project_id, &candidate_case_ids)?;
+        nodes.retain(|node| node.status != NodeStatus::Retired);
         let mut guardrails = Vec::<PreflightGuardrail>::new();
         let mut statement = self.connection.prepare(
-            "SELECT nodes.id, nodes.case_id, nodes.type, nodes.status, nodes.data, nodes.created_at, guardrails.enforcement, guardrails.criteria FROM guardrails JOIN nodes ON nodes.id = guardrails.node_id JOIN cases ON cases.id = nodes.case_id WHERE guardrails.project_id = ? AND cases.project_id = ? ORDER BY nodes.created_at DESC",
+            "SELECT nodes.id, nodes.case_id, nodes.type, nodes.status, nodes.data, nodes.created_at, guardrails.enforcement, guardrails.criteria FROM guardrails JOIN nodes ON nodes.id = guardrails.node_id JOIN cases ON cases.id = nodes.case_id WHERE guardrails.project_id = ? AND cases.project_id = ? AND cases.status <> 'retired' AND nodes.status <> 'retired' ORDER BY nodes.created_at DESC",
         )?;
         let rows = statement.query_map(params![project_id, project_id], |row| {
             let node = node_from_columns(row, 0)?;
@@ -1570,7 +1427,7 @@ impl ReadRepository {
             return Ok(Vec::new());
         };
         let mut statement = self.connection.prepare(
-            "SELECT DISTINCT nodes.case_id FROM node_search JOIN nodes ON nodes.id = node_search.node_id JOIN cases ON cases.id = nodes.case_id WHERE node_search MATCH ? AND cases.project_id = ? LIMIT 1000",
+            "SELECT DISTINCT nodes.case_id FROM node_search JOIN nodes ON nodes.id = node_search.node_id JOIN cases ON cases.id = nodes.case_id WHERE node_search MATCH ? AND cases.project_id = ? AND cases.status <> 'retired' AND nodes.status <> 'retired' LIMIT 1000",
         )?;
         Ok(statement
             .query_map(params![query, project_id], |row| row.get(0))?
@@ -1687,25 +1544,6 @@ fn append_route_reasons(
     }
 }
 
-fn parse_disk_artifact_kind(value: &str) -> Option<DiskArtifactKind> {
-    match value {
-        "build-cache" => Some(DiskArtifactKind::BuildCache),
-        "dependency-cache" => Some(DiskArtifactKind::DependencyCache),
-        "generated-output" => Some(DiskArtifactKind::GeneratedOutput),
-        "temporary-output" => Some(DiskArtifactKind::TemporaryOutput),
-        _ => None,
-    }
-}
-
-fn parse_cleanup_disposition(value: &str) -> Option<CleanupDisposition> {
-    match value {
-        "eligible" => Some(CleanupDisposition::Eligible),
-        "review" => Some(CleanupDisposition::Review),
-        "shared" => Some(CleanupDisposition::Shared),
-        _ => None,
-    }
-}
-
 fn push_reason(reasons: &mut Vec<RetrievalReason>, kind: RetrievalMatchKind, value: &str) {
     if reasons.len() >= 8 || reasons.iter().any(|reason| reason.kind == kind) {
         return;
@@ -1732,14 +1570,15 @@ fn insert_ranked(items: &mut BTreeMap<String, RankedQueryItem>, mut candidate: R
 }
 
 fn node_matches_output_filters(node: &NodeRecord, input: &QueryKnowledgeInput) -> bool {
+    let status_matches = match input.statuses.as_deref() {
+        Some(statuses) if !statuses.is_empty() => statuses.contains(&node.status),
+        _ => node.status != NodeStatus::Retired,
+    };
     input
         .node_types
         .as_deref()
         .is_none_or(|types| types.is_empty() || types.contains(&node.node_type))
-        && input
-            .statuses
-            .as_deref()
-            .is_none_or(|statuses| statuses.is_empty() || statuses.contains(&node.status))
+        && status_matches
 }
 
 fn node_overlap(node: &NodeRecord, terms: &[String]) -> usize {

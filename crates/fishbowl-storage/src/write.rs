@@ -1,23 +1,18 @@
-use std::collections::{BTreeMap, BTreeSet};
-use std::path::{Component, Path};
-
-use crate::{DiskCapture, DiskSnapshot};
 use chrono::Utc;
 use fishbowl_contracts::{
     ApplyCaseMergeInput, ArtifactWriteResult, CheckpointSkipReason, CheckpointWorkInput,
-    CheckpointWorkResult, CheckpointWrite, CheckpointWriteResult, CleanupDisposition,
-    CloseCaseInput, CloseCaseResult, CommandResultWriteResult, CommandStartedResult,
-    DiskArtifactKind, DiskGrowthEntry, FinalizeWorkInput, FinalizeWorkResult,
-    FinishDiskObservationInput, FinishDiskObservationResult, MarkRegressionInput,
-    MergeProposalContract, NodeStatus, NodeWriteResult, ProjectAliasRecord, ProjectRecord,
-    ProjectReference, ProjectWithAliasesRecord, PromoteRootCauseInput, PromotionStatus,
-    RecordArtifactInput, RecordAttemptInput, RecordCheckpointInput, RecordCheckpointResult,
-    RecordCommandResultInput, RecordCommandStartedInput, RecordGuardrailInput, RecordProblemInput,
-    RecordRootCauseInput, RecordSolutionInput, RecordVerificationInput, RegisterProjectInput,
-    RegressionOutcomeContract, RegressionResultContract, ReportRelevanceInput, SourceKey,
-    StartDiskObservationInput, StartDiskObservationResult, SuggestCaseMergesInput,
-    UpdateProjectInput, Validate, WriteAttemptData, WriteProblemData, WriteRootCauseData,
-    WriteSolutionData, WriteVerificationData,
+    CheckpointWorkResult, CheckpointWrite, CheckpointWriteResult, CloseCaseInput, CloseCaseResult,
+    CommandResultWriteResult, CommandStartedResult, FinalizeWorkInput, FinalizeWorkResult,
+    MarkRegressionInput, MergeProposalContract, NodeStatus, NodeWriteResult, ProjectAliasRecord,
+    ProjectRecord, ProjectReference, ProjectWithAliasesRecord, PromoteRootCauseInput,
+    PromotionStatus, RecordArtifactInput, RecordAttemptInput, RecordCheckpointInput,
+    RecordCheckpointResult, RecordCommandResultInput, RecordCommandStartedInput,
+    RecordGuardrailInput, RecordProblemInput, RecordRootCauseInput, RecordSolutionInput,
+    RecordVerificationInput, RegisterProjectInput, RegressionOutcomeContract,
+    RegressionResultContract, ReportRelevanceInput, SourceKey, SuggestCaseMergesInput,
+    SupersedeSolutionInput, SupersedeSolutionResult, UpdateProjectInput, Validate,
+    WriteAttemptData, WriteProblemData, WriteRootCauseData, WriteSolutionData,
+    WriteVerificationData,
 };
 use fishbowl_core::{
     ApplicabilityBoundary, PromotionEvidence, PromotionRequirement, RegressionOutcome,
@@ -1554,6 +1549,125 @@ impl WriteRepository {
         Ok(proposal)
     }
 
+    pub fn supersede_solution(
+        &mut self,
+        input: SupersedeSolutionInput,
+    ) -> Result<SupersedeSolutionResult, WriteError> {
+        input.validate().map_err(|_| WriteError::Contract)?;
+        if input.operation_id.trim().is_empty()
+            || input.reason.trim().is_empty()
+            || input.prior_solution_id == input.replacement_solution_id
+        {
+            return Err(WriteError::Validation("solution supersession"));
+        }
+        let transaction = self.connection.savepoint()?;
+        let project_id = resolve_project(&transaction, &input.project)?;
+        if let Some(mut replay) = replay_operation::<SupersedeSolutionResult>(
+            &transaction,
+            &project_id,
+            Some(&input.operation_id),
+            "supersede_solution",
+        )? {
+            replay.created = false;
+            transaction.commit()?;
+            return Ok(replay);
+        }
+        require_case(&transaction, &project_id, &input.case_id)?;
+        require_node(
+            &transaction,
+            &project_id,
+            &input.case_id,
+            &input.prior_solution_id,
+            "Solution",
+        )?;
+        require_node(
+            &transaction,
+            &project_id,
+            &input.case_id,
+            &input.replacement_solution_id,
+            "Solution",
+        )?;
+        let prior_status: String = transaction.query_row(
+            "SELECT status FROM nodes WHERE id=? AND case_id=?",
+            params![input.prior_solution_id, input.case_id],
+            |row| row.get(0),
+        )?;
+        let replacement_status: String = transaction.query_row(
+            "SELECT status FROM nodes WHERE id=? AND case_id=?",
+            params![input.replacement_solution_id, input.case_id],
+            |row| row.get(0),
+        )?;
+        if !matches!(replacement_status.as_str(), "candidate" | "verified") {
+            return Err(WriteError::Validation(
+                "replacement Solution must be candidate or verified",
+            ));
+        }
+        if prior_status == "verified" && replacement_status != "verified" {
+            return Err(WriteError::Validation(
+                "verified Solution requires a verified replacement",
+            ));
+        }
+        let creates_cycle = transaction.query_row(
+            "WITH RECURSIVE superseded(id) AS (SELECT target_id FROM edges WHERE case_id=? AND source_id=? AND relation='SUPERSEDES' UNION SELECT edges.target_id FROM edges JOIN superseded ON edges.source_id=superseded.id WHERE edges.case_id=? AND edges.relation='SUPERSEDES') SELECT EXISTS(SELECT 1 FROM superseded WHERE id=?)",
+            params![input.case_id, input.prior_solution_id, input.case_id, input.replacement_solution_id],
+            |row| row.get::<_, i64>(0),
+        )? != 0;
+        if creates_cycle {
+            return Err(WriteError::Validation("solution supersession cycle"));
+        }
+        let already_superseded = transaction.query_row(
+            "SELECT EXISTS(SELECT 1 FROM edges WHERE case_id=? AND source_id=? AND relation='SUPERSEDES' AND target_id=?)",
+            params![input.case_id, input.replacement_solution_id, input.prior_solution_id],
+            |row| row.get::<_, i64>(0),
+        )? != 0;
+        if !already_superseded {
+            let now = timestamp();
+            transaction.execute(
+                "UPDATE nodes SET status='retired' WHERE id=? AND case_id=? AND type='Solution'",
+                params![input.prior_solution_id, input.case_id],
+            )?;
+            add_edge(
+                &transaction,
+                &project_id,
+                &input.case_id,
+                &input.replacement_solution_id,
+                "SUPERSEDES",
+                &input.prior_solution_id,
+                &now,
+            )?;
+            append_event(
+                &transaction,
+                &project_id,
+                Some(&input.case_id),
+                "solution.superseded",
+                &input.prior_solution_id,
+                &json!({
+                    "caseId": input.case_id,
+                    "priorSolutionId": input.prior_solution_id,
+                    "replacementSolutionId": input.replacement_solution_id,
+                    "reason": redact_string(&input.reason),
+                }),
+                &now,
+            )?;
+        }
+        let result = SupersedeSolutionResult {
+            case_id: input.case_id,
+            prior_solution_id: input.prior_solution_id,
+            replacement_solution_id: input.replacement_solution_id,
+            retired: true,
+            created: !already_superseded,
+        };
+        store_operation(
+            &transaction,
+            &project_id,
+            Some(&input.operation_id),
+            "supersede_solution",
+            &result,
+        )?;
+        transaction.commit()?;
+        Ok(result)
+    }
+
     pub fn record_checkpoint(
         &mut self,
         input: RecordCheckpointInput,
@@ -1876,8 +1990,36 @@ impl WriteRepository {
             )? {
                 return Ok(replay);
             }
+            let checkpoint = input
+                .checkpoint_operation_id
+                .as_deref()
+                .map(|operation_id| {
+                    load_checkpoint_work(&self.connection, &project_id, operation_id)
+                })
+                .transpose()?;
+            if checkpoint.as_ref().is_some_and(|item| {
+                !item.recorded
+                    || item.case_id.is_none()
+                    || item.problem_id.is_none()
+                    || item.attempt_id.is_none()
+            }) {
+                return Err(WriteError::Validation(
+                    "checkpoint operation has no reusable knowledge",
+                ));
+            }
+            let requested_case_id = match (
+                &input.case_id,
+                checkpoint.as_ref().and_then(|item| item.case_id.as_ref()),
+            ) {
+                (Some(explicit), Some(checkpoint_case)) if explicit != checkpoint_case => {
+                    return Err(WriteError::Validation("checkpoint Case mismatch"));
+                }
+                (Some(explicit), _) => Some(explicit.clone()),
+                (None, Some(checkpoint_case)) => Some(checkpoint_case.clone()),
+                (None, None) => None,
+            };
             let (case_id, problem_id, mut previous_attempt_id, created_case) =
-                if let Some(case_id) = &input.case_id {
+                if let Some(case_id) = &requested_case_id {
                     let (problem, previous) = case_anchor(&self.connection, &project_id, case_id)?;
                     (case_id.clone(), problem, previous, false)
                 } else {
@@ -1898,6 +2040,53 @@ impl WriteRepository {
                     (problem.case_id, problem.node_id, None, problem.created)
                 };
             let mut attempt_ids = Vec::new();
+            let mut failed_attempt_ids = Vec::new();
+            for attempt_id in &input.failed_attempt_ids {
+                require_failed_attempt(
+                    &self.connection,
+                    &project_id,
+                    &case_id,
+                    &problem_id,
+                    attempt_id,
+                )?;
+                if !attempt_ids.contains(attempt_id) {
+                    attempt_ids.push(attempt_id.clone());
+                }
+                if !failed_attempt_ids.contains(attempt_id) {
+                    failed_attempt_ids.push(attempt_id.clone());
+                }
+            }
+            let mut checkpoint_succeeded_attempt = false;
+            if let Some(attempt_id) = checkpoint
+                .as_ref()
+                .and_then(|item| item.attempt_id.as_ref())
+            {
+                let outcome = require_attempt_outcome(
+                    &self.connection,
+                    &project_id,
+                    &case_id,
+                    &problem_id,
+                    attempt_id,
+                )?;
+                if !attempt_ids.contains(attempt_id) {
+                    attempt_ids.push(attempt_id.clone());
+                }
+                if outcome == "failed" && !failed_attempt_ids.contains(attempt_id) {
+                    failed_attempt_ids.push(attempt_id.clone());
+                }
+                let checkpoint_is_only_non_success_evidence = input.outcome != "succeeded"
+                    && input.failed_attempt_ids.is_empty()
+                    && input.failed_attempts.is_empty();
+                if checkpoint_is_only_non_success_evidence
+                    && (outcome == "succeeded" || input.outcome == "failed" && outcome != "failed")
+                {
+                    return Err(WriteError::Validation(
+                        "checkpoint outcome does not support final outcome",
+                    ));
+                }
+                checkpoint_succeeded_attempt =
+                    outcome == "succeeded" && input.outcome == "succeeded";
+            }
             for (index, failed) in input.failed_attempts.iter().enumerate() {
                 let attempt_data = WriteAttemptData {
                     hypothesis: failed.hypothesis.clone(),
@@ -1931,9 +2120,14 @@ impl WriteRepository {
                     .node_id
                 };
                 previous_attempt_id = Some(attempt_id.clone());
-                attempt_ids.push(attempt_id);
+                if !attempt_ids.contains(&attempt_id) {
+                    attempt_ids.push(attempt_id.clone());
+                }
+                if !failed_attempt_ids.contains(&attempt_id) {
+                    failed_attempt_ids.push(attempt_id);
+                }
             }
-            if input.outcome == "succeeded" {
+            if input.outcome == "succeeded" && !checkpoint_succeeded_attempt {
                 let attempt_data = WriteAttemptData {
                     hypothesis: input.task.clone(),
                     change: input.summary.clone(),
@@ -1978,22 +2172,52 @@ impl WriteRepository {
                     rejected_alternatives: root.rejected_alternatives.clone(),
                     confidence: root.confidence,
                 };
-                let existing = find_equivalent_causal_node(
-                    &self.connection,
-                    &project_id,
-                    &case_id,
-                    "RootCause",
-                    &root_data,
-                    "CAUSES",
-                    &problem_id,
-                )?;
+                let checkpoint_root = checkpoint
+                    .as_ref()
+                    .and_then(|item| item.root_cause_id.clone());
+                if let Some(node_id) = &checkpoint_root {
+                    require_node(
+                        &self.connection,
+                        &project_id,
+                        &case_id,
+                        node_id,
+                        "RootCause",
+                    )?;
+                    require_causal_edge(
+                        &self.connection,
+                        &case_id,
+                        node_id,
+                        "CAUSES",
+                        &problem_id,
+                    )?;
+                    ensure_root_attempt_links(
+                        &self.connection,
+                        &project_id,
+                        &case_id,
+                        node_id,
+                        &failed_attempt_ids,
+                    )?;
+                }
+                let existing = if checkpoint_root.is_some() {
+                    checkpoint_root
+                } else {
+                    find_equivalent_causal_node(
+                        &self.connection,
+                        &project_id,
+                        &case_id,
+                        "RootCause",
+                        &root_data,
+                        "CAUSES",
+                        &problem_id,
+                    )?
+                };
                 let reusable = if let Some(node_id) = existing {
                     root_cause_covers_attempts(
                         &self.connection,
                         &project_id,
                         &case_id,
                         &node_id,
-                        &attempt_ids[..input.failed_attempts.len()],
+                        &failed_attempt_ids,
                     )?
                     .then_some(node_id)
                 } else {
@@ -2009,11 +2233,7 @@ impl WriteRepository {
                             source_key: None,
                             case_id: case_id.clone(),
                             problem_id: problem_id.clone(),
-                            failed_attempt_ids: attempt_ids
-                                .iter()
-                                .take(input.failed_attempts.len())
-                                .cloned()
-                                .collect(),
+                            failed_attempt_ids: failed_attempt_ids.clone(),
                             status: Some(NodeStatus::Candidate),
                             human_confirmed: false,
                             data: root_data,
@@ -2036,7 +2256,20 @@ impl WriteRepository {
                         human_verification_required: false,
                         non_automatable_reason: None,
                     };
-                    if let Some(node_id) = find_equivalent_causal_node(
+                    let checkpoint_solution = checkpoint
+                        .as_ref()
+                        .and_then(|item| item.solution_id.clone());
+                    if let Some(node_id) = &checkpoint_solution {
+                        require_node(&self.connection, &project_id, &case_id, node_id, "Solution")?;
+                        require_causal_edge(
+                            &self.connection,
+                            &case_id,
+                            node_id,
+                            "ADDRESSES",
+                            root_cause_id,
+                        )?;
+                    }
+                    if let Some(node_id) = checkpoint_solution.or(find_equivalent_causal_node(
                         &self.connection,
                         &project_id,
                         &case_id,
@@ -2044,7 +2277,7 @@ impl WriteRepository {
                         &solution_data,
                         "ADDRESSES",
                         root_cause_id,
-                    )? {
+                    )?) {
                         Some(node_id)
                     } else {
                         Some(
@@ -2177,6 +2410,102 @@ fn case_anchor(
     Ok((problem_id, previous))
 }
 
+fn load_checkpoint_work(
+    connection: &Connection,
+    project_id: &str,
+    operation_id: &str,
+) -> Result<CheckpointWorkResult, WriteError> {
+    let result = connection
+        .query_row(
+            "SELECT result FROM operation_results WHERE project_id=? AND operation_id=? AND kind='checkpoint_work'",
+            params![project_id, operation_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?
+        .ok_or(WriteError::Validation("checkpoint operation not found"))?;
+    serde_json::from_str(&result).map_err(WriteError::from)
+}
+
+fn require_attempt_outcome(
+    connection: &Connection,
+    project_id: &str,
+    case_id: &str,
+    problem_id: &str,
+    attempt_id: &str,
+) -> Result<String, WriteError> {
+    connection
+        .query_row(
+            "SELECT json_extract(nodes.data,'$.outcome') FROM nodes JOIN cases ON cases.id=nodes.case_id WHERE cases.project_id=? AND nodes.case_id=? AND nodes.id=? AND nodes.type='Attempt' AND EXISTS(SELECT 1 FROM edges WHERE edges.case_id=nodes.case_id AND edges.source_id=nodes.id AND edges.relation='ATTEMPTS_TO_SOLVE' AND edges.target_id=?)",
+            params![project_id, case_id, attempt_id, problem_id],
+            |row| row.get(0),
+        )
+        .optional()?
+        .ok_or(WriteError::OwnershipMismatch)
+}
+
+fn require_failed_attempt(
+    connection: &Connection,
+    project_id: &str,
+    case_id: &str,
+    problem_id: &str,
+    attempt_id: &str,
+) -> Result<(), WriteError> {
+    if require_attempt_outcome(connection, project_id, case_id, problem_id, attempt_id)? != "failed"
+    {
+        return Err(WriteError::Validation(
+            "failedAttemptIds must reference failed Attempts",
+        ));
+    }
+    Ok(())
+}
+
+fn require_causal_edge(
+    connection: &Connection,
+    case_id: &str,
+    source_id: &str,
+    relation: &str,
+    target_id: &str,
+) -> Result<(), WriteError> {
+    let found = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM edges WHERE case_id=? AND source_id=? AND relation=? AND target_id=?)",
+        params![case_id, source_id, relation, target_id],
+        |row| row.get::<_, i64>(0),
+    )? != 0;
+    if !found {
+        return Err(WriteError::Validation("checkpoint causal link mismatch"));
+    }
+    Ok(())
+}
+
+fn ensure_root_attempt_links(
+    connection: &Connection,
+    project_id: &str,
+    case_id: &str,
+    root_cause_id: &str,
+    failed_attempt_ids: &[String],
+) -> Result<(), WriteError> {
+    let now = timestamp();
+    for attempt_id in failed_attempt_ids {
+        let linked = connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM edges WHERE case_id=? AND source_id=? AND relation='FAILED_BECAUSE' AND target_id=?)",
+            params![case_id, attempt_id, root_cause_id],
+            |row| row.get::<_, i64>(0),
+        )? != 0;
+        if !linked {
+            add_edge(
+                connection,
+                project_id,
+                case_id,
+                attempt_id,
+                "FAILED_BECAUSE",
+                root_cause_id,
+                &now,
+            )?;
+        }
+    }
+    Ok(())
+}
+
 fn find_equivalent_attempt(
     connection: &Connection,
     project_id: &str,
@@ -2268,9 +2597,26 @@ fn validate_finalize(input: &FinalizeWorkInput) -> Result<(), WriteError> {
             "commit and at least one successful verifications item are required when outcome is succeeded",
         ));
     }
-    if input.outcome != "succeeded" && input.failed_attempts.is_empty() {
+    if input.outcome != "succeeded"
+        && input.failed_attempts.is_empty()
+        && input.failed_attempt_ids.is_empty()
+        && input.checkpoint_operation_id.is_none()
+    {
         return Err(WriteError::Validation(
-            "failedAttempts must contain at least one item when outcome is not succeeded",
+            "failedAttempts, failedAttemptIds, or checkpointOperationId is required when outcome is not succeeded",
+        ));
+    }
+    if input
+        .checkpoint_operation_id
+        .as_ref()
+        .is_some_and(|value| value.trim().is_empty())
+        || input
+            .failed_attempt_ids
+            .iter()
+            .any(|value| value.trim().is_empty())
+    {
+        return Err(WriteError::Validation(
+            "checkpointOperationId and failedAttemptIds must be non-empty",
         ));
     }
     if !input.verifications.is_empty() && input.solution.is_none() {
@@ -2452,344 +2798,6 @@ fn load_project_with_aliases(
         })?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(ProjectWithAliasesRecord { project, aliases })
-}
-
-impl WriteRepository {
-    pub fn start_disk_observation(
-        &mut self,
-        input: StartDiskObservationInput,
-        snapshot: DiskSnapshot,
-    ) -> Result<StartDiskObservationResult, WriteError> {
-        self.start_disk_observation_capture(input, DiskCapture::uncached(snapshot))
-    }
-
-    pub fn start_disk_observation_capture(
-        &mut self,
-        input: StartDiskObservationInput,
-        capture: DiskCapture,
-    ) -> Result<StartDiskObservationResult, WriteError> {
-        input.validate().map_err(|_| WriteError::Contract)?;
-        validate_disk_capture(&capture)?;
-        let snapshot = &capture.snapshot;
-        let transaction = self.connection.savepoint()?;
-        let project_id = resolve_project(&transaction, &input.project)?;
-        if let Some(mut replay) = replay_operation::<StartDiskObservationResult>(
-            &transaction,
-            &project_id,
-            Some(&input.operation_id),
-            "start_disk_observation",
-        )? {
-            replay.created = false;
-            transaction.commit()?;
-            return Ok(replay);
-        }
-        let observation_id = id();
-        let started_at = timestamp();
-        let task = redact_string(input.task.trim());
-        transaction.execute(
-            "INSERT INTO disk_observations (id,project_id,task,status,started_at,baseline_tracked_bytes,overlapping_observations,scanned_entries,scan_truncated) VALUES (?,?,?,'running',?,?,?,?,?)",
-            params![
-                observation_id,
-                project_id,
-                task,
-                started_at,
-                as_i64(snapshot.tracked_bytes)?,
-                0_i64,
-                as_i64(snapshot.scanned_entries as u64)?,
-                bool_i64(snapshot.truncated),
-            ],
-        )?;
-        for entry in &snapshot.entries {
-            transaction.execute(
-                "INSERT INTO disk_observation_entries (observation_id,project_id,relative_path,kind,baseline_bytes,created_by_observation) VALUES (?,?,?,?,?,0)",
-                params![
-                    observation_id,
-                    project_id,
-                    entry.relative_path,
-                    disk_kind_text(entry.kind),
-                    as_i64(entry.bytes)?,
-                ],
-            )?;
-        }
-        store_disk_measurement_cache(&transaction, &project_id, &capture)?;
-        let result = StartDiskObservationResult {
-            observation_id: observation_id.clone(),
-            project_id: project_id.clone(),
-            started_at: started_at.clone(),
-            baseline_tracked_bytes: snapshot.tracked_bytes,
-            tracked_paths: snapshot.entries.len(),
-            scanned_entries: snapshot.scanned_entries,
-            scan_truncated: snapshot.truncated,
-            cache_hits: capture.cache_hits,
-            cache_misses: capture.cache_misses,
-            created: true,
-        };
-        append_event(
-            &transaction,
-            &project_id,
-            None,
-            "disk.observation.started",
-            &observation_id,
-            &json!({
-                "observationId": observation_id,
-                "baselineTrackedBytes": snapshot.tracked_bytes,
-                "trackedPaths": snapshot.entries.len(),
-                "scanTruncated": snapshot.truncated,
-                "cacheHits": capture.cache_hits,
-                "cacheMisses": capture.cache_misses,
-            }),
-            &started_at,
-        )?;
-        store_operation(
-            &transaction,
-            &project_id,
-            Some(&input.operation_id),
-            "start_disk_observation",
-            &result,
-        )?;
-        transaction.commit()?;
-        Ok(result)
-    }
-
-    pub fn finish_disk_observation(
-        &mut self,
-        input: FinishDiskObservationInput,
-        snapshot: DiskSnapshot,
-    ) -> Result<FinishDiskObservationResult, WriteError> {
-        self.finish_disk_observation_capture(input, DiskCapture::uncached(snapshot))
-    }
-
-    pub fn finish_disk_observation_capture(
-        &mut self,
-        input: FinishDiskObservationInput,
-        capture: DiskCapture,
-    ) -> Result<FinishDiskObservationResult, WriteError> {
-        input.validate().map_err(|_| WriteError::Contract)?;
-        validate_disk_capture(&capture)?;
-        let snapshot = &capture.snapshot;
-        let transaction = self.connection.savepoint()?;
-        let project_id = resolve_project(&transaction, &input.project)?;
-        if let Some(replay) = replay_operation::<FinishDiskObservationResult>(
-            &transaction,
-            &project_id,
-            Some(&input.operation_id),
-            "finish_disk_observation",
-        )? {
-            transaction.commit()?;
-            return Ok(replay);
-        }
-        let (started_at, baseline_tracked_bytes, status, baseline_scanned_entries, baseline_truncated): (
-            String,
-            i64,
-            String,
-            i64,
-            i64,
-        ) = transaction
-            .query_row(
-                "SELECT started_at,baseline_tracked_bytes,status,scanned_entries,scan_truncated FROM disk_observations WHERE id=? AND project_id=?",
-                params![input.observation_id, project_id],
-                |row| {
-                    Ok((
-                        row.get(0)?,
-                        row.get(1)?,
-                        row.get(2)?,
-                        row.get(3)?,
-                        row.get(4)?,
-                    ))
-                },
-            )
-            .optional()?
-            .ok_or(WriteError::OwnershipMismatch)?;
-        if status != "running" {
-            return Err(WriteError::Validation("disk observation completed"));
-        }
-        let finished_at = timestamp();
-        let overlapping_observations: i64 = transaction.query_row(
-            "SELECT count(*) FROM disk_observations WHERE project_id=? AND id<>? AND started_at<=? AND COALESCE(finished_at,?)>=?",
-            params![project_id,input.observation_id,finished_at,finished_at,started_at],
-            |row| row.get(0),
-        )?;
-        let mut baseline = BTreeMap::<String, (DiskArtifactKind, u64)>::new();
-        {
-            let mut statement = transaction.prepare(
-                "SELECT relative_path,kind,baseline_bytes FROM disk_observation_entries WHERE project_id=? AND observation_id=?",
-            )?;
-            let rows = statement.query_map(params![project_id, input.observation_id], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, i64>(2)?,
-                ))
-            })?;
-            for row in rows {
-                let (path, kind, bytes) = row?;
-                baseline.insert(
-                    path,
-                    (
-                        parse_disk_kind(&kind).ok_or(WriteError::Validation("disk kind"))?,
-                        bytes as u64,
-                    ),
-                );
-            }
-        }
-        let final_entries = snapshot
-            .entries
-            .iter()
-            .map(|entry| (entry.relative_path.clone(), (entry.kind, entry.bytes)))
-            .collect::<BTreeMap<_, _>>();
-        let paths = baseline
-            .keys()
-            .chain(final_entries.keys())
-            .cloned()
-            .collect::<BTreeSet<_>>();
-        let mut entries = Vec::new();
-        let mut positive_growth_bytes = 0_u64;
-        let scan_truncated = baseline_truncated != 0 || snapshot.truncated;
-        for path in paths {
-            let baseline_present = baseline.contains_key(&path);
-            let final_present = final_entries.contains_key(&path);
-            let (kind, baseline_bytes) = match baseline.get(&path).copied() {
-                Some(entry) => entry,
-                None => (
-                    final_entries
-                        .get(&path)
-                        .map(|entry| entry.0)
-                        .ok_or(WriteError::Validation("disk entry"))?,
-                    0,
-                ),
-            };
-            let final_bytes = final_entries.get(&path).map_or(0, |entry| entry.1);
-            // A truncated traversal cannot prove absence on either side and can
-            // also contain partial per-root byte counts. Preserve the row for
-            // diagnostics, but never turn incomplete measurements into growth
-            // attribution or cleanup eligibility.
-            let measurement_complete = !scan_truncated;
-            let delta_bytes = measurement_complete
-                .then(|| signed_delta(final_bytes, baseline_bytes))
-                .transpose()?;
-            let created_by_observation =
-                measurement_complete && !baseline_present && final_present && final_bytes > 0;
-            let cleanup_disposition = if overlapping_observations > 0 {
-                CleanupDisposition::Shared
-            } else if !scan_truncated
-                && created_by_observation
-                && kind != DiskArtifactKind::TemporaryOutput
-            {
-                CleanupDisposition::Eligible
-            } else {
-                CleanupDisposition::Review
-            };
-            if delta_bytes.is_some_and(|delta| delta > 0) {
-                positive_growth_bytes =
-                    positive_growth_bytes.saturating_add(delta_bytes.unwrap_or_default() as u64);
-            }
-            transaction.execute(
-                "INSERT INTO disk_observation_entries (observation_id,project_id,relative_path,kind,baseline_bytes,final_bytes,delta_bytes,created_by_observation,cleanup_disposition) VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(observation_id,relative_path) DO UPDATE SET final_bytes=excluded.final_bytes,delta_bytes=excluded.delta_bytes,created_by_observation=excluded.created_by_observation,cleanup_disposition=excluded.cleanup_disposition",
-                params![
-                    input.observation_id,
-                    project_id,
-                    path,
-                    disk_kind_text(kind),
-                    as_i64(baseline_bytes)?,
-                    as_i64(final_bytes)?,
-                    delta_bytes,
-                    bool_i64(created_by_observation),
-                    cleanup_text(cleanup_disposition),
-                ],
-            )?;
-            if let Some(delta_bytes) = delta_bytes.filter(|delta| *delta != 0) {
-                entries.push(DiskGrowthEntry {
-                    relative_path: path,
-                    kind,
-                    baseline_bytes,
-                    final_bytes,
-                    delta_bytes,
-                    created_by_observation,
-                    cleanup_disposition,
-                });
-            }
-        }
-        entries.sort_by(|left, right| {
-            right
-                .delta_bytes
-                .cmp(&left.delta_bytes)
-                .then_with(|| left.relative_path.cmp(&right.relative_path))
-        });
-        let delta_bytes = if scan_truncated {
-            None
-        } else {
-            Some(signed_delta(
-                snapshot.tracked_bytes,
-                baseline_tracked_bytes as u64,
-            )?)
-        };
-        transaction.execute(
-            "UPDATE disk_observations SET status='completed',finished_at=?,final_tracked_bytes=?,delta_bytes=?,positive_growth_bytes=?,overlapping_observations=?,scanned_entries=scanned_entries+?,scan_truncated=CASE WHEN scan_truncated=1 OR ?=1 THEN 1 ELSE 0 END WHERE id=? AND project_id=?",
-            params![
-                finished_at,
-                as_i64(snapshot.tracked_bytes)?,
-                delta_bytes,
-                as_i64(positive_growth_bytes)?,
-                overlapping_observations,
-                as_i64(snapshot.scanned_entries as u64)?,
-                bool_i64(snapshot.truncated),
-                input.observation_id,
-                project_id,
-            ],
-        )?;
-        store_disk_measurement_cache(&transaction, &project_id, &capture)?;
-        let scanned_entries = usize::try_from(baseline_scanned_entries)
-            .map_err(|_| WriteError::Validation("disk scan count"))?
-            .saturating_add(snapshot.scanned_entries);
-        let scan_truncated = baseline_truncated != 0 || snapshot.truncated;
-        let result = FinishDiskObservationResult {
-            observation_id: input.observation_id.clone(),
-            project_id: project_id.clone(),
-            started_at,
-            finished_at: finished_at.clone(),
-            baseline_tracked_bytes: baseline_tracked_bytes as u64,
-            final_tracked_bytes: snapshot.tracked_bytes,
-            delta_bytes,
-            positive_growth_bytes,
-            overlapping_observations: overlapping_observations as usize,
-            scanned_entries,
-            baseline_scanned_entries: usize::try_from(baseline_scanned_entries)
-                .map_err(|_| WriteError::Validation("disk scan count"))?,
-            final_scanned_entries: snapshot.scanned_entries,
-            scan_truncated,
-            baseline_scan_truncated: baseline_truncated != 0,
-            final_scan_truncated: snapshot.truncated,
-            cache_hits: capture.cache_hits,
-            cache_misses: capture.cache_misses,
-            entries,
-        };
-        append_event(
-            &transaction,
-            &project_id,
-            None,
-            "disk.observation.completed",
-            &input.observation_id,
-            &json!({
-                "observationId": input.observation_id,
-                "deltaBytes": delta_bytes,
-                "positiveGrowthBytes": positive_growth_bytes,
-                "overlappingObservations": overlapping_observations,
-                "scanTruncated": scan_truncated,
-                "cacheHits": capture.cache_hits,
-                "cacheMisses": capture.cache_misses,
-            }),
-            &finished_at,
-        )?;
-        store_operation(
-            &transaction,
-            &project_id,
-            Some(&input.operation_id),
-            "finish_disk_observation",
-            &result,
-        )?;
-        transaction.commit()?;
-        Ok(result)
-    }
 }
 
 struct NodeInsert<'a> {
@@ -3397,188 +3405,6 @@ fn redact_value(value: Value) -> Value {
                 .collect(),
         ),
         other => other,
-    }
-}
-
-fn validate_disk_snapshot(snapshot: &DiskSnapshot) -> Result<(), WriteError> {
-    if snapshot.entries.len() > 256 || snapshot.scanned_entries > 250_000 {
-        return Err(WriteError::Validation("disk snapshot bounds"));
-    }
-    let mut paths = BTreeSet::new();
-    let mut tracked_bytes = 0_u64;
-    for entry in &snapshot.entries {
-        let relative_path = entry.relative_path.trim();
-        if relative_path.is_empty() || relative_path.len() > 4_096 {
-            return Err(WriteError::Validation("disk relative path"));
-        }
-        let path = Path::new(relative_path);
-        if path.is_absolute()
-            || path.components().any(|component| {
-                matches!(
-                    component,
-                    Component::ParentDir | Component::RootDir | Component::Prefix(_)
-                )
-            })
-        {
-            return Err(WriteError::Validation("disk relative path"));
-        }
-        if !paths.insert(relative_path.to_owned()) {
-            return Err(WriteError::Validation("duplicate disk path"));
-        }
-        tracked_bytes = tracked_bytes
-            .checked_add(entry.bytes)
-            .ok_or(WriteError::Validation("disk bytes"))?;
-        as_i64(entry.bytes)?;
-    }
-    if tracked_bytes != snapshot.tracked_bytes {
-        return Err(WriteError::Validation("disk tracked bytes"));
-    }
-    as_i64(snapshot.tracked_bytes)?;
-    Ok(())
-}
-
-fn validate_disk_capture(capture: &DiskCapture) -> Result<(), WriteError> {
-    validate_disk_snapshot(&capture.snapshot)?;
-    let stamp_count = capture
-        .cache_entries
-        .iter()
-        .try_fold(0_usize, |total, entry| {
-            total.checked_add(entry.directory_stamps.len())
-        });
-    if capture.cache_entries.len() > 256 || stamp_count.is_none_or(|count| count > 250_000) {
-        return Err(WriteError::Validation("disk cache bounds"));
-    }
-    let snapshots = capture
-        .snapshot
-        .entries
-        .iter()
-        .map(|entry| (entry.relative_path.as_str(), (entry.kind, entry.bytes)))
-        .collect::<BTreeMap<_, _>>();
-    let mut paths = BTreeSet::new();
-    for entry in &capture.cache_entries {
-        if !paths.insert(entry.relative_path.as_str())
-            || snapshots.get(entry.relative_path.as_str()) != Some(&(entry.kind, entry.bytes))
-            || entry.directory_stamps.is_empty()
-        {
-            return Err(WriteError::Validation("disk cache entry"));
-        }
-        for stamp in &entry.directory_stamps {
-            if stamp.relative_path != "." {
-                validate_relative_path(&stamp.relative_path)?;
-            }
-        }
-    }
-    Ok(())
-}
-
-fn store_disk_measurement_cache(
-    transaction: &Connection,
-    project_id: &str,
-    capture: &DiskCapture,
-) -> Result<(), WriteError> {
-    if capture.cache_entries.is_empty() {
-        return Ok(());
-    }
-    let now = timestamp();
-    let current = capture
-        .snapshot
-        .entries
-        .iter()
-        .map(|entry| entry.relative_path.as_str())
-        .collect::<BTreeSet<_>>();
-    for entry in &capture.cache_entries {
-        let stamps = serde_json::to_string(&entry.directory_stamps)?;
-        if stamps.len() > 16 * 1024 * 1024 {
-            return Err(WriteError::Validation("disk cache bytes"));
-        }
-        transaction.execute(
-            "INSERT INTO disk_measurement_cache (project_id,relative_path,kind,bytes,truncated,directory_stamps,updated_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(project_id,relative_path) DO UPDATE SET kind=excluded.kind,bytes=excluded.bytes,truncated=excluded.truncated,directory_stamps=excluded.directory_stamps,updated_at=excluded.updated_at",
-            params![
-                project_id,
-                entry.relative_path,
-                disk_kind_text(entry.kind),
-                as_i64(entry.bytes)?,
-                bool_i64(entry.truncated),
-                stamps,
-                now,
-            ],
-        )?;
-    }
-    if capture.discovery_complete {
-        let mut statement = transaction
-            .prepare("SELECT relative_path FROM disk_measurement_cache WHERE project_id=?")?;
-        let stored = statement
-            .query_map([project_id], |row| row.get::<_, String>(0))?
-            .collect::<Result<Vec<_>, _>>()?;
-        drop(statement);
-        for relative_path in stored {
-            if !current.contains(relative_path.as_str()) {
-                transaction.execute(
-                    "DELETE FROM disk_measurement_cache WHERE project_id=? AND relative_path=?",
-                    params![project_id, relative_path],
-                )?;
-            }
-        }
-    }
-    Ok(())
-}
-
-fn validate_relative_path(relative_path: &str) -> Result<(), WriteError> {
-    if relative_path.trim().is_empty() || relative_path.len() > 4_096 {
-        return Err(WriteError::Validation("disk relative path"));
-    }
-    let path = Path::new(relative_path);
-    if path.is_absolute()
-        || path.components().any(|component| {
-            matches!(
-                component,
-                Component::ParentDir | Component::RootDir | Component::Prefix(_)
-            )
-        })
-    {
-        Err(WriteError::Validation("disk relative path"))
-    } else {
-        Ok(())
-    }
-}
-
-fn as_i64(value: u64) -> Result<i64, WriteError> {
-    i64::try_from(value).map_err(|_| WriteError::Validation("disk bytes"))
-}
-
-fn signed_delta(final_bytes: u64, baseline_bytes: u64) -> Result<i64, WriteError> {
-    let delta = i128::from(final_bytes) - i128::from(baseline_bytes);
-    i64::try_from(delta).map_err(|_| WriteError::Validation("disk delta"))
-}
-
-fn bool_i64(value: bool) -> i64 {
-    i64::from(value)
-}
-
-fn disk_kind_text(kind: DiskArtifactKind) -> &'static str {
-    match kind {
-        DiskArtifactKind::BuildCache => "build-cache",
-        DiskArtifactKind::DependencyCache => "dependency-cache",
-        DiskArtifactKind::GeneratedOutput => "generated-output",
-        DiskArtifactKind::TemporaryOutput => "temporary-output",
-    }
-}
-
-fn parse_disk_kind(value: &str) -> Option<DiskArtifactKind> {
-    match value {
-        "build-cache" => Some(DiskArtifactKind::BuildCache),
-        "dependency-cache" => Some(DiskArtifactKind::DependencyCache),
-        "generated-output" => Some(DiskArtifactKind::GeneratedOutput),
-        "temporary-output" => Some(DiskArtifactKind::TemporaryOutput),
-        _ => None,
-    }
-}
-
-fn cleanup_text(disposition: CleanupDisposition) -> &'static str {
-    match disposition {
-        CleanupDisposition::Eligible => "eligible",
-        CleanupDisposition::Review => "review",
-        CleanupDisposition::Shared => "shared",
     }
 }
 

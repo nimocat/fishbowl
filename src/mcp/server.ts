@@ -177,10 +177,13 @@ const finalizeVerification = z.object({
 const finalizeWorkInputBase = z.object({
   project: projectReference,
   operationId: id,
+  checkpointOperationId: id.optional().describe(
+    'Operation ID of a necessary checkpoint_work write to reuse its same-Case knowledge without text-equality guesses.',
+  ),
   caseId: id.optional(),
   task: text,
   outcome: z.enum(['failed', 'succeeded', 'inconclusive']).describe(
-    'succeeded requires commit and at least one succeeded verification; failed or inconclusive requires failedAttempts.',
+    'succeeded requires commit and at least one succeeded verification; failed or inconclusive requires failedAttempts, failedAttemptIds, or checkpointOperationId.',
   ),
   summary: text,
   fingerprint: text.optional(),
@@ -196,6 +199,9 @@ const finalizeWorkInputBase = z.object({
     failureExplanation: text,
     command: argv.optional(),
   }).strict()).max(MAX_ARRAY_LENGTH).optional(),
+  failedAttemptIds: z.array(id).max(MAX_ARRAY_LENGTH).optional().describe(
+    'Existing same-Case failed Attempt IDs recorded immediately during investigation; pass these instead of duplicating their text.',
+  ),
   rootCause: z.object({
     explanation: text,
     confidence: z.number().min(0).max(1),
@@ -270,8 +276,8 @@ const finalizeWorkInput = finalizeWorkInputBase.superRefine((input, context) => 
     if (!input.verifications?.some((verification) => verification.succeeded)) {
       issue(['verifications'], 'at least one successful verification is required when outcome is succeeded')
     }
-  } else if (!input.failedAttempts?.length) {
-    issue(['failedAttempts'], 'at least one failed attempt is required when outcome is not succeeded')
+  } else if (!input.failedAttempts?.length && !input.failedAttemptIds?.length && !input.checkpointOperationId) {
+    issue(['failedAttempts'], 'failedAttempts, failedAttemptIds, or checkpointOperationId is required when outcome is not succeeded')
   }
   if (input.verifications?.length && input.solution === undefined) {
     issue(['solution'], 'solution is required when verifications are present')
@@ -891,91 +897,6 @@ export function createMcpServer(
     (input) => invoke('list_recent_activity', () => service.listRecentActivity(input)),
   )
 
-  const diskKind = z.enum(['build-cache', 'dependency-cache', 'generated-output', 'temporary-output'])
-  const cleanupDisposition = z.enum(['eligible', 'review', 'shared'])
-  const diskGrowthEntry = z.object({
-    relativePath: path,
-    kind: diskKind,
-    baselineBytes: z.number().int().nonnegative(),
-    finalBytes: z.number().int().nonnegative(),
-    deltaBytes: z.number().int(),
-    createdByObservation: z.boolean(),
-    cleanupDisposition,
-  }).strict()
-
-  server.registerTool(
-    'start_disk_observation',
-    {
-      description: 'Capture a bounded baseline of regenerable project artifacts for one task.',
-      inputSchema: z.object({ project: projectReference, operationId: id, task: text }).strict(),
-      outputSchema: outputSchema(z.object({
-        observationId: id, projectId: id, startedAt: timestamp,
-        baselineTrackedBytes: z.number().int().nonnegative(),
-        trackedPaths: z.number().int().nonnegative(),
-        scannedEntries: z.number().int().nonnegative(),
-        scanTruncated: z.boolean(), cacheHits: z.number().int().nonnegative(),
-        cacheMisses: z.number().int().nonnegative(), created: z.boolean(),
-      }).strict()),
-      annotations: idempotentWrite,
-    },
-    (input) => invoke('start_disk_observation', () => service.startDiskObservation(input)),
-  )
-
-  server.registerTool(
-    'finish_disk_observation',
-    {
-      description: 'Capture the final bounded artifact state and attribute disk growth conservatively.',
-      inputSchema: z.object({ project: projectReference, operationId: id, observationId: id }).strict(),
-      outputSchema: outputSchema(z.object({
-        observationId: id, projectId: id, startedAt: timestamp, finishedAt: timestamp,
-        baselineTrackedBytes: z.number().int().nonnegative(), finalTrackedBytes: z.number().int().nonnegative(),
-        deltaBytes: z.number().int().nullable(), positiveGrowthBytes: z.number().int().nonnegative(),
-        overlappingObservations: z.number().int().nonnegative(), scannedEntries: z.number().int().nonnegative(),
-        baselineScannedEntries: z.number().int().nonnegative(), finalScannedEntries: z.number().int().nonnegative(),
-        scanTruncated: z.boolean(), baselineScanTruncated: z.boolean(), finalScanTruncated: z.boolean(), cacheHits: z.number().int().nonnegative(),
-        cacheMisses: z.number().int().nonnegative(), entries: z.array(diskGrowthEntry).max(256),
-      }).strict()),
-      annotations: idempotentWrite,
-    },
-    (input) => invoke('finish_disk_observation', () => service.finishDiskObservation(input)),
-  )
-
-  server.registerTool(
-    'list_disk_observations',
-    {
-      description: 'List bounded task-level disk observations for a project.',
-      inputSchema: z.object({ project: projectReference, limit: z.number().int().min(1).max(100).optional() }).strict(),
-      outputSchema: outputSchema(z.object({
-        observations: z.array(z.object({
-          observationId: id, task: text, status: z.enum(['running', 'completed']), startedAt: timestamp,
-          finishedAt: timestamp.nullish(), baselineTrackedBytes: z.number().int().nonnegative(),
-          finalTrackedBytes: z.number().int().nonnegative().nullish(), deltaBytes: z.number().int().nullish(),
-          positiveGrowthBytes: z.number().int().nonnegative().nullish(), overlappingObservations: z.number().int().nonnegative(),
-          scanTruncated: z.boolean(),
-        }).strict()).max(100), limit: z.number().int().min(1).max(100), truncated: z.boolean(),
-      }).strict()),
-      annotations: readOnly,
-    },
-    (input) => invoke('list_disk_observations', () => service.listDiskObservations(input)),
-  )
-
-  server.registerTool(
-    'list_disk_cleanup_candidates',
-    {
-      description: 'List explainable cleanup candidates. This tool never deletes files.',
-      inputSchema: z.object({ project: projectReference, limit: z.number().int().min(1).max(100).optional() }).strict(),
-      outputSchema: outputSchema(z.object({
-        candidates: z.array(z.object({
-          observationId: id, task: text, relativePath: path, kind: diskKind,
-          attributedGrowthBytes: z.number().int().nonnegative(), reclaimableBytes: z.number().int().nonnegative(),
-          createdByObservation: z.boolean(), cleanupDisposition, finishedAt: timestamp,
-        }).strict()).max(100), limit: z.number().int().min(1).max(100), truncated: z.boolean(),
-      }).strict()),
-      annotations: readOnly,
-    },
-    (input) => invoke('list_disk_cleanup_candidates', () => service.listCleanupCandidates(input)),
-  )
-
   server.registerTool(
     'get_operation_metrics',
     {
@@ -1213,6 +1134,30 @@ export function createMcpServer(
   )
 
   server.registerTool(
+    'supersede_solution',
+    {
+      description: 'Explicitly retire an obsolete Solution and link its same-Case replacement with SUPERSEDES. Use only when the engineering direction changed; history is preserved.',
+      inputSchema: z.object({
+        project: projectReference,
+        operationId: id,
+        caseId: id,
+        priorSolutionId: id,
+        replacementSolutionId: id,
+        reason: text,
+      }).strict(),
+      outputSchema: outputSchema(z.object({
+        caseId: id,
+        priorSolutionId: id,
+        replacementSolutionId: id,
+        retired: z.literal(true),
+        created: z.boolean(),
+      }).strict()),
+      annotations: idempotentWrite,
+    },
+    (input) => invoke('supersede_solution', () => service.supersedeSolution(input)),
+  )
+
+  server.registerTool(
     'checkpoint_work',
     {
       description: 'Concise idempotent capture of failed, notable, or critical engineering work.',
@@ -1252,7 +1197,7 @@ export function createMcpServer(
   server.registerTool(
     'finalize_work',
     {
-      description: 'Final delivery write: call once after commit and verification. succeeded requires commit plus a successful verification; failed/inconclusive requires failedAttempts; verifications require solution, and solution requires rootCause. Automated verification requires command; device verification requires environment.destination. If checkpoint_work already recorded the same Case, pass its caseId; exactly equivalent checkpoint facts are reused. Omitted merge defaults to not-required. This records facts only and never executes Git, tests, builds, or device validation.',
+      description: 'Final delivery write: call once after commit and verification. succeeded requires commit plus a successful verification; failed/inconclusive requires failedAttempts, failedAttemptIds, or checkpointOperationId; verifications require solution, and solution requires rootCause. Pass existing failedAttemptIds instead of repeating attempts recorded during investigation. If a necessary checkpoint exists, pass checkpointOperationId so its same-Case Attempt, RootCause, and Solution can be reused explicitly. Automated verification requires command; device verification requires environment.destination. Omitted merge defaults to not-required. This records facts only and never executes Git, tests, builds, or device validation.',
       inputSchema: finalizeWorkInputBase,
       outputSchema: outputSchema(z.object({
         recorded: z.literal(true),

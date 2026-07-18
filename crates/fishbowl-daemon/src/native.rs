@@ -5,13 +5,11 @@ use std::time::Instant;
 
 use fishbowl_contracts::{DaemonOperation, ErrorCode, OperationMetricAggregate, ProjectReference};
 use fishbowl_storage::{
-    DatabaseManager, DiskCapture, ReadRepository, StorageError, WriteError, WriteRepository,
-    capture_project_disk_cached, capture_project_disk_incremental,
+    DatabaseManager, ReadRepository, StorageError, WriteError, WriteRepository,
 };
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use crate::disk_watch::{DiskWatchPlan, DiskWatchRegistry};
 use crate::http::RpcDispatcher;
 use crate::protocol::ProtocolError;
 use crate::source::{acquire_apply, acquire_preview};
@@ -22,7 +20,6 @@ use crate::source::{acquire_apply, acquire_preview};
 pub struct NativeDispatcher {
     reads: Mutex<ReadRepository>,
     writes: Mutex<WriteRepository>,
-    disk_watches: Mutex<DiskWatchRegistry>,
     metrics: Mutex<DaemonMetrics>,
 }
 
@@ -33,7 +30,6 @@ impl NativeDispatcher {
         Ok(Self {
             reads: Mutex::new(ReadRepository::open(path).map_err(map_storage)?),
             writes: Mutex::new(WriteRepository::open(path).map_err(map_write)?),
-            disk_watches: Mutex::new(DiskWatchRegistry::default()),
             metrics: Mutex::new(DaemonMetrics::new(1_000)),
         })
     }
@@ -185,32 +181,6 @@ impl NativeDispatcher {
                     .finalize_work(input.clone())
                     .map_err(map_write)?,
             ),
-            DaemonOperation::StartDiskObservation(input) => {
-                let capture = self.capture_disk(&input.project)?;
-                encode(
-                    self.write()?
-                        .start_disk_observation_capture(input.clone(), capture)
-                        .map_err(map_write)?,
-                )
-            }
-            DaemonOperation::FinishDiskObservation(input) => {
-                let capture = self.capture_disk(&input.project)?;
-                encode(
-                    self.write()?
-                        .finish_disk_observation_capture(input.clone(), capture)
-                        .map_err(map_write)?,
-                )
-            }
-            DaemonOperation::ListDiskObservations(input) => encode(
-                self.read()?
-                    .list_disk_observations(input)
-                    .map_err(map_storage)?,
-            ),
-            DaemonOperation::ListCleanupCandidates(input) => encode(
-                self.read()?
-                    .list_cleanup_candidates(input)
-                    .map_err(map_storage)?,
-            ),
             DaemonOperation::ReportRelevance(input) => {
                 self.write()?
                     .report_relevance(input.clone())
@@ -225,6 +195,11 @@ impl NativeDispatcher {
             DaemonOperation::ApplyCaseMerge(input) => encode(
                 self.write()?
                     .apply_case_merge(input.clone())
+                    .map_err(map_write)?,
+            ),
+            DaemonOperation::SupersedeSolution(input) => encode(
+                self.write()?
+                    .supersede_solution(input.clone())
                     .map_err(map_write)?,
             ),
             DaemonOperation::RecordCommandStarted(input) => encode(
@@ -282,41 +257,6 @@ impl NativeDispatcher {
 }
 
 impl NativeDispatcher {
-    fn capture_disk(&self, reference: &ProjectReference) -> Result<DiskCapture, ProtocolError> {
-        let (project, cache) = {
-            let repository = self.read()?;
-            (
-                repository
-                    .resolve_project_record(reference)
-                    .map_err(map_storage)?,
-                repository
-                    .load_disk_measurement_cache(reference)
-                    .map_err(map_storage)?,
-            )
-        };
-        let root = Path::new(reference.project_root.as_deref().unwrap_or(&project.root));
-        let plan = self
-            .disk_watches
-            .lock()
-            .map_err(|_| internal())?
-            .capture_plan(root);
-        let capture = match plan {
-            // A watcher baseline must be an actual measurement. Revalidating an
-            // old cache still recursively walks the project and intentionally
-            // marks the result truncated, which defeats the point of the watch.
-            DiskWatchPlan::FullDiscovery => capture_project_disk_cached(root, &[]),
-            DiskWatchPlan::Incremental(changed_paths) => {
-                capture_project_disk_incremental(root, &cache, &changed_paths)
-            }
-        }
-        .map_err(|_| internal())?;
-        self.disk_watches
-            .lock()
-            .map_err(|_| internal())?
-            .record_capture(root, capture.discovery_complete);
-        Ok(capture)
-    }
-
     fn read(&self) -> Result<std::sync::MutexGuard<'_, ReadRepository>, ProtocolError> {
         self.reads.lock().map_err(|_| internal())
     }

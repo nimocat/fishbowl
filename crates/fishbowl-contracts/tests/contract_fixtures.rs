@@ -2,9 +2,9 @@ use std::fs;
 use std::path::PathBuf;
 
 use fishbowl_contracts::{
-    CheckpointWorkResult, DiskObservationSummary, ErrorCode, FailureEnvelope, FinalizeWorkResult,
-    GetCaseResult, NodeStatus, PreflightResult, PromotionStatus, QueryKnowledgeResult,
-    RequestEnvelope, SuccessEnvelope, Validate,
+    CheckpointWorkResult, ErrorCode, FailureEnvelope, FinalizeWorkResult, GetCaseResult,
+    NodeStatus, PreflightResult, PromotionStatus, QueryKnowledgeResult, RequestEnvelope,
+    SuccessEnvelope, Validate,
 };
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -159,60 +159,4 @@ fn retrieval_explanations_and_diagnostics_enforce_p0_budgets() {
     }]);
     let response: SuccessEnvelope<QueryKnowledgeResult> = decode(&oversized_reason);
     assert_eq!(response.validate(), Err(ErrorCode::PayloadTooLarge));
-}
-
-#[test]
-fn disk_observation_contracts_are_strict_bounded_and_canonical() {
-    let value = serde_json::json!({
-        "protocolVersion": 2,
-        "requestId": "disk-start-1",
-        "operation": "startDiskObservation",
-        "input": {
-            "project": {"projectId": "project-alpha"},
-            "operationId": "disk-operation-1",
-            "task": "bounded disk attribution"
-        }
-    });
-    let request: RequestEnvelope = decode(&value);
-    request.validate().unwrap();
-    assert_eq!(serde_json::to_value(request).unwrap(), value);
-
-    let oversized = serde_json::json!({
-        "protocolVersion": 2,
-        "requestId": "disk-list-1",
-        "operation": "listCleanupCandidates",
-        "input": {"project": {"projectId": "project-alpha"}, "limit": 101}
-    });
-    let request: RequestEnvelope = decode(&oversized);
-    assert_eq!(request.validate(), Err(ErrorCode::PayloadTooLarge));
-
-    let mut unknown = value;
-    unknown["input"]["absolutePaths"] = Value::Bool(true);
-    assert!(serde_json::from_value::<RequestEnvelope>(unknown).is_err());
-
-    let running = DiskObservationSummary {
-        observation_id: "obs-running".into(),
-        task: "build".into(),
-        status: "running".into(),
-        started_at: "2026-07-18T00:00:00Z".into(),
-        finished_at: None,
-        baseline_tracked_bytes: 10,
-        final_tracked_bytes: None,
-        delta_bytes: None,
-        positive_growth_bytes: None,
-        overlapping_observations: 0,
-        scan_truncated: false,
-    };
-    let serialized = serde_json::to_value(running).unwrap();
-    for field in [
-        "finishedAt",
-        "finalTrackedBytes",
-        "deltaBytes",
-        "positiveGrowthBytes",
-    ] {
-        assert!(
-            serialized.get(field).is_none(),
-            "{field} should be omitted when unknown"
-        );
-    }
 }

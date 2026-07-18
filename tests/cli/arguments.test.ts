@@ -131,18 +131,7 @@ describe('CLI arguments', () => {
     expect(() => parseArguments(['--embedded', 'update'])).toThrow(/does not accept --data-dir or --embedded/)
   })
 
-  it('parses explicit disk observation lifecycle and cleanup queries', () => {
-    expect(parseArguments([
-      'disk', 'start', '--project', 'project-a', '--operation', 'task-1-start', '--task', 'build feature',
-    ]).command).toEqual({
-      kind: 'disk-start', projectId: 'project-a', operationId: 'task-1-start', task: 'build feature',
-    })
-    expect(parseArguments([
-      'disk', 'finish', '--project', 'project-a', '--operation', 'task-1-finish', '--observation', 'observation-a',
-    ]).command).toEqual({
-      kind: 'disk-finish', projectId: 'project-a', operationId: 'task-1-finish', observationId: 'observation-a',
-    })
-    expect(parseArguments(['disk', 'candidates', '--project', 'project-a', '--limit', '12']).command)
-      .toEqual({ kind: 'disk-candidates', projectId: 'project-a', limit: 12 })
+  it('rejects the retired disk observation command', () => {
+    expect(() => parseArguments(['disk', 'start', '--project', 'project-a'])).toThrow(/Unknown command: disk/)
   })
 })

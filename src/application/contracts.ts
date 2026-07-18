@@ -248,20 +248,6 @@ export interface RecentActivityResult {
   nextSequence: number
 }
 
-export type DiskArtifactKind = 'build-cache' | 'dependency-cache' | 'generated-output' | 'temporary-output'
-export type CleanupDisposition = 'eligible' | 'review' | 'shared'
-export interface StartDiskObservationInput { project: ProjectReference; operationId: string; task: string }
-export interface StartDiskObservationResult { observationId: string; projectId: string; startedAt: string; baselineTrackedBytes: number; trackedPaths: number; scannedEntries: number; scanTruncated: boolean; cacheHits: number; cacheMisses: number; created: boolean }
-export interface FinishDiskObservationInput { project: ProjectReference; operationId: string; observationId: string }
-export interface DiskGrowthEntry { relativePath: string; kind: DiskArtifactKind; baselineBytes: number; finalBytes: number; deltaBytes: number; createdByObservation: boolean; cleanupDisposition: CleanupDisposition }
-export interface FinishDiskObservationResult { observationId: string; projectId: string; startedAt: string; finishedAt: string; baselineTrackedBytes: number; finalTrackedBytes: number; deltaBytes: number | null; positiveGrowthBytes: number; overlappingObservations: number; scannedEntries: number; baselineScannedEntries: number; finalScannedEntries: number; scanTruncated: boolean; baselineScanTruncated: boolean; finalScanTruncated: boolean; cacheHits: number; cacheMisses: number; entries: DiskGrowthEntry[] }
-export interface ListDiskObservationsInput { project: ProjectReference; limit?: number }
-export interface DiskObservationSummary { observationId: string; task: string; status: string; startedAt: string; finishedAt?: string | null; baselineTrackedBytes: number; finalTrackedBytes?: number | null; deltaBytes?: number | null; positiveGrowthBytes?: number | null; overlappingObservations: number; scanTruncated: boolean }
-export interface ListDiskObservationsResult { observations: DiskObservationSummary[]; limit: number; truncated: boolean }
-export interface ListCleanupCandidatesInput { project: ProjectReference; limit?: number }
-export interface DiskCleanupCandidate { observationId: string; task: string; relativePath: string; kind: DiskArtifactKind; attributedGrowthBytes: number; reclaimableBytes: number; createdByObservation: boolean; cleanupDisposition: CleanupDisposition; finishedAt: string }
-export interface ListCleanupCandidatesResult { candidates: DiskCleanupCandidate[]; limit: number; truncated: boolean }
-
 export interface PreflightInput {
   project: ProjectReference
   taskDescription: string
@@ -484,6 +470,7 @@ export interface FinalizeMergeInput {
 export interface FinalizeWorkInput {
   project: ProjectReference
   operationId: string
+  checkpointOperationId?: string
   caseId?: string
   task: string
   outcome: 'failed' | 'succeeded' | 'inconclusive'
@@ -492,6 +479,7 @@ export interface FinalizeWorkInput {
   files?: string[]
   commit?: FinalizeCommitInput
   failedAttempts?: FinalizeFailedAttemptInput[]
+  failedAttemptIds?: string[]
   rootCause?: FinalizeRootCauseInput
   solution?: FinalizeSolutionInput
   verifications?: FinalizeVerificationInput[]
@@ -533,6 +521,21 @@ export interface MergeProposal {
 
 export interface SuggestCaseMergesInput { project: ProjectReference; limit?: number }
 export interface ApplyCaseMergeInput extends OperationIdentity { project: ProjectReference; proposalId: string; operationId: string }
+export interface SupersedeSolutionInput {
+  project: ProjectReference
+  operationId: string
+  caseId: string
+  priorSolutionId: string
+  replacementSolutionId: string
+  reason: string
+}
+export interface SupersedeSolutionResult {
+  caseId: string
+  priorSolutionId: string
+  replacementSolutionId: string
+  retired: true
+  created: boolean
+}
 
 export interface RecordCommandResultInput {
   project: ProjectReference
@@ -620,13 +623,10 @@ export interface KnowledgeServiceContract {
   recordCheckpoint(input: RecordCheckpointInput): RecordCheckpointResult
   checkpointWork(input: CheckpointWorkInput): CheckpointWorkResult
   finalizeWork(input: FinalizeWorkInput): FinalizeWorkResult
-  startDiskObservation(input: StartDiskObservationInput): StartDiskObservationResult
-  finishDiskObservation(input: FinishDiskObservationInput): FinishDiskObservationResult
-  listDiskObservations(input: ListDiskObservationsInput): ListDiskObservationsResult
-  listCleanupCandidates(input: ListCleanupCandidatesInput): ListCleanupCandidatesResult
   reportRelevance(input: ReportRelevanceInput): { recorded: true }
   suggestCaseMerges(input: SuggestCaseMergesInput): MergeProposal[]
   applyCaseMerge(input: ApplyCaseMergeInput): MergeProposal
+  supersedeSolution(input: SupersedeSolutionInput): SupersedeSolutionResult
   recordCommandStarted(input: RecordCommandStartedInput): CommandStartedResult
   recordCommandResult(input: RecordCommandResultInput): CommandResultWriteResult
   closeCase(input: CloseCaseInput): CloseCaseResult

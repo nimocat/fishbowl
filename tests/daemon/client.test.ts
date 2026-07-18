@@ -3,11 +3,9 @@ import { describe, expect, it } from 'vitest'
 import { DaemonClient, DaemonClientError, daemonRequestTimeoutMs } from '../../src/daemon/client.js'
 
 describe('DaemonClient adapter', () => {
-  it('gives bounded metadata scans a longer default without overriding caller policy', () => {
-    expect(daemonRequestTimeoutMs('startDiskObservation')).toBe(15_000)
-    expect(daemonRequestTimeoutMs('finishDiskObservation')).toBe(15_000)
+  it('uses one bounded default while allowing explicit caller policy', () => {
     expect(daemonRequestTimeoutMs('queryKnowledge')).toBe(1_500)
-    expect(daemonRequestTimeoutMs('startDiskObservation', 250)).toBe(250)
+    expect(daemonRequestTimeoutMs('queryKnowledge', 250)).toBe(250)
   })
 
   it('rejects a mismatched native protocol before network access', () => {

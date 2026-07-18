@@ -38,7 +38,6 @@ Engineering teams often solve the same problem twice: the important context is t
 - **stdio MCP server** for compatible coding agents.
 - **Trace Bench**, a read-only local browser for inspecting project activity.
 - **Worktree-aware project aliases** so parallel branches still share the right engineering context.
-- **Bounded disk observations** for regenerable artifact metadata. Fishbowl never deletes files automatically.
 
 ## Quick Start
 
@@ -128,7 +127,7 @@ Configure the user-level stdio MCP server once, then copy the [MCP Agent Session
 
 1. Call Fishbowl MCP tools directly and resolve the project explicitly.
 2. Use compact, Case-diverse history results and expand only selected Cases.
-3. Reserve preflight and disk observation for work whose risk or material artifacts justify them; use checkpoints only for real interruption or handoff.
+3. Reserve preflight for work whose risk justifies it; use checkpoints only for real interruption or handoff.
 4. Report an unavailable MCP server instead of falling back to the CLI.
 
 The MCP client starts this persistent stdio bridge from its server configuration:
@@ -144,16 +143,19 @@ See the ready-to-copy [MCP client configurations](docs/mcp-client-configuration.
 ```text
 LIGHT:    Resolve -> Query when useful -> Answer
 STANDARD: Resolve -> Brief preflight/query -> Problem -> Implement -> Commit/verify -> Finalize once
-FULL:     Resolve -> Preflight/query -> Observe artifacts when material -> Problem/valuable failures -> Commit/verify -> Finalize once
+FULL:     Resolve -> Preflight/query -> Problem/valuable failures -> Commit/verify -> Finalize once
 ```
 
 `checkpoint_work` is an interruption primitive, not a mandatory pre-finalize
 step. Use it only for context compaction, a cross-day pause, or a handoff. When
-finalization follows a necessary checkpoint, pass the same `caseId`; Fishbowl
-reuses exactly equivalent Attempt, RootCause, and Solution knowledge. Small
-configuration edits do not justify disk observation unless they create material
-retained artifacts. Human Verification is recorded only after a person confirms
-the real target behavior.
+finalization follows a necessary checkpoint, pass its `caseId` and
+`checkpointOperationId`; Fishbowl explicitly reuses that checkpoint knowledge.
+Human Verification is recorded only after a person confirms the real target
+behavior.
+
+Disk observation has been retired. Current Fishbowl releases do not scan
+project disks or expose artifact-growth/cleanup-candidate tools; historical
+schema tables remain inert only for non-destructive upgrades.
 
 Fishbowl keeps records distinct so the graph remains useful under review:
 

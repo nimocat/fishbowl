@@ -7,6 +7,49 @@ use fishbowl_storage::ReadRepository;
 use rusqlite::Connection;
 
 #[test]
+fn explicit_active_status_never_resurrects_a_retired_case() {
+    let path = database("retired-case-status-filter");
+    let connection = Connection::open(&path).unwrap();
+    connection
+        .execute("UPDATE cases SET status='retired' WHERE id='case-a'", [])
+        .unwrap();
+    drop(connection);
+    let repository = ReadRepository::open(path.to_str().unwrap()).unwrap();
+    let mut input = QueryKnowledgeInput {
+        project: ProjectReference {
+            project_id: Some("project-a".into()),
+            project_root: None,
+        },
+        text: Some("camera session".into()),
+        domain: None,
+        node_types: Some(vec![NodeType::Solution]),
+        statuses: Some(vec![NodeStatus::Verified]),
+        file: None,
+        command: None,
+        fingerprint: None,
+        limit: Some(5),
+        result_mode: None,
+    };
+    assert!(repository.query_knowledge(&input).unwrap().items.is_empty());
+    drop(repository);
+    let connection = Connection::open(&path).unwrap();
+    connection
+        .execute(
+            "UPDATE nodes SET status='retired' WHERE id='solution-a'",
+            [],
+        )
+        .unwrap();
+    drop(connection);
+    let repository = ReadRepository::open(path.to_str().unwrap()).unwrap();
+    input.statuses = Some(vec![NodeStatus::Retired]);
+    assert_eq!(
+        repository.query_knowledge(&input).unwrap().items[0].node.id,
+        "solution-a"
+    );
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
 fn complete_query_is_project_scoped_composable_and_deterministic() {
     let path = database("complete");
     let repository = ReadRepository::open(path.to_str().unwrap()).unwrap();

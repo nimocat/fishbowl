@@ -32,10 +32,6 @@ export type CliCommand =
   | { kind: 'import-graph'; projectId: string; file: string; operationId: string }
   | { kind: 'export'; projectId: string; output?: string }
   | { kind: 'activity'; projectId: string; afterSequence?: number; limit?: number }
-  | { kind: 'disk-start'; projectId: string; operationId: string; task: string }
-  | { kind: 'disk-finish'; projectId: string; operationId: string; observationId: string }
-  | { kind: 'disk-list'; projectId: string; limit?: number }
-  | { kind: 'disk-candidates'; projectId: string; limit?: number }
   | { kind: 'integrity' }
   | { kind: 'checkpoint'; projectId?: string; projectRoot?: string; operationId?: string; task: string; outcome: 'failed' | 'succeeded' | 'inconclusive'; summary: string; data: Record<string, unknown> }
   | { kind: 'daemon'; action: 'foreground' | 'status' | 'stop' | 'install' | 'uninstall' | 'doctor' }
@@ -315,14 +311,6 @@ export function parseArguments(argv: string[]): ParsedArguments {
     command = { kind: 'export', projectId: projectId(reader), output: reader.option('--output') }
   } else if (commandName === 'activity') {
     command = { kind: 'activity', projectId: projectId(reader), afterSequence: reader.integer('--after'), limit: reader.integer('--limit') }
-  } else if (commandName === 'disk') {
-    const action = reader.take()
-    const id = projectId(reader)
-    if (action === 'start') command = { kind: 'disk-start', projectId: id, operationId: reader.required('--operation'), task: reader.required('--task') }
-    else if (action === 'finish') command = { kind: 'disk-finish', projectId: id, operationId: reader.required('--operation'), observationId: reader.required('--observation') }
-    else if (action === 'list') command = { kind: 'disk-list', projectId: id, limit: reader.integer('--limit') }
-    else if (action === 'candidates') command = { kind: 'disk-candidates', projectId: id, limit: reader.integer('--limit') }
-    else throw new Error(`Unknown disk command: ${action}`)
   } else if (commandName === 'integrity') {
     command = { kind: 'integrity' }
   } else {
@@ -339,7 +327,7 @@ export function parseArguments(argv: string[]): ParsedArguments {
 function helpTopic(values: string[]): string[] {
   const first = values[0]
   if (!first) return []
-  const grouped = new Set(['project', 'case', 'import', 'disk', 'daemon'])
+  const grouped = new Set(['project', 'case', 'import', 'daemon'])
   const second = values[1]
   if (grouped.has(first) && second && !second.startsWith('-')) return [first, second]
   return [first]

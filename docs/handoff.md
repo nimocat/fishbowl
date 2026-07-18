@@ -1,5 +1,38 @@
 # Handoff
 
+## Explicit curation and disk retirement (2026-07-19)
+
+`finalize_work` can now reuse immediately recorded failed Attempts through
+`failedAttemptIds` and reuse a genuine checkpoint through the explicit,
+project-scoped `checkpointOperationId`. It validates Case ownership, node type,
+outcome, and causal edges; no fuzzy write-time merge is introduced.
+
+`supersede_solution` records replacement → prior history, retires the prior
+Solution, and does not emit a second semantic event when another idempotency
+key repeats the same relation. Query and Preflight hide retired knowledge by
+default while explicit retired-status queries preserve audit access.
+
+Disk observation is no longer a Fishbowl feature: contracts, scanner/watchers,
+storage operations, daemon dispatch, MCP, CLI, tests, and Agent instructions
+are removed. Only historical SQLite tables remain for non-destructive schema
+compatibility. Do not reintroduce disk observation as an Agent workflow step.
+
+The Agent policy now records investigation-changing failures immediately,
+keeps authentication/video/upload concerns in separate Cases, supersedes old
+directions explicitly, and waits for an explicit real-target confirmation
+before human Verification and Case closure. TypeScript typecheck, 101/101
+Vitest tests, the complete Rust workspace, rustfmt, production build, and diff
+checks pass. Review, commit, push, and installed-daemon refresh remain.
+
+Independent review additionally hardened edge cases: all checkpoint Attempts
+remain in final provenance while only failed Attempts receive failure links;
+successful/inconclusive checkpoints cannot serve as the sole evidence for a
+failed final result; active node-status filters never resurrect retired Cases;
+and supersession rejects retired replacements, reverse/transitive cycles, and
+verified-to-candidate trust downgrade. Focused regressions pass; final
+Standards and Spec re-reviews report no remaining Critical or Important
+findings.
+
 ## Checkpoint Output Compatibility Fix (2026-07-18)
 
 `checkpoint_work` no longer reports an MCP output validation failure after a successful native write. Rust omits absent optional checkpoint/finalize fields, and TypeScript normalizes legacy daemon nulls at the MCP boundary. Regression coverage exercises the exact daemon-shaped null response and the canonical Rust JSON shape. Full TypeScript and Rust suites, typecheck, rustfmt, and production build pass. This is response-only compatibility work; it does not replay or modify the planning checkpoint already saved through lower-level tools.

@@ -6,14 +6,15 @@ use fishbowl_contracts::{
     CheckpointWrite, CloseCaseInput, ExportProjectGraphInput, FinalizeCommitInput,
     FinalizeMergeInput, FinalizeRootCauseInput, FinalizeSolutionInput, FinalizeVerificationInput,
     FinalizeWorkInput, GetCaseInput, ImportContentSource, ImportProjectGraphInput,
-    MarkRegressionInput, NodeStatus, PreviewImportContentInput, ProjectReference,
-    PromoteRootCauseInput, RecordArtifactInput, RecordAttemptInput, RecordCheckpointInput,
-    RecordCommandResultInput, RecordCommandStartedInput, RecordGuardrailInput, RecordProblemInput,
-    RecordRootCauseInput, RecordSolutionInput, RecordVerificationInput, RegisterProjectInput,
-    RegressionOutcomeContract, RelationType, ReportRelevanceInput, SnapshotEdge, SourceKey,
-    SuggestCaseMergesInput, UpdateProjectInput, WriteArtifactData, WriteAttemptData,
-    WriteGuardrailCriteria, WriteGuardrailData, WriteProblemData, WriteRootCauseData,
-    WriteSolutionData, WriteVerificationData,
+    MarkRegressionInput, NodeStatus, NodeType, PreviewImportContentInput, ProjectReference,
+    PromoteRootCauseInput, QueryKnowledgeInput, RecordArtifactInput, RecordAttemptInput,
+    RecordCheckpointInput, RecordCommandResultInput, RecordCommandStartedInput,
+    RecordGuardrailInput, RecordProblemInput, RecordRootCauseInput, RecordSolutionInput,
+    RecordVerificationInput, RegisterProjectInput, RegressionOutcomeContract, RelationType,
+    ReportRelevanceInput, SnapshotEdge, SourceKey, SuggestCaseMergesInput, SupersedeSolutionInput,
+    UpdateProjectInput, WriteArtifactData, WriteAttemptData, WriteGuardrailCriteria,
+    WriteGuardrailData, WriteProblemData, WriteRootCauseData, WriteSolutionData,
+    WriteVerificationData,
 };
 use fishbowl_storage::{ReadRepository, WriteFaultPoint, WriteRepository};
 use rusqlite::Connection;
@@ -665,6 +666,343 @@ fn merge_proposals_are_reviewed_project_local_and_idempotent() {
 }
 
 #[test]
+fn superseding_a_solution_retires_only_the_prior_same_case_solution() {
+    let path = database("supersede-solution");
+    let mut repository = WriteRepository::open(path.to_str().unwrap()).unwrap();
+    let problem = repository
+        .record_problem(problem_input("supersede-problem"))
+        .unwrap();
+    let root = repository
+        .record_root_cause(RecordRootCauseInput {
+            project: project("project-a"),
+            operation_id: Some("supersede-root".into()),
+            source_key: None,
+            case_id: problem.case_id.clone(),
+            problem_id: problem.node_id,
+            failed_attempt_ids: Vec::new(),
+            status: Some(NodeStatus::Candidate),
+            human_confirmed: false,
+            data: WriteRootCauseData {
+                explanation: "large video uploads are bandwidth bound".into(),
+                evidence: vec!["direct upload measurements".into()],
+                rejected_alternatives: Vec::new(),
+                confidence: 0.9,
+            },
+        })
+        .unwrap();
+    let solution = |operation: &str, summary: &str, repository: &mut WriteRepository| {
+        repository
+            .record_solution(RecordSolutionInput {
+                project: project("project-a"),
+                operation_id: Some(operation.into()),
+                source_key: None,
+                case_id: problem.case_id.clone(),
+                root_cause_id: root.node_id.clone(),
+                data: WriteSolutionData {
+                    summary: summary.into(),
+                    applicability: vec!["long video upload".into()],
+                    limitations: vec!["network dependent".into()],
+                    side_effects: Vec::new(),
+                    decisive_difference: summary.into(),
+                    applicability_boundary: BTreeMap::new(),
+                    human_verification_required: false,
+                    non_automatable_reason: None,
+                },
+            })
+            .unwrap()
+    };
+    let prior = solution(
+        "compressed-solution",
+        "compress to 900 Kbps",
+        &mut repository,
+    );
+    let replacement = solution(
+        "direct-solution",
+        "upload up to 3 GB directly",
+        &mut repository,
+    );
+
+    let input = SupersedeSolutionInput {
+        project: project("project-a"),
+        operation_id: "supersede-compression".into(),
+        case_id: problem.case_id.clone(),
+        prior_solution_id: prior.node_id.clone(),
+        replacement_solution_id: replacement.node_id.clone(),
+        reason: "product direction changed to direct upload".into(),
+    };
+    let superseded = repository.supersede_solution(input.clone()).unwrap();
+    assert!(superseded.retired);
+    assert!(superseded.created);
+    assert!(
+        !repository
+            .supersede_solution(input.clone())
+            .unwrap()
+            .created
+    );
+    assert!(
+        repository
+            .supersede_solution(SupersedeSolutionInput {
+                project: project("project-a"),
+                operation_id: "reverse-supersession".into(),
+                case_id: problem.case_id.clone(),
+                prior_solution_id: replacement.node_id.clone(),
+                replacement_solution_id: prior.node_id.clone(),
+                reason: "invalid reverse direction".into(),
+            })
+            .is_err()
+    );
+    let retired_candidate = solution("retired-candidate", "temporary candidate", &mut repository);
+    let active_candidate = solution("active-candidate", "active candidate", &mut repository);
+    let regressed_candidate = solution(
+        "regressed-candidate",
+        "known failing candidate",
+        &mut repository,
+    );
+    repository
+        .supersede_solution(SupersedeSolutionInput {
+            project: project("project-a"),
+            operation_id: "retire-candidate".into(),
+            case_id: problem.case_id.clone(),
+            prior_solution_id: retired_candidate.node_id.clone(),
+            replacement_solution_id: replacement.node_id.clone(),
+            reason: "temporary candidate is obsolete".into(),
+        })
+        .unwrap();
+    assert!(
+        repository
+            .supersede_solution(SupersedeSolutionInput {
+                project: project("project-a"),
+                operation_id: "use-retired-replacement".into(),
+                case_id: problem.case_id.clone(),
+                prior_solution_id: active_candidate.node_id.clone(),
+                replacement_solution_id: retired_candidate.node_id,
+                reason: "invalid retired replacement".into(),
+            })
+            .is_err()
+    );
+    Connection::open(&path)
+        .unwrap()
+        .execute(
+            "UPDATE nodes SET status='regressed' WHERE id=?",
+            [&regressed_candidate.node_id],
+        )
+        .unwrap();
+    assert!(
+        repository
+            .supersede_solution(SupersedeSolutionInput {
+                project: project("project-a"),
+                operation_id: "use-regressed-replacement".into(),
+                case_id: problem.case_id.clone(),
+                prior_solution_id: active_candidate.node_id.clone(),
+                replacement_solution_id: regressed_candidate.node_id,
+                reason: "invalid known-failing replacement".into(),
+            })
+            .is_err()
+    );
+    Connection::open(&path)
+        .unwrap()
+        .execute(
+            "UPDATE nodes SET status='verified' WHERE id=?",
+            [&replacement.node_id],
+        )
+        .unwrap();
+    assert!(
+        repository
+            .supersede_solution(SupersedeSolutionInput {
+                project: project("project-a"),
+                operation_id: "downgrade-verified-solution".into(),
+                case_id: problem.case_id.clone(),
+                prior_solution_id: replacement.node_id.clone(),
+                replacement_solution_id: active_candidate.node_id,
+                reason: "invalid trust downgrade".into(),
+            })
+            .is_err()
+    );
+    assert!(
+        !repository
+            .supersede_solution(SupersedeSolutionInput {
+                operation_id: "supersede-compression-again".into(),
+                ..input.clone()
+            })
+            .unwrap()
+            .created
+    );
+    assert!(
+        repository
+            .supersede_solution(SupersedeSolutionInput {
+                project: project("project-b"),
+                operation_id: "foreign-supersession".into(),
+                ..input
+            })
+            .is_err()
+    );
+
+    drop(repository);
+    let reader = ReadRepository::open(path.to_str().unwrap()).unwrap();
+    let mut query = QueryKnowledgeInput {
+        project: project("project-a"),
+        text: Some("compress 900 Kbps".into()),
+        domain: None,
+        node_types: Some(vec![NodeType::Solution]),
+        statuses: None,
+        file: None,
+        command: None,
+        fingerprint: None,
+        limit: Some(5),
+        result_mode: None,
+    };
+    assert!(
+        reader
+            .query_knowledge(&query)
+            .unwrap()
+            .items
+            .iter()
+            .all(|item| item.node.id != prior.node_id)
+    );
+    query.statuses = Some(vec![NodeStatus::Retired]);
+    assert_eq!(
+        reader.query_knowledge(&query).unwrap().items[0].node.id,
+        prior.node_id
+    );
+    drop(reader);
+    let connection = Connection::open(&path).unwrap();
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT nodes.status FROM nodes JOIN cases ON cases.id=nodes.case_id WHERE cases.project_id='project-a' AND nodes.id=?",
+                [&prior.node_id],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+        "retired"
+    );
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT count(*) FROM edges JOIN cases ON cases.id=edges.case_id WHERE cases.project_id='project-a' AND edges.case_id=? AND edges.source_id=? AND edges.relation='SUPERSEDES' AND edges.target_id=?",
+                [&problem.case_id, &replacement.node_id, &prior.node_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT count(*) FROM events WHERE project_id='project-a' AND case_id=? AND type='solution.superseded' AND aggregate_id=?",
+                [&problem.case_id, &prior.node_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+        1
+    );
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn finalize_preserves_inconclusive_checkpoint_and_rejects_incompatible_sole_evidence() {
+    let path = database("checkpoint-outcome-provenance");
+    let mut repository = WriteRepository::open(path.to_str().unwrap()).unwrap();
+    let inconclusive = repository
+        .checkpoint_work(CheckpointWorkInput {
+            project: project("project-a"),
+            operation_id: "inconclusive-checkpoint".into(),
+            case_id: None,
+            task: "probe upload behavior".into(),
+            outcome: "inconclusive".into(),
+            summary: "the probe did not settle the result".into(),
+            importance: Some("notable".into()),
+            fingerprint: Some("upload-probe".into()),
+            files: Vec::new(),
+            command: Some(vec!["probe".into()]),
+            evidence: Vec::new(),
+            root_cause: None,
+            solution: None,
+            human_confirmed: false,
+        })
+        .unwrap();
+    let finalized = repository
+        .finalize_work(FinalizeWorkInput {
+            project: project("project-a"),
+            operation_id: "inconclusive-finalize".into(),
+            checkpoint_operation_id: Some("inconclusive-checkpoint".into()),
+            case_id: None,
+            task: "probe upload behavior".into(),
+            outcome: "inconclusive".into(),
+            summary: "more evidence is required".into(),
+            fingerprint: Some("upload-probe".into()),
+            files: Vec::new(),
+            commit: None,
+            failed_attempts: Vec::new(),
+            failed_attempt_ids: Vec::new(),
+            root_cause: None,
+            solution: None,
+            verifications: Vec::new(),
+            merge: FinalizeMergeInput {
+                status: "not-required".into(),
+                source_branch: None,
+                target_branch: None,
+                merge_commit: None,
+                summary: None,
+            },
+        })
+        .unwrap();
+    assert_eq!(
+        finalized.attempt_ids,
+        vec![inconclusive.attempt_id.unwrap()]
+    );
+
+    let succeeded = repository
+        .checkpoint_work(CheckpointWorkInput {
+            project: project("project-a"),
+            operation_id: "succeeded-checkpoint".into(),
+            case_id: None,
+            task: "successful probe".into(),
+            outcome: "succeeded".into(),
+            summary: "the probe succeeded".into(),
+            importance: Some("notable".into()),
+            fingerprint: Some("successful-probe".into()),
+            files: Vec::new(),
+            command: Some(vec!["probe".into()]),
+            evidence: vec!["successful result".into()],
+            root_cause: None,
+            solution: None,
+            human_confirmed: false,
+        })
+        .unwrap();
+    assert!(succeeded.recorded);
+    assert!(
+        repository
+            .finalize_work(FinalizeWorkInput {
+                project: project("project-a"),
+                operation_id: "invalid-failed-finalize".into(),
+                checkpoint_operation_id: Some("succeeded-checkpoint".into()),
+                case_id: None,
+                task: "successful probe".into(),
+                outcome: "failed".into(),
+                summary: "contradictory final outcome".into(),
+                fingerprint: Some("successful-probe".into()),
+                files: Vec::new(),
+                commit: None,
+                failed_attempts: Vec::new(),
+                failed_attempt_ids: Vec::new(),
+                root_cause: None,
+                solution: None,
+                verifications: Vec::new(),
+                merge: FinalizeMergeInput {
+                    status: "not-required".into(),
+                    source_branch: None,
+                    target_branch: None,
+                    merge_commit: None,
+                    summary: None,
+                },
+            })
+            .is_err()
+    );
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
 fn checkpoint_is_one_outer_transaction_and_replays_without_inner_duplicates() {
     let path = database("checkpoint");
     let before = counts(&path);
@@ -808,6 +1146,7 @@ fn checkpoint_work_and_finalize_are_atomic_compact_and_idempotent() {
     let finalize = FinalizeWorkInput {
         project: project("project-a"),
         operation_id: "finalize".into(),
+        checkpoint_operation_id: None,
         case_id: None,
         task: "finish migration".into(),
         outcome: "succeeded".into(),
@@ -820,6 +1159,7 @@ fn checkpoint_work_and_finalize_are_atomic_compact_and_idempotent() {
             branch: Some("codex/test".into()),
         }),
         failed_attempts: Vec::new(),
+        failed_attempt_ids: Vec::new(),
         root_cause: Some(FinalizeRootCauseInput {
             explanation: "route absent".into(),
             confidence: 0.95,
@@ -878,7 +1218,7 @@ fn checkpoint_work_and_finalize_are_atomic_compact_and_idempotent() {
 }
 
 #[test]
-fn finalize_reuses_equivalent_checkpoint_knowledge_in_the_same_case() {
+fn finalize_explicitly_reuses_checkpoint_knowledge_when_final_wording_changes() {
     let path = database("checkpoint-finalize-deduplication");
     let mut repository = WriteRepository::open(path.to_str().unwrap()).unwrap();
     let checkpoint = repository
@@ -914,10 +1254,11 @@ fn finalize_reuses_equivalent_checkpoint_knowledge_in_the_same_case() {
         .finalize_work(FinalizeWorkInput {
             project: project("project-a"),
             operation_id: "vite-finalize".into(),
-            case_id: Some(case_id.clone()),
-            task: "allow Windows Vite access".into(),
+            checkpoint_operation_id: Some("vite-checkpoint".into()),
+            case_id: None,
+            task: "make the Windows machine reach the Vite server".into(),
             outcome: "succeeded".into(),
-            summary: "configure the bounded Vite host allowlist".into(),
+            summary: "ship an explicit bounded host allow-list".into(),
             fingerprint: Some("vite-host-access".into()),
             files: vec!["vite.config.ts".into()],
             commit: Some(FinalizeCommitInput {
@@ -926,17 +1267,18 @@ fn finalize_reuses_equivalent_checkpoint_knowledge_in_the_same_case() {
                 branch: Some("main".into()),
             }),
             failed_attempts: Vec::new(),
+            failed_attempt_ids: Vec::new(),
             root_cause: Some(FinalizeRootCauseInput {
-                explanation: "the development server rejected the requested host".into(),
+                explanation: "Vite denied a host that was not explicitly allowed".into(),
                 confidence: 0.95,
                 evidence: vec!["focused configuration test passed".into()],
                 rejected_alternatives: vec!["network route failure".into()],
             }),
             solution: Some(FinalizeSolutionInput {
-                summary: "allow the expected Windows host explicitly".into(),
+                summary: "permit the expected Windows hostname".into(),
                 applicability: vec!["local Vite development".into()],
                 limitations: vec!["human Windows access remains pending".into()],
-                decisive_difference: "the requested host is explicitly bounded".into(),
+                decisive_difference: "the hostname now appears in the bounded list".into(),
             }),
             verifications: vec![FinalizeVerificationInput {
                 kind: "automated".into(),
@@ -978,7 +1320,7 @@ fn finalize_reuses_equivalent_checkpoint_knowledge_in_the_same_case() {
 }
 
 #[test]
-fn finalize_never_collapses_an_ordinary_attempt_into_checkpoint_enrichment() {
+fn finalize_links_an_explicitly_recorded_failed_attempt_without_duplicating_it() {
     let path = database("finalize-preserves-ordinary-attempt");
     let mut repository = WriteRepository::open(path.to_str().unwrap()).unwrap();
     let problem = repository
@@ -1002,11 +1344,11 @@ fn finalize_never_collapses_an_ordinary_attempt_into_checkpoint_enrichment() {
             },
         })
         .unwrap();
-
     let finalized = repository
         .finalize_work(FinalizeWorkInput {
             project: project("project-a"),
             operation_id: "ordinary-finalize".into(),
+            checkpoint_operation_id: None,
             case_id: Some(problem.case_id),
             task: "investigate the route".into(),
             outcome: "failed".into(),
@@ -1014,12 +1356,8 @@ fn finalize_never_collapses_an_ordinary_attempt_into_checkpoint_enrichment() {
             fingerprint: None,
             files: Vec::new(),
             commit: None,
-            failed_attempts: vec![fishbowl_contracts::FinalizeFailedAttemptInput {
-                hypothesis: "the route is missing".into(),
-                change: "try the alternate route".into(),
-                failure_explanation: "the final probe failed differently".into(),
-                command: Some(vec!["curl".into(), "http://127.0.0.1".into()]),
-            }],
+            failed_attempts: Vec::new(),
+            failed_attempt_ids: vec![ordinary.node_id.clone()],
             root_cause: None,
             solution: None,
             verifications: Vec::new(),
@@ -1033,7 +1371,7 @@ fn finalize_never_collapses_an_ordinary_attempt_into_checkpoint_enrichment() {
         })
         .unwrap();
 
-    assert_ne!(finalized.attempt_ids, vec![ordinary.node_id]);
+    assert_eq!(finalized.attempt_ids, vec![ordinary.node_id]);
     std::fs::remove_file(path).unwrap();
 }
 
@@ -1059,12 +1397,15 @@ fn finalize_preserves_a_checkpoint_attempt_when_any_attempt_detail_differs() {
             human_confirmed: false,
         })
         .unwrap();
+    let checkpoint_case_id = checkpoint.case_id.clone().unwrap();
+    let checkpoint_attempt_id = checkpoint.attempt_id.clone().unwrap();
 
     let finalized = repository
         .finalize_work(FinalizeWorkInput {
             project: project("project-a"),
             operation_id: "failed-finalize".into(),
-            case_id: checkpoint.case_id,
+            checkpoint_operation_id: None,
+            case_id: Some(checkpoint_case_id),
             task: "probe the Windows route".into(),
             outcome: "failed".into(),
             summary: "the npm probe timed out".into(),
@@ -1077,6 +1418,7 @@ fn finalize_preserves_a_checkpoint_attempt_when_any_attempt_detail_differs() {
                 failure_explanation: "the host rejected the request instead".into(),
                 command: Some(vec!["npm".into(), "run".into(), "probe".into()]),
             }],
+            failed_attempt_ids: Vec::new(),
             root_cause: None,
             solution: None,
             verifications: Vec::new(),
@@ -1090,7 +1432,34 @@ fn finalize_preserves_a_checkpoint_attempt_when_any_attempt_detail_differs() {
         })
         .unwrap();
 
-    assert_ne!(finalized.attempt_ids, vec![checkpoint.attempt_id.unwrap()]);
+    assert_ne!(finalized.attempt_ids, vec![checkpoint_attempt_id.clone()]);
+    let explicitly_reused = repository
+        .finalize_work(FinalizeWorkInput {
+            project: project("project-a"),
+            operation_id: "failed-explicit-finalize".into(),
+            checkpoint_operation_id: Some("failed-checkpoint".into()),
+            case_id: None,
+            task: "probe the Windows route".into(),
+            outcome: "failed".into(),
+            summary: "the probe remains unavailable".into(),
+            fingerprint: None,
+            files: Vec::new(),
+            commit: None,
+            failed_attempts: Vec::new(),
+            failed_attempt_ids: Vec::new(),
+            root_cause: None,
+            solution: None,
+            verifications: Vec::new(),
+            merge: FinalizeMergeInput {
+                status: "not-required".into(),
+                source_branch: None,
+                target_branch: None,
+                merge_commit: None,
+                summary: None,
+            },
+        })
+        .unwrap();
+    assert_eq!(explicitly_reused.attempt_ids, vec![checkpoint_attempt_id]);
     std::fs::remove_file(path).unwrap();
 }
 

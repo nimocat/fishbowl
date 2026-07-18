@@ -136,13 +136,11 @@ export class DaemonClient {
 }
 
 export function daemonRequestTimeoutMs(
-  operation: DaemonOperation,
+  _operation: DaemonOperation,
   configuredTimeoutMs?: number,
 ): number {
   if (configuredTimeoutMs !== undefined) return configuredTimeoutMs
-  return operation === 'startDiskObservation' || operation === 'finishDiskObservation'
-    ? 15_000
-    : 1_500
+  return 1_500
 }
 
 function parseServerTiming(value: string | string[] | undefined): Pick<DaemonTimingSample, 'queueMs' | 'executionMs' | 'serializationMs'> {
@@ -165,8 +163,7 @@ export function createDaemonBackend(client: DaemonClient): AwaitableKnowledgeBac
     'getOperationResult', 'getOperationMetrics',
     'listRecentActivity', 'preflight', 'recordProblem', 'recordAttempt', 'recordRootCause', 'promoteRootCause',
     'recordSolution', 'recordVerification', 'recordArtifactReference', 'recordGuardrail',
-    'recordCheckpoint', 'checkpointWork', 'finalizeWork', 'startDiskObservation', 'finishDiskObservation',
-    'listDiskObservations', 'listCleanupCandidates', 'reportRelevance', 'suggestCaseMerges', 'applyCaseMerge',
+    'recordCheckpoint', 'checkpointWork', 'finalizeWork', 'reportRelevance', 'suggestCaseMerges', 'applyCaseMerge', 'supersedeSolution',
     'recordCommandStarted', 'recordCommandResult', 'closeCase',
     'markRegression', 'previewImport', 'applyImport', 'exportProjectGraph', 'importProjectGraph',
   ]

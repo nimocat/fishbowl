@@ -27,11 +27,10 @@ describe('installed daemon lifecycle', () => {
           response.end(JSON.stringify({
             ok: true,
             requestId: payload.requestId,
-            result: payload.operation === 'listProjects' ? [] : { observationId: 'observation-a' },
+            result: payload.operation === 'listProjects' ? [] : { ready: true },
           }))
         }
-        if (payload.operation === 'startDiskObservation') setTimeout(send, 400)
-        else send()
+        send()
       })
     })
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
@@ -62,11 +61,7 @@ describe('installed daemon lifecycle', () => {
         home: sandbox,
         platform: process.platform,
       })
-      await expect(installed.backend.startDiskObservation({
-        project: { projectId: 'project-a' },
-        operationId: 'start-a',
-        task: 'slow bounded scan',
-      })).resolves.toMatchObject({ observationId: 'observation-a' })
+      await expect(installed.client.call('queryKnowledge', {})).resolves.toMatchObject({ ready: true })
     } finally {
       await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
     }

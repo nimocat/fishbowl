@@ -1,10 +1,47 @@
 # Complete First Release Implementation Plan
 
-## Active Follow-up: Task Disk Growth Ledger
+## Retired: Task Disk Growth Ledger
 
-**Status:** implemented, release-verified, and installed on schema v8 (2026-07-17)
+**Status:** runtime feature removed; historical schema retained (2026-07-19)
 
-Schema v8 adds idempotent task start/finish observations, conservative overlap attribution, bounded cleanup history, and metadata-only scanning of known regenerable project roots. Rust owns discovery, byte accounting, project isolation, persistence, and cleanup policy; TypeScript exposes only CLI/MCP DTOs. The feature never follows symlinks, reads contents, records absolute project paths, or deletes artifacts. Candidate release scanning reached the 250,000-entry safety bound in 3.5 seconds; the installed YQSK finish scan returned in 6.73 seconds and marked every truncated result for review. Reducing this cold-scan cost without weakening attribution remains the measured follow-up.
+Schema v8/v9 disk tables remain for non-destructive database compatibility, but
+the scanner, watcher, contracts, repository operations, daemon routes, MCP
+tools, CLI commands, tests, and agent workflow have been removed. No current
+Fishbowl runtime observes project disk growth or returns cleanup candidates.
+
+## Explicit graph curation and provenance
+
+**Status:** implementation and release verification complete (2026-07-19)
+
+**Scope:** Preserve failed investigations when they happen, prevent a real
+checkpoint from duplicating final knowledge, retire obsolete Solutions, keep
+Case boundaries focused, and remove disk observation entirely.
+
+**Implementation:** `finalize_work` accepts project-scoped
+`failedAttemptIds` and `checkpointOperationId`. Existing failed Attempts and
+checkpoint nodes are validated against the selected Case and causal edges
+before reuse; changed wording never triggers fuzzy merging. The new
+`supersede_solution` operation creates a replacement → prior `SUPERSEDES` edge,
+retires the prior Solution, and suppresses repeated semantic events. Query and
+Preflight exclude retired knowledge unless callers explicitly request retired
+status. Agent guidance records meaningful failed Attempts immediately, uses one
+problem per Case, and requires explicit human confirmation before closure.
+
+**Disk retirement:** All executable and public disk-observation paths are
+removed from Rust and TypeScript. Historical SQLite tables remain inert for
+upgrade and rollback compatibility.
+
+**TDD gate:** MCP and policy regressions first failed because supersession and
+explicit provenance were absent and disk tools were still registered. Focused
+contract, transaction, retrieval, MCP, CLI, daemon, and policy coverage now
+passes.
+
+**Verification:** `npm run typecheck`, 101/101 Vitest tests, the complete Rust
+workspace, `cargo fmt --check`, the production build, and `git diff --check`
+pass. Independent review found and drove fixes for checkpoint outcome
+compatibility, retired-Case filtering, MCP schema wording, and supersession
+cycle/trust safety. Standards and Spec re-reviews report no remaining Critical
+or Important findings.
 
 ## Active Migration: Rust Hierarchical Retrieval Core
 

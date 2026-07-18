@@ -38,7 +38,6 @@
 - **stdio MCP 服务**：让兼容的编码 Agent 查询和写入工程知识。
 - **Trace Bench**：只读本地浏览界面，用于查看项目活动。
 - **worktree 别名**：并行分支仍然会汇聚到正确的项目知识。
-- **磁盘观察**：只记录可再生构建产物的受限元数据，绝不自动删除文件。
 
 ## 快速开始
 
@@ -136,14 +135,17 @@ node /absolute/path/to/fishbowl/dist/cli/main.js mcp --stdio
 ```text
 轻量：解析 -> 必要时查询 -> 回答
 标准：解析 -> 简短预检/查询 -> Problem -> 实施 -> 提交/验证 -> 一次 finalize
-完整：解析 -> 预检/查询 -> 必要时观察产物 -> Problem/有价值的失败 -> 提交/验证 -> 一次 finalize
+完整：解析 -> 预检/查询 -> Problem/有价值的失败 -> 提交/验证 -> 一次 finalize
 ```
 
 不要把 `checkpoint_work` 当作 `finalize_work` 的固定前置步骤。只有发生
 上下文压缩、跨日暂停或交接时才写 checkpoint；之后 finalization 必须传入
-同一个 `caseId`，服务端会复用完全等价的 Attempt、RootCause 和 Solution。
-小型配置修改默认不做磁盘观察。只有用户明确确认真实目标环境成功后，
+同一个 `caseId` 和 `checkpointOperationId`，服务端会显式复用该 checkpoint
+的 Attempt、RootCause 和 Solution。只有用户明确确认真实目标环境成功后，
 才记录人工 Verification 并关闭 Case。
+
+磁盘观察功能已取消。当前 Fishbowl 不扫描项目磁盘，也不再提供产物增长或
+清理候选接口；历史数据库表仅为无损升级兼容而保留，不再读写。
 
 Fishbowl 会区分不同记录，让图谱在复盘时仍然可信：
 

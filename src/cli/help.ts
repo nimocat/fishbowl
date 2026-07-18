@@ -30,10 +30,6 @@ const HELP: Record<string, HelpEntry> = {
   'import graph': { usage: 'import graph --project <id> --file <path> --operation <id>', description: 'Import a versioned Fishbowl graph archive.' },
   export: { usage: 'export --project <id> [--output <path>]', description: 'Export a redacted versioned project graph.' },
   activity: { usage: 'activity --project <id> [--after <sequence>] [--limit <count>]', description: 'List bounded recent project activity.' },
-  'disk start': { usage: 'disk start --project <id> --operation <id> --task <text>', description: 'Start a bounded regenerable-artifact observation.' },
-  'disk finish': { usage: 'disk finish --project <id> --operation <id> --observation <id>', description: 'Finish an artifact observation and attribute growth.' },
-  'disk list': { usage: 'disk list --project <id> [--limit <count>]', description: 'List recent disk observations.' },
-  'disk candidates': { usage: 'disk candidates --project <id> [--limit <count>]', description: 'List explainable cleanup candidates without deleting files.' },
   integrity: { usage: 'integrity', description: 'Run a read-only native database integrity check.', example: 'fishbowl integrity' },
   'daemon foreground': { usage: 'daemon foreground', description: 'Run the native daemon in the foreground for human diagnostics.' },
   'daemon status': { usage: 'daemon status', description: 'Show the published daemon descriptor and process status.' },
@@ -47,7 +43,6 @@ const GROUPS: Record<string, { description: string; commands: string[] }> = {
   project: { description: 'Register and resolve project scope.', commands: ['project register', 'project list', 'project resolve', 'project update'] },
   case: { description: 'Human-operated low-level Case graph mutations.', commands: ['case start', 'case attempt', 'case root-cause', 'case solution', 'case verify', 'case close', 'case regress'] },
   import: { description: 'Preview and apply explicit graph imports.', commands: ['import preview', 'import apply', 'import graph'] },
-  disk: { description: 'Observe regenerable project artifacts without automatic deletion.', commands: ['disk start', 'disk finish', 'disk list', 'disk candidates'] },
   daemon: { description: 'Install and diagnose the current-user native daemon.', commands: ['daemon install', 'daemon doctor', 'daemon status', 'daemon stop', 'daemon uninstall', 'daemon foreground'] },
 }
 
@@ -56,7 +51,6 @@ const LEGACY_DATA_TOPICS = new Set([
   'query', 'preflight', 'checkpoint', 'run',
   'case start', 'case attempt', 'case root-cause', 'case solution', 'case verify', 'case close', 'case regress',
   'import preview', 'import apply', 'import graph', 'export', 'activity',
-  'disk start', 'disk finish', 'disk list', 'disk candidates',
 ])
 
 export const HELP_TOPICS = Object.freeze(Object.keys(HELP))

@@ -17,7 +17,6 @@ tokio.workspace = true
 chrono.workspace = true
 uuid.workspace = true
 futures-util.workspace = true
-notify.workspace = true
 
 [dev-dependencies]
 tower.workspace = true

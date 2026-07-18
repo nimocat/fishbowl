@@ -29,8 +29,9 @@ on small configuration changes.
   facts remain new immutable nodes.
 - Default omitted MCP merge disposition to `not-required` and publish concrete
   string item schemas for semantic arrays.
-- Use disk observation only for material retained/regenerable artifacts. Human
-  Verification and Case closure require explicit real-person confirmation.
+- Human Verification and Case closure require explicit real-person confirmation.
+- Disk observation was subsequently retired in full by
+  `ADR-20260719-explicit-curation-and-disk-observation-retirement.md`.
 
 ## Consequences
 

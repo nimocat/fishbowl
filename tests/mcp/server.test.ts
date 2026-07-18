@@ -29,11 +29,14 @@ describe('MCP protocol adapter', () => {
     const { tools } = await client.listTools()
     expect(tools.map(({ name }) => name)).toContain('query_knowledge')
     expect(tools.map(({ name }) => name)).toContain('finalize_work')
+    expect(tools.map(({ name }) => name)).toContain('supersede_solution')
     expect(tools.map(({ name }) => name)).toContain('promote_root_cause')
     expect(tools.map(({ name }) => name)).toContain('get_operation_result')
-    expect(tools.map(({ name }) => name)).toContain('start_disk_observation')
-    expect(tools.map(({ name }) => name)).toContain('list_disk_cleanup_candidates')
-    expect(tools).toHaveLength(35)
+    expect(tools.map(({ name }) => name)).not.toContain('start_disk_observation')
+    expect(tools.map(({ name }) => name)).not.toContain('finish_disk_observation')
+    expect(tools.map(({ name }) => name)).not.toContain('list_disk_observations')
+    expect(tools.map(({ name }) => name)).not.toContain('list_disk_cleanup_candidates')
+    expect(tools).toHaveLength(32)
   })
 
   it('publishes concrete finalize string-array items and a default merge disposition', async () => {
@@ -62,7 +65,10 @@ describe('MCP protocol adapter', () => {
     expect(schema.properties?.commit?.description).toContain('Required when outcome is succeeded')
     expect(schema.properties?.solution?.description).toContain('requires rootCause')
     expect(schema.properties?.verifications?.description).toContain('Automated items require command')
-    expect(finalize?.description).toContain('failed/inconclusive requires failedAttempts')
+    expect(schema.properties?.outcome?.description).toContain('failedAttempts, failedAttemptIds, or checkpointOperationId')
+    expect(finalize?.description).toContain('failed/inconclusive requires failedAttempts, failedAttemptIds, or checkpointOperationId')
+    expect(schema.properties?.checkpointOperationId).toBeDefined()
+    expect(schema.properties?.failedAttemptIds).toBeDefined()
   })
 
   it('defaults an omitted finalize merge disposition before backend dispatch', async () => {
@@ -81,6 +87,24 @@ describe('MCP protocol adapter', () => {
     expect(response.isError, JSON.stringify(response)).not.toBe(true)
     expect(finalizeWork).toHaveBeenCalledWith(expect.objectContaining({
       merge: { status: 'not-required' },
+    }))
+  })
+
+  it('dispatches explicit same-Case solution supersession', async () => {
+    const supersedeSolution = vi.fn(async () => ({
+      caseId: 'case-1', priorSolutionId: 'solution-old',
+      replacementSolutionId: 'solution-new', retired: true as const, created: true,
+    }))
+    const client = await connect({ supersedeSolution } as unknown as AwaitableKnowledgeBackend)
+    const response = await client.callTool({ name: 'supersede_solution', arguments: {
+      project: { projectId: 'project-1' }, operationId: 'supersede-1', caseId: 'case-1',
+      priorSolutionId: 'solution-old', replacementSolutionId: 'solution-new',
+      reason: 'direct upload replaced compression',
+    } }) as CallToolResult
+
+    expect(response.isError, JSON.stringify(response)).not.toBe(true)
+    expect(supersedeSolution).toHaveBeenCalledWith(expect.objectContaining({
+      priorSolutionId: 'solution-old', replacementSolutionId: 'solution-new',
     }))
   })
 
@@ -199,30 +223,6 @@ describe('MCP protocol adapter', () => {
       outcome: { ok: true, result: [expect.objectContaining({ operation: 'list_projects', count: 1 })] },
     })
     expect(getOperationMetrics).not.toHaveBeenCalled()
-  })
-
-  it('accepts null disk summary measurements from running or truncated observations', async () => {
-    const listDiskObservations = vi.fn(async () => ({
-      observations: [{
-        observationId: 'obs-1', task: 'bounded build', status: 'completed',
-        startedAt: '2026-07-18T00:00:00.000Z', finishedAt: '2026-07-18T00:01:00.000Z',
-        baselineTrackedBytes: 10, finalTrackedBytes: 20, deltaBytes: null,
-        positiveGrowthBytes: 0, overlappingObservations: 0, scanTruncated: true,
-      }, {
-        observationId: 'obs-2', task: 'running build', status: 'running',
-        startedAt: '2026-07-18T00:02:00.000Z', finishedAt: null,
-        baselineTrackedBytes: 20, finalTrackedBytes: null, deltaBytes: null,
-        positiveGrowthBytes: null, overlappingObservations: 0, scanTruncated: false,
-      }], limit: 10, truncated: false,
-    }))
-    const client = await connect({ listDiskObservations } as unknown as AwaitableKnowledgeBackend)
-    const response = await client.callTool({ name: 'list_disk_observations', arguments: {
-      project: { projectId: 'project-1' }, limit: 10,
-    } }) as CallToolResult
-    expect(response.isError, JSON.stringify(response)).not.toBe(true)
-    expect(response.structuredContent).toMatchObject({
-      outcome: { result: { observations: [{ deltaBytes: null }, { finishedAt: null, deltaBytes: null }] } },
-    })
   })
 
   it.each(['INVALID_REQUEST', 'PROTOCOL_MISMATCH', 'DAEMON_UNAVAILABLE', 'INVALID_RESPONSE']) (
