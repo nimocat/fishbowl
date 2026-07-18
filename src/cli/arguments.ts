@@ -204,26 +204,33 @@ export function parseArguments(argv: string[]): ParsedArguments {
     values.splice(0, 2)
   }
   if (values.length === 0) return { dataDirectory, embedded, command: { kind: 'help', topic: [] } }
-  if (values[0] === 'version' || values[0] === '--version' || values[0] === '-V') {
-    if (values.length > 1) throw new Error(`Unexpected argument: ${values[1]}`)
-    return { dataDirectory, embedded, command: { kind: 'version' } }
-  }
   if (values[0] === 'help' || values[0] === '--help' || values[0] === '-h') {
     values.shift()
     return {
       dataDirectory,
       embedded,
-      command: { kind: 'help', topic: values.filter(value => value !== '--help' && value !== '-h') },
+      command: {
+        kind: 'help',
+        topic: helpTopic(values.filter(value => value !== '--help' && value !== '-h')),
+      },
     }
   }
   if (values[1] === 'help') {
-    return { dataDirectory, embedded, command: { kind: 'help', topic: [values[0]!, ...values.slice(2)] } }
+    return {
+      dataDirectory,
+      embedded,
+      command: { kind: 'help', topic: helpTopic([values[0]!, ...values.slice(2)]) },
+    }
   }
   const childBoundary = values.indexOf('--')
   const helpSearchEnd = childBoundary === -1 ? values.length : childBoundary
   const helpIndex = values.slice(0, helpSearchEnd).findIndex(value => value === '--help' || value === '-h')
   if (helpIndex !== -1) {
-    return { dataDirectory, embedded, command: { kind: 'help', topic: values.slice(0, helpIndex) } }
+    return { dataDirectory, embedded, command: { kind: 'help', topic: helpTopic(values.slice(0, helpIndex)) } }
+  }
+  if (values[0] === 'version' || values[0] === '--version' || values[0] === '-V') {
+    if (values.length > 1) throw new Error(`Unexpected argument: ${values[1]}`)
+    return { dataDirectory, embedded, command: { kind: 'version' } }
   }
   const reader = new ArgumentReader(values)
   const commandName = reader.take()
@@ -327,4 +334,13 @@ export function parseArguments(argv: string[]): ParsedArguments {
     throw new Error('update does not accept --data-dir or --embedded')
   }
   return { dataDirectory, embedded, command }
+}
+
+function helpTopic(values: string[]): string[] {
+  const first = values[0]
+  if (!first) return []
+  const grouped = new Set(['project', 'case', 'import', 'disk', 'daemon'])
+  const second = values[1]
+  if (grouped.has(first) && second && !second.startsWith('-')) return [first, second]
+  return [first]
 }

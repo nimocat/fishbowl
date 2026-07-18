@@ -762,5 +762,11 @@
   typo suggestions, and an explicit `help` recovery command.
 - Centralized the CLI/MCP version and documented that CLI help is for human
   operation while Agents continue to use direct MCP tools only.
-- Verification: `npm run typecheck`, all 80 Vitest tests, `npm run build`,
-  `cargo test --workspace`, `cargo fmt --check`, and `git diff --check` passed.
+- Review found that option-bearing help invocations produced overlong topics,
+  `serve` omitted `--port`, CLI data commands were framed too broadly, and the
+  configured acceptance suite had no files. Fixed topic extraction while
+  preserving child argv, marked data commands legacy/manual recovery only,
+  and added a daemon-free CLI help acceptance suite.
+- Verification: `npm run typecheck`, all 82 Vitest tests, the dedicated 2-test
+  acceptance suite, `npm run build`, `cargo test --workspace`,
+  `cargo fmt --check`, and `git diff --check` passed.

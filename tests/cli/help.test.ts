@@ -25,6 +25,8 @@ describe('CLI help', () => {
     expect(formatHelp(['project'])).toContain('fishbowl project register')
     expect(formatHelp(['case'])).toContain('fishbowl case root-cause')
     expect(formatHelp(['project', 'register'])).toContain('--root <path>')
+    expect(formatHelp(['serve'])).toContain('--port <number>')
+    expect(formatHelp(['query'])).toMatch(/legacy.*recovery/i)
   })
 
   it('adds command-specific recovery and typo suggestions to errors', () => {

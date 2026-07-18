@@ -87,10 +87,13 @@ fishbowl --version
 命令错误或缺少选项时，CLI 会继续返回可供程序解析的 JSON，并在原始
 `message` 之外提供当前命令的 `usage`、可执行的 `hint`，以及准确的 `help`
 命令。连接问题可运行 `fishbowl daemon doctor`，数据库只读检查可运行
-`fishbowl integrity`。这些 CLI 命令供人类操作；编码 Agent 仍然只直接调用
-Fishbowl MCP 工具。
+`fishbowl integrity`。数据类 CLI 入口仅保留用于旧版兼容和明确的人工恢复；
+编码 Agent 仍然只直接调用 Fishbowl MCP 工具。
 
 ### 登记项目
+
+以下数据命令仅保留用于明确的人工恢复和兼容场景。请为编码 Agent 配置等价的
+Fishbowl MCP 工具。
 
 ```bash
 cd /absolute/path/to/your-project

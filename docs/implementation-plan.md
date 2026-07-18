@@ -201,7 +201,7 @@ The seven compatibility-focused TDD tasks are complete: schema-v6 indexed Case h
 
 ## Self-describing CLI guidance
 
-**Status:** Complete; final gates passed and review pending (2026-07-18)
+**Status:** Complete; final gates passed and review findings addressed (2026-07-18)
 
 **Scope:** Make bare invocation, command discovery, argument recovery, diagnostics, and version discovery useful to human operators without weakening machine-readable errors or the Agent MCP-only boundary.
 
@@ -209,7 +209,7 @@ The seven compatibility-focused TDD tasks are complete: schema-v6 indexed Case h
 
 **TDD gate:** RED tests captured the previous `Missing command`, unknown help module, and unsupported version flag. Focused GREEN tests cover all public help topics, command groups, spelling suggestions, missing-option recovery, bare dispatch, version output, and child help passthrough.
 
-**Verification:** `npm run typecheck`, all 80 Vitest tests, `npm run build`, `cargo test --workspace`, `cargo fmt --check`, and `git diff --check` passed.
+**Verification:** `npm run typecheck`, all 82 Vitest tests, the dedicated 2-test acceptance suite, `npm run build`, `cargo test --workspace`, `cargo fmt --check`, and `git diff --check` passed.
 
 ## Protocol reliability and daemon observability
 

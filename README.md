@@ -87,10 +87,14 @@ fishbowl --version
 Invalid commands and missing options return JSON with the original `message`
 plus command-specific `usage`, an actionable `hint`, and the exact `help`
 command to run. Use `fishbowl daemon doctor` for connectivity diagnostics and
-`fishbowl integrity` for a read-only database check. These commands are for
-human operation; coding Agents continue to call Fishbowl MCP tools directly.
+`fishbowl integrity` for a read-only database check. Data-oriented CLI entries
+remain legacy/manual-recovery compatibility only; coding Agents call Fishbowl
+MCP tools directly.
 
 ### Register a Project
+
+The following data commands are retained for explicit human recovery and
+compatibility. Configure coding Agents to use the equivalent Fishbowl MCP tools.
 
 ```bash
 cd /absolute/path/to/your-project

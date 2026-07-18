@@ -8,7 +8,7 @@ interface HelpEntry {
 const HELP: Record<string, HelpEntry> = {
   version: { usage: 'version | --version | -V', description: 'Print the Fishbowl CLI version.' },
   update: { usage: 'update', description: 'Safely update a clean official source installation.', details: ['Human-operated only; Agents use Fishbowl through MCP.', 'Requires the official origin, the main branch, and a clean worktree.'], example: 'fishbowl update' },
-  serve: { usage: 'serve', description: 'Print the authenticated local Trace Bench URL.', example: 'fishbowl serve' },
+  serve: { usage: 'serve [--port <number>]', description: 'Print the authenticated local Trace Bench URL.', details: ['The compatibility --port option is accepted; the native daemon selects its own loopback port.'], example: 'fishbowl serve' },
   mcp: { usage: 'mcp --stdio', description: 'Start the stdio MCP adapter for an MCP Host.', details: ['Configure this in Codex, Claude Desktop, or another MCP Host; do not run it interactively.'], example: 'node /absolute/path/to/fishbowl/dist/cli/main.js mcp --stdio' },
   'project register': { usage: 'project register --root <path> --name <name> [--description <text>]', description: 'Register an existing project root.', example: 'fishbowl project register --root "$PWD" --name "My Project"' },
   'project list': { usage: 'project list', description: 'List registered projects and worktree aliases.', example: 'fishbowl project list' },
@@ -51,6 +51,14 @@ const GROUPS: Record<string, { description: string; commands: string[] }> = {
   daemon: { description: 'Install and diagnose the current-user native daemon.', commands: ['daemon install', 'daemon doctor', 'daemon status', 'daemon stop', 'daemon uninstall', 'daemon foreground'] },
 }
 
+const LEGACY_DATA_TOPICS = new Set([
+  'project register', 'project list', 'project resolve', 'project update',
+  'query', 'preflight', 'checkpoint', 'run',
+  'case start', 'case attempt', 'case root-cause', 'case solution', 'case verify', 'case close', 'case regress',
+  'import preview', 'import apply', 'import graph', 'export', 'activity',
+  'disk start', 'disk finish', 'disk list', 'disk candidates',
+])
+
 export const HELP_TOPICS = Object.freeze(Object.keys(HELP))
 
 export function formatHelp(topicParts: string[]): string {
@@ -58,6 +66,9 @@ export function formatHelp(topicParts: string[]): string {
   if (!topic) return mainHelp()
   const group = GROUPS[topic]
   if (group) {
+    const compatibilityNote = topic === 'daemon'
+      ? []
+      : ['', 'Compatibility: these data commands are for explicit human recovery; Agents use MCP tools.']
     return [
       `Fishbowl ${topic} — ${group.description}`,
       '',
@@ -65,6 +76,7 @@ export function formatHelp(topicParts: string[]): string {
       '',
       'Commands:',
       ...group.commands.map(commandLine),
+      ...compatibilityNote,
       '',
       `Run \`fishbowl help ${topic} <command>\` for command details.`,
       'Run `fishbowl help` for all command groups.',
@@ -76,11 +88,17 @@ export function formatHelp(topicParts: string[]): string {
     const suggestion = nearest(topic, [...Object.keys(GROUPS), ...HELP_TOPICS])
     throw new Error(`Unknown help topic: ${topic}${suggestion ? `. Did you mean ${suggestion}?` : ''}`)
   }
+  const details = [
+    ...(LEGACY_DATA_TOPICS.has(topic)
+      ? ['Legacy/manual recovery compatibility only; coding Agents must use Fishbowl MCP tools.']
+      : []),
+    ...(entry.details ?? []),
+  ]
   return [
     `Fishbowl — ${entry.description}`,
     '',
     `Usage: fishbowl ${entry.usage}`,
-    ...(entry.details?.length ? ['', 'Notes:', ...entry.details.map(line => `  - ${line}`)] : []),
+    ...(details.length ? ['', 'Notes:', ...details.map(line => `  - ${line}`)] : []),
     ...(entry.example ? ['', 'Example:', `  ${entry.example}`] : []),
     '',
     'Run `fishbowl help` to list all commands.',
@@ -116,14 +134,13 @@ function mainHelp(): string {
     '       fishbowl <command> --help',
     '       fishbowl --version',
     '',
-    'Get started:',
+    'Human installation and diagnostics:',
     '  fishbowl daemon install              Install the current-user daemon',
     '  fishbowl daemon doctor               Verify authenticated daemon health',
-    '  fishbowl project register --root "$PWD" --name "My Project"',
-    '  fishbowl project list                Find the registered project ID',
-    '  fishbowl query --project <id> <text> Search project knowledge',
+    '  fishbowl integrity                    Check the database without mutation',
+    '  fishbowl update                       Update an official source installation',
     '',
-    'Common commands:',
+    'Legacy/manual recovery data commands (Agents use MCP instead):',
     ...['project register', 'project list', 'query', 'preflight', 'checkpoint', 'run', 'serve', 'update'].map(commandLine),
     '',
     'Command groups:',
@@ -137,8 +154,8 @@ function mainHelp(): string {
     '  --embedded          Use embedded test/recovery mode',
     '',
     'Agent integration:',
-    '  Agents must use the configured Fishbowl MCP tools directly. CLI commands are for',
-    '  human installation, diagnostics, recovery, and explicit interactive operation.',
+    '  Agents must use the configured Fishbowl MCP tools directly. Data-oriented CLI',
+    '  commands remain only for legacy compatibility and explicit human recovery.',
     '  Configure an MCP Host with: fishbowl mcp --stdio',
     '',
     'Help and recovery:',
