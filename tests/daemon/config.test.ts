@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import {
   ensureDaemonCredentials,
+  ensureDaemonPort,
   migrateLegacyDataDirectory,
   readDaemonDescriptor,
   resolveDaemonPaths,
@@ -74,6 +75,62 @@ describe('daemon configuration', () => {
 
     expect(readDaemonDescriptor({ paths })).toEqual(descriptor)
     expect(JSON.parse(readFileSync(paths.descriptorFile, 'utf8'))).not.toHaveProperty('token')
+  })
+
+  it('persists one owner-only user port and reuses it across daemon restarts', () => {
+    const sandbox = mkdtempSync(join(tmpdir(), 'fishbowl-daemon-port-'))
+    sandboxes.push(sandbox)
+    const paths = resolveDaemonPaths({
+      platform: process.platform,
+      home: sandbox,
+      environment: { FISHBOWL_DATA_DIR: join(sandbox, 'data') },
+    })
+
+    const first = ensureDaemonPort({ paths, randomBytes: () => Buffer.from([0x12, 0x34]) })
+    const second = ensureDaemonPort({ paths, randomBytes: () => Buffer.from([0xff, 0xff]) })
+
+    expect(first).toBe(49_152 + (0x1234 % 16_384))
+    expect(second).toBe(first)
+    expect(readFileSync(paths.portFile, 'utf8')).toBe(`${first}\n`)
+    if (process.platform !== 'win32') {
+      expect(statSync(paths.portFile).mode & 0o077).toBe(0)
+    }
+  })
+
+  it('adopts the last valid daemon descriptor port during a compatible upgrade', () => {
+    const sandbox = mkdtempSync(join(tmpdir(), 'fishbowl-daemon-port-upgrade-'))
+    sandboxes.push(sandbox)
+    const paths = resolveDaemonPaths({
+      platform: process.platform,
+      home: sandbox,
+      environment: { FISHBOWL_DATA_DIR: join(sandbox, 'data') },
+    })
+    writeDaemonDescriptor(paths, {
+      protocolVersion: 2,
+      daemonVersion: '0.1.0',
+      host: '127.0.0.1',
+      port: 56_341,
+      instanceId: 'upgrade-instance',
+      pid: 123,
+      startedAt: '2026-07-18T00:00:00.000Z',
+    })
+
+    expect(ensureDaemonPort({ paths, randomBytes: () => Buffer.from([0, 0]) })).toBe(56_341)
+    expect(readFileSync(paths.portFile, 'utf8')).toBe('56341\n')
+  })
+
+  it('rejects an invalid persisted port instead of silently changing daemon identity', () => {
+    const sandbox = mkdtempSync(join(tmpdir(), 'fishbowl-daemon-invalid-port-'))
+    sandboxes.push(sandbox)
+    const paths = resolveDaemonPaths({
+      platform: process.platform,
+      home: sandbox,
+      environment: { FISHBOWL_DATA_DIR: join(sandbox, 'data') },
+    })
+    mkdirSync(paths.dataDirectory, { recursive: true })
+    writeFileSync(paths.portFile, '0\n')
+
+    expect(() => ensureDaemonPort({ paths })).toThrow(/invalid.*daemon port.*daemon\.port/i)
   })
 
   it('rejects a descriptor from the retired protocol generation', () => {

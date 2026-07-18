@@ -817,3 +817,33 @@
 - Final gates passed: TypeScript typecheck, 92/92 Vitest tests, production build,
   the complete Rust workspace, Rust formatting, and diff checks. Blocking
   re-review reported zero Critical and zero Important issues and approved merge.
+
+## 2026-07-18 18:20 CST - Stable daemon port implementation
+
+- Goal: Prevent daemon endpoint drift across updates and remove the immediate
+  post-install unavailable window.
+- Completed: Added RED tests for persisted port reuse, upgrade adoption,
+  malformed port state, native argv, authenticated readiness, and actionable
+  timeout errors; implemented the corresponding runtime behavior.
+- Changed files: `src/daemon/config.ts`, `src/daemon/platform.ts`,
+  `src/daemon/lifecycle.ts`, `src/cli/main.ts`, `src/cli/update.ts`, focused tests, README, context,
+  implementation plan, ADR, and handoff.
+- Decisions: Persist one random high per-user port, adopt the last valid v2
+  descriptor during upgrade, never silently reallocate, and make daemon install
+  wait for authenticated readiness.
+- Verification: Initial focused run failed 6 assertions as expected. The GREEN
+  run passed 25/25 focused tests and `npm run typecheck`. Review then found that
+  endpoint preservation ran before safe-update validation; it now executes only
+  after validation, dependency installation, and deployment backup, immediately
+  before daemon shutdown. Rejected and true no-op updates assert zero endpoint
+  mutation, while the successful updater test asserts preservation precedes
+  stop. The one transition from a pre-feature updater may allocate the initial
+  sticky port because old code cannot run the new preservation step.
+  Endpoint-preservation failures occur before downtime and report that the
+  running daemon was not changed; regression coverage proves no stop/install.
+- Blockers: None. The unrelated untracked Markdown design remains untouched.
+- Verification: Final `npm run typecheck`, 99/99 Vitest tests,
+  `npm run build`, `cargo test --workspace`, `cargo fmt --check`, and
+  `git diff --check` passed. Independent Standards and Spec re-reviews both
+  returned PASS after the updater-boundary and diagnostic fixes.
+- Next: Commit and push the completed change.

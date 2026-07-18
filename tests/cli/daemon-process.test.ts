@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { stopInstalledDaemonIfRunning, waitForProcessExit } from '../../src/cli/main.js'
+import { stopInstalledDaemonIfRunning, waitForInstalledDaemonReady, waitForProcessExit } from '../../src/cli/main.js'
 import type { DaemonDescriptor, DaemonPaths } from '../../src/daemon/config.js'
 
 function processError(code: string): NodeJS.ErrnoException {
@@ -75,5 +75,41 @@ describe('authenticated daemon replacement', () => {
     })).rejects.toThrow(/refusing to replace/i)
 
     expect(signals).toEqual([0])
+  })
+})
+
+describe('registered daemon readiness', () => {
+  it('does not report installation success until the new descriptor is authenticated on the persisted port', async () => {
+    let now = 0
+    let reads = 0
+    const authenticated: number[] = []
+    const ready = await waitForInstalledDaemonReady({ paths: {} as DaemonPaths, token: 'a'.repeat(64), port: 56_341 }, {
+      timeoutMs: 100,
+      now: () => now,
+      sleep: async (milliseconds) => { now += milliseconds },
+      readDescriptor: () => ({
+        protocolVersion: 2,
+        daemonVersion: '0.1.0',
+        host: '127.0.0.1',
+        port: reads++ === 0 ? 54_199 : 56_341,
+        instanceId: `instance-${reads}`,
+        pid: 42,
+        startedAt: '2026-07-18T00:00:00.000Z',
+      }),
+      authenticate: async (candidate) => { authenticated.push(candidate.port) },
+    })
+
+    expect(ready.port).toBe(56_341)
+    expect(authenticated).toEqual([56_341])
+  })
+
+  it('returns an actionable fixed-port error after the bounded readiness timeout', async () => {
+    let now = 0
+    await expect(waitForInstalledDaemonReady({ paths: {} as DaemonPaths, token: 'a'.repeat(64), port: 56_341 }, {
+      timeoutMs: 50,
+      now: () => now,
+      sleep: async (milliseconds) => { now += milliseconds },
+      readDescriptor: () => { throw new Error('not published') },
+    })).rejects.toThrow(/port 56341.*daemon\.port.*doctor/i)
   })
 })

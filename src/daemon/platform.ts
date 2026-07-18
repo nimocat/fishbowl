@@ -24,13 +24,14 @@ export function installCurrentUserDaemon(options: {
   home?: string
   nativeBinary?: string
   paths?: DaemonPaths
+  port: number
   uid?: number
-} = {}): PlatformRegistrationResult {
+}): PlatformRegistrationResult {
   const platform = options.platform ?? process.platform
   const home = options.home ?? homedir()
   const nativeBinary = options.nativeBinary ?? defaultNativeBinary(platform)
   const paths = options.paths ?? resolveDaemonPaths({ platform, home, environment: process.env })
-  const daemonArguments = nativeDaemonArguments(paths)
+  const daemonArguments = nativeDaemonArguments(paths, options.port)
   if (platform === 'darwin') {
     const directory = join(home, 'Library', 'LaunchAgents')
     const location = join(directory, 'io.fishbowl.daemon.plist')
@@ -85,14 +86,14 @@ function retireLegacyMacOSDaemon(directory: string, uid: number): void {
   rmSync(legacyLocation, { force: true })
 }
 
-export function nativeDaemonArguments(paths: DaemonPaths): string[] {
+export function nativeDaemonArguments(paths: DaemonPaths, port: number): string[] {
   return [
     'daemon',
     '--database', paths.databasePath,
     '--token-file', paths.tokenFile,
     '--descriptor', paths.descriptorFile,
     '--pid-file', paths.pidFile,
-    '--port', '0',
+    '--port', String(port),
   ]
 }
 

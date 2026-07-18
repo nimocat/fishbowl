@@ -115,14 +115,28 @@ export async function runCli(argv: string[], dependencies: CliDependencies = {})
       return 0
     }
     if (parsed.command.kind === 'update') {
-      printJson(stdout, (dependencies.update ?? updateFishbowl)())
+      const result = dependencies.update
+        ? dependencies.update()
+        : updateFishbowl({
+            prepareDaemonShutdown: () => { initializeDaemonCredentials({ environment: daemonEnvironment }) },
+          })
+      printJson(stdout, result)
       return 0
     }
     if (parsed.command.kind === 'daemon') {
       const initialized = initializeDaemonCredentials({ environment: daemonEnvironment })
       if (parsed.command.action === 'install') {
         await stopInstalledDaemonIfRunning(initialized)
-        printJson(stdout, installCurrentUserDaemon({ paths: initialized.paths }))
+        const registration = installCurrentUserDaemon({ paths: initialized.paths, port: initialized.port })
+        if (registration.platform === 'win32') {
+          const child = spawn(defaultNativeBinary('win32'), nativeDaemonArguments(initialized.paths, initialized.port), {
+            detached: true,
+            stdio: 'ignore',
+          })
+          child.unref()
+        }
+        const descriptor = await waitForInstalledDaemonReady(initialized)
+        printJson(stdout, { ...registration, ready: true, port: descriptor.port })
         return 0
       }
       if (parsed.command.action === 'uninstall') {
@@ -130,7 +144,7 @@ export async function runCli(argv: string[], dependencies: CliDependencies = {})
         return 0
       }
       if (parsed.command.action === 'foreground') {
-        const child = spawn(defaultNativeBinary(), nativeDaemonArguments(initialized.paths), {
+        const child = spawn(defaultNativeBinary(), nativeDaemonArguments(initialized.paths, initialized.port), {
           stdio: 'inherit',
         })
         return await new Promise<number>((resolve, reject) => {
@@ -257,6 +271,42 @@ export async function waitForProcessExit(pid: number, options: {
     await sleep(25)
   }
   throw new Error(`Fishbowl daemon did not stop within ${timeoutMs}ms`)
+}
+
+export async function waitForInstalledDaemonReady(
+  initialized: { paths: DaemonPaths; token: string; port: number },
+  options: {
+    timeoutMs?: number
+    now?: () => number
+    sleep?: (milliseconds: number) => Promise<void>
+    readDescriptor?: () => DaemonDescriptor
+    authenticate?: (descriptor: DaemonDescriptor) => Promise<void>
+  } = {},
+): Promise<DaemonDescriptor> {
+  const timeoutMs = options.timeoutMs ?? 2_500
+  const now = options.now ?? Date.now
+  const sleep = options.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)))
+  const readDescriptor = options.readDescriptor ?? (() => readDaemonDescriptor({ paths: initialized.paths }))
+  const deadline = now() + timeoutMs
+  while (now() < deadline) {
+    try {
+      const descriptor = readDescriptor()
+      if (descriptor.port !== initialized.port) throw new Error('stale daemon descriptor port')
+      if (options.authenticate) await options.authenticate(descriptor)
+      else {
+        const probe = new DaemonClient({ descriptor, token: initialized.token, timeoutMs: 500 })
+        await probe.call('listProjects', {})
+      }
+      return descriptor
+    } catch {
+      await sleep(25)
+    }
+  }
+  throw new Error(
+    `Fishbowl daemon did not become ready on fixed port ${initialized.port} within ${timeoutMs}ms. ` +
+    `The port is stored in ${initialized.paths.portFile ?? 'daemon.port'}; run \`fishbowl daemon doctor\`. ` +
+    'If another process owns the port, stop it or replace daemon.port with an unused port from 49152 through 65535, then reinstall.',
+  )
 }
 
 export async function stopInstalledDaemonIfRunning(

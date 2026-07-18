@@ -8,7 +8,7 @@ interface HelpEntry {
 const HELP: Record<string, HelpEntry> = {
   version: { usage: 'version | --version | -V', description: 'Print the Fishbowl CLI version.' },
   update: { usage: 'update', description: 'Safely update a clean official source installation.', details: ['Human-operated only; Agents use Fishbowl through MCP.', 'Requires the official origin, the main branch, and a clean worktree.'], example: 'fishbowl update' },
-  serve: { usage: 'serve [--port <number>]', description: 'Print the authenticated local Trace Bench URL.', details: ['The compatibility --port option is accepted; the native daemon selects its own loopback port.'], example: 'fishbowl serve' },
+  serve: { usage: 'serve [--port <number>]', description: 'Print the authenticated local Trace Bench URL.', details: ['The compatibility --port option is accepted; the native daemon reuses its persisted user-level loopback port.'], example: 'fishbowl serve' },
   mcp: { usage: 'mcp --stdio', description: 'Start the stdio MCP adapter for an MCP Host.', details: ['Configure this in Codex, Claude Desktop, or another MCP Host; do not run it interactively.'], example: 'node /absolute/path/to/fishbowl/dist/cli/main.js mcp --stdio' },
   'project register': { usage: 'project register --root <path> --name <name> [--description <text>]', description: 'Register an existing project root.', example: 'fishbowl project register --root "$PWD" --name "My Project"' },
   'project list': { usage: 'project list', description: 'List registered projects and worktree aliases.', example: 'fishbowl project list' },
@@ -38,7 +38,7 @@ const HELP: Record<string, HelpEntry> = {
   'daemon foreground': { usage: 'daemon foreground', description: 'Run the native daemon in the foreground for human diagnostics.' },
   'daemon status': { usage: 'daemon status', description: 'Show the published daemon descriptor and process status.' },
   'daemon stop': { usage: 'daemon stop', description: 'Authenticate, stop, and wait for the current daemon.' },
-  'daemon install': { usage: 'daemon install', description: 'Install or refresh the current-user daemon registration.', example: 'fishbowl daemon install' },
+  'daemon install': { usage: 'daemon install', description: 'Install or refresh the current-user daemon registration.', details: ['Reuses the owner-only daemon.port setting and returns only after authenticated readiness.', 'A fixed-port conflict is reported without silently selecting another port.'], example: 'fishbowl daemon install' },
   'daemon uninstall': { usage: 'daemon uninstall', description: 'Remove current-user daemon registration while preserving data.' },
   'daemon doctor': { usage: 'daemon doctor', description: 'Verify authenticated daemon health and show recovery context.', example: 'fishbowl daemon doctor' },
 }

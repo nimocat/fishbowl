@@ -71,6 +71,13 @@ fishbowl daemon doctor
 ```
 
 The daemon runs only for the current user. No administrator account is required.
+Its first fixed-endpoint launch stores one high loopback port in the private
+Fishbowl data directory and reuses that port across installs and updates. An
+update already running this fixed-endpoint CLI snapshots the current valid
+descriptor port before shutdown, so MCP clients do not lose the daemon merely
+because its process restarted. `daemon install` waits
+for authenticated readiness and reports a port conflict instead of silently
+moving the endpoint.
 
 ### CLI help and diagnostics
 
@@ -205,7 +212,7 @@ npm link
 fishbowl daemon install
 ```
 
-After every successful update, fully quit and restart the MCP client (for example Codex or Claude Desktop) so it launches the rebuilt stdio MCP process. Agents do not need—and must not try—to locate or run `fishbowl update` or any other Fishbowl CLI themselves.
+After every successful update, fully quit and restart the MCP client (for example Codex or Claude Desktop) so it loads new MCP tools and schemas. The stable daemon port lets an existing bridge reconnect after an ordinary daemon restart, but cannot hot-reload adapter code. Agents do not need—and must not try—to locate or run `fishbowl update` or any other Fishbowl CLI themselves.
 
 If the MCP client already points to the absolute `dist\cli\main.js` path in the same clone, its configuration does not change. If the clone moved, update it once using [Windows MCP paths](docs/mcp-client-configuration.md#windows-paths).
 

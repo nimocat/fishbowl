@@ -357,3 +357,32 @@ records a redacted `node.updated` event. Case/Solution promotion now requires on
 RootCause→Solution→Verification chain, preventing unrelated nodes in the same Case
 from being combined. Incomplete disk scans record unknown per-path deltas and
 return no claimed growth or cleanup eligibility.
+
+## Stable daemon endpoint handoff (2026-07-18)
+
+Fishbowl no longer launches its installed daemon with an ephemeral port. The
+private platform data directory contains `daemon.port`; a fixed-endpoint CLI
+persists the current valid protocol-v2 descriptor port before updater shutdown,
+while a new install chooses a random dynamic/private port. All
+subsequent registered, foreground, and auto-start launches reuse it. Invalid
+port state fails instead of being overwritten.
+
+`fishbowl daemon install` now stops an authenticated prior daemon, refreshes
+registration, starts Windows immediately or waits for macOS launchd, then
+requires a matching descriptor and authenticated RPC before printing success.
+A bounded failure names the fixed port, `daemon.port`, doctor command, and port
+conflict possibility. Stable transport lets an old bridge reconnect after a
+daemon-only restart; a full MCP Host restart remains required to load adapter
+tool/schema updates.
+
+Focused RED/GREEN coverage is in `tests/daemon/config.test.ts`,
+`tests/daemon/platform.test.ts`, `tests/cli/daemon-process.test.ts`, and
+`tests/cli/update.test.ts`. Endpoint preservation occurs after safe-update
+validation, dependency installation, and backup but before daemon shutdown;
+rejected and true no-op updates do not mutate endpoint state. A pre-feature
+updater cannot execute this new step, so its one-time transition or rollback
+may allocate the first sticky port. The focused configuration/platform/
+lifecycle/process/updater set passes. Final `npm run typecheck`, 99/99 Vitest
+tests, `npm run build`, `cargo test --workspace`, `cargo fmt --check`, and
+`git diff --check` all pass. Independent Standards and Spec reviews ended with
+no remaining findings.

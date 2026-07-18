@@ -17,6 +17,7 @@ export interface DaemonPaths {
   descriptorFile: string
   tokenFile: string
   pidFile: string
+  portFile: string
   logFile: string
 }
 
@@ -52,6 +53,7 @@ export function resolveDaemonPaths(options: ResolveDaemonPathsOptions): DaemonPa
     descriptorFile: join(dataDirectory, 'daemon.json'),
     tokenFile: join(dataDirectory, 'daemon.token'),
     pidFile: join(dataDirectory, 'daemon.pid'),
+    portFile: join(dataDirectory, 'daemon.port'),
     logFile: join(dataDirectory, 'daemon.log'),
   }
 }
@@ -88,6 +90,34 @@ export function ensureDaemonCredentials(options: {
   }
   if (process.platform !== 'win32') chmodSync(options.paths.tokenFile, 0o600)
   return { token: readFileSync(options.paths.tokenFile, 'utf8').trim() }
+}
+
+export function ensureDaemonPort(options: {
+  paths: DaemonPaths
+  randomBytes?: (size: number) => Buffer
+}): number {
+  ensurePrivateDirectory(options.paths.dataDirectory)
+  if (existsSync(options.paths.portFile)) {
+    return readPersistedDaemonPort(options.paths.portFile)
+  }
+
+  let port: number | undefined
+  try {
+    port = readDaemonDescriptor({ paths: options.paths }).port
+  } catch {
+    const bytes = (options.randomBytes ?? systemRandomBytes)(2)
+    if (bytes.length < 2) throw new Error('Fishbowl daemon port allocator returned insufficient randomness')
+    port = 49_152 + (bytes.readUInt16BE(0) % 16_384)
+  }
+  try {
+    writeFileSync(options.paths.portFile, `${port}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' })
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+      return readPersistedDaemonPort(options.paths.portFile)
+    }
+    throw error
+  }
+  return readPersistedDaemonPort(options.paths.portFile)
 }
 
 export function writeDaemonDescriptor(paths: DaemonPaths, descriptor: DaemonDescriptor): void {
@@ -131,6 +161,20 @@ export function readDaemonDescriptor(options: { paths: DaemonPaths }): DaemonDes
 function ensurePrivateDirectory(path: string): void {
   mkdirSync(path, { recursive: true, mode: 0o700 })
   if (process.platform !== 'win32') chmodSync(path, 0o700)
+}
+
+function parseDaemonPort(value: string, path: string): number {
+  const trimmed = value.trim()
+  const port = Number(trimmed)
+  if (!/^\d+$/.test(trimmed) || !Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new Error(`Invalid Fishbowl daemon port in ${path}`)
+  }
+  return port
+}
+
+function readPersistedDaemonPort(path: string): number {
+  if (process.platform !== 'win32') chmodSync(path, 0o600)
+  return parseDaemonPort(readFileSync(path, 'utf8'), path)
 }
 
 function legacyDataDirectory(options: ResolveDaemonPathsOptions): string {

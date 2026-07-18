@@ -21,7 +21,7 @@ Fishbowl (Fishbowl) is a local-first service for preserving the path from engine
 - Schema v8 adds a task disk-growth ledger. Schema v9 adds a project-scoped persistent measurement cache for that ledger. Rust captures bounded metadata-only snapshots of known regenerable roots, stores only project-relative paths, byte counts, and directory modification stamps, marks cached and overlapping evidence for review, and never deletes candidates.
 - The append-only `events` table is an audit log and live-update cursor, not a complete event-sourcing replay log.
 - `KnowledgeService` is the transport-neutral application boundary.
-- A persistent authenticated loopback daemon is the normal SQLite owner. Thin stdio MCP and CLI adapters call its protocol-generation-2 RPC allowlist; generation-1 descriptors are retired. Normal clients use the platform-default data directory, while explicit `--embedded`/`--data-dir` remains for tests and recovery only.
+- A persistent authenticated loopback daemon is the normal SQLite owner. Thin stdio MCP and CLI adapters call its protocol-generation-2 RPC allowlist; generation-1 descriptors are retired. Normal clients use the platform-default data directory, while explicit `--embedded`/`--data-dir` remains for tests and recovery only. One owner-only high loopback port is persisted as `daemon.port`; compatible upgrades adopt the last valid descriptor port, and every later start reuses it instead of requesting an ephemeral port.
 - The daemon also owns the read-only local HTTP/SSE Trace Bench, so browser views update from the same graph event cursor.
 - Raw command logs live outside SQLite under `data/logs/<project-id>/`.
 - `ImportService` owns explicit-source acquisition, candidate preview persistence, and selected transactional apply.
@@ -30,7 +30,7 @@ Fishbowl (Fishbowl) is a local-first service for preserving the path from engine
 - `runStdioServer()` reserves stdout exclusively for MCP frames and proxies to the daemon; it opens SQLite only when an explicit embedded database path is injected for tests/recovery.
 - `startTraceBenchServer({ service, port })` owns the native HTTP listener and always binds to `127.0.0.1`; HTTP and SSE reads use only `KnowledgeServiceContract`.
 - Trace Bench static assets are allowlisted and copied to `dist/web`; the browser is read-only, uses native button nodes with SVG edges, and keeps a semantic trace visible alongside the graph.
-- `fishbowl daemon install` registers a no-admin macOS LaunchAgent or Windows HKCU Run entry. Normal CLI calls auto-start once, authenticate with an owner-only 32-byte token, and retry once with a stable transport request ID.
+- `fishbowl daemon install` registers a no-admin macOS LaunchAgent or Windows HKCU Run entry, starts it when the platform registration is not immediate, and returns only after the descriptor on the persisted port passes authenticated readiness. Port conflicts fail with the port and configuration path rather than silently reallocating. Normal CLI calls auto-start once, authenticate with an owner-only 32-byte token, and retry once with a stable transport request ID.
 - `runCommand()` resolves and preflights before spawning exact argv with `shell: false`, inherited stdin, unchanged cwd, byte-preserving output teeing, rotating raw logs, and fail-open post-run recording.
 - Existing on-disk databases are inspected read-only with SQLite `quick_check` and schema-version validation before writable pragmas or migrations. Corrupt and newer-schema files are preserved and surface stable backup/recovery/export guidance.
 

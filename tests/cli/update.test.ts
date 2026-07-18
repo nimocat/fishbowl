@@ -67,6 +67,7 @@ describe('Fishbowl self update', () => {
   it('fast-forwards, then rebuilds and refreshes the Windows daemon in exact safe order', () => {
     const runner = happyRunner()
     const deployment = new FakeDeployment('old-revision')
+    let endpointPreparedAfter: string[] | undefined
 
     const result = updateFishbowl({
       sourceRoot: 'C:\\src\\fishbowl',
@@ -74,6 +75,9 @@ describe('Fishbowl self update', () => {
       nodeExecutable: 'C:\\Program Files\\nodejs\\node.exe',
       runner: runner.run,
       deployment,
+      prepareDaemonShutdown: () => {
+        endpointPreparedAfter = runner.calls.map(({ args }) => args.join(' '))
+      },
     })
 
     expect(result).toEqual({
@@ -84,6 +88,10 @@ describe('Fishbowl self update', () => {
       branch: 'main',
     })
     expect(deployment.revision).toBe('new-revision')
+    expect(endpointPreparedAfter).toEqual(expect.arrayContaining([
+      expect.stringContaining('npm.cmd ci'),
+    ]))
+    expect(endpointPreparedAfter?.some((command) => command.includes('daemon stop'))).toBe(false)
     expect(runner.calls.map(({ file, args }) => [file, args])).toEqual([
       ['git', ['rev-parse', '--show-toplevel']],
       ['git', ['status', '--porcelain=v1']],
@@ -110,14 +118,17 @@ describe('Fishbowl self update', () => {
       ['git', ['rev-parse', 'origin/main'], { status: 0, stdout: 'old-revision\n' }],
     ])
     const deployment = new FakeDeployment('old-revision')
+    let prepared = false
     const result = updateFishbowl({
       sourceRoot: 'C:\\src\\fishbowl',
       platform: 'win32',
       runner: runner.run,
       deployment,
+      prepareDaemonShutdown: () => { prepared = true },
     })
 
     expect(result).toMatchObject({ updated: false, deploymentRefreshed: false })
+    expect(prepared).toBe(false)
     expect(runner.calls.some(({ args }) => args.includes('build'))).toBe(false)
     expect(runner.calls.some(({ args }) => args.includes('stop'))).toBe(false)
   })
@@ -132,12 +143,15 @@ describe('Fishbowl self update', () => {
 
     for (const [overrides, expected] of cases) {
       const runner = happyRunner(overrides)
+      let prepared = false
       expect(() => updateFishbowl({
         sourceRoot: 'C:\\src\\fishbowl',
         platform: 'win32',
         runner: runner.run,
         deployment: new FakeDeployment('old-revision'),
+        prepareDaemonShutdown: () => { prepared = true },
       })).toThrow(expected)
+      expect(prepared).toBe(false)
       expect(runner.calls.some(({ args }) => args.includes('merge'))).toBe(false)
       expect(runner.calls.some(({ args }) => args.includes('stop'))).toBe(false)
       expect(runner.calls.some(({ args }) => args.includes('build'))).toBe(false)
@@ -195,10 +209,28 @@ describe('Fishbowl self update', () => {
       nodeExecutable: '/usr/local/bin/node',
       runner: runner.run,
       deployment,
-    })).toThrow(/failed during build backup.*manual attention/is)
+    })).toThrow(/failed during build backup.*running daemon was not changed/is)
 
     expect(runner.calls.some(({ args }) => args.includes('stop'))).toBe(false)
     expect(runner.calls.some(({ args }) => args.includes('uninstall'))).toBe(false)
+    expect(runner.calls.some(({ args }) => args.includes('install'))).toBe(false)
+  })
+
+  it('leaves the running daemon untouched when fixed-endpoint preservation fails', () => {
+    const runner = happyRunner([
+      ['git', ['rev-parse', '--show-toplevel'], { status: 0, stdout: '/src/fishbowl\n' }],
+    ])
+
+    expect(() => updateFishbowl({
+      sourceRoot: '/src/fishbowl',
+      platform: 'darwin',
+      nodeExecutable: '/usr/local/bin/node',
+      runner: runner.run,
+      deployment: new FakeDeployment('old-revision'),
+      prepareDaemonShutdown: () => { throw new Error('invalid daemon.port') },
+    })).toThrow(/failed during daemon endpoint preservation.*running daemon was not changed/is)
+
+    expect(runner.calls.some(({ args }) => args.includes('stop'))).toBe(false)
     expect(runner.calls.some(({ args }) => args.includes('install'))).toBe(false)
   })
 

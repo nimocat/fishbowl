@@ -44,6 +44,7 @@ export function updateFishbowl(options: {
   nodeExecutable?: string
   runner?: UpdateCommandRunner
   deployment?: UpdateDeploymentStore
+  prepareDaemonShutdown?: () => void
   healthAttempts?: number
   sleep?: (milliseconds: number) => void
 } = {}): FishbowlUpdateResult {
@@ -119,6 +120,8 @@ export function updateFishbowl(options: {
     phase = 'build backup'
     deployment.prepareBackup()
     backupPrepared = true
+    phase = 'daemon endpoint preservation'
+    options.prepareDaemonShutdown?.()
     phase = 'daemon shutdown'
     daemonDowntimeStarted = true
     checked(nodeExecutable, [cliEntry, 'daemon', 'stop'], phase)
@@ -142,7 +145,7 @@ export function updateFishbowl(options: {
     deployment.commit(currentRevision)
     backupPrepared = false
   } catch {
-    let daemonRestored = false
+    let daemonRestored = !daemonDowntimeStarted
     if (backupPrepared) deployment.restoreBackup()
     if (daemonDowntimeStarted) {
       try {
@@ -161,7 +164,13 @@ export function updateFishbowl(options: {
       }
     }
     throw new Error(
-      `Fishbowl update failed during ${phase}. ${daemonRestored ? 'The previous CLI and daemon were restored.' : 'Daemon recovery requires manual attention.'} Rerun fishbowl update; if unavailable, run: npm ci, npm run build, npm link, fishbowl daemon install`,
+      `Fishbowl update failed during ${phase}. ${
+        !daemonDowntimeStarted
+          ? 'The running daemon was not changed.'
+          : daemonRestored
+            ? 'The previous CLI and daemon were restored.'
+            : 'Daemon recovery requires manual attention.'
+      } Rerun fishbowl update; if unavailable, run: npm ci, npm run build, npm link, fishbowl daemon install`,
     )
   }
 

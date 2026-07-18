@@ -233,6 +233,35 @@ The seven compatibility-focused TDD tasks are complete: schema-v6 indexed Case h
 
 **TDD gate:** New MCP, native HTTP, storage transaction, query, and promotion assertions failed before implementation. Focused suites, 59/59 Vitest tests, the complete Rust workspace suite, production build, formatting, and diff checks pass after implementation. The repository's `test:acceptance` script currently selects a missing `tests/acceptance` directory and therefore reports “No test files found”; no acceptance test was silently skipped or claimed as passing.
 
+## Stable daemon endpoint and install readiness
+
+**Status:** Complete; final gates and two-axis review passed (2026-07-18)
+
+**Scope:** Keep the user-level daemon endpoint stable across process restarts,
+CLI updates, macOS LaunchAgent replacement, and Windows current-user startup,
+while eliminating the false-success window after `daemon install`.
+
+**Implementation:** Added owner-only `daemon.port` state. The fixed-endpoint CLI
+persists the last valid descriptor port before updater shutdown; a new data directory receives one random
+dynamic/private port. All registered, foreground, and auto-start launches pass
+that exact port. `daemon install` now waits for a matching descriptor and an
+authenticated RPC before printing success; Windows starts the registered
+binary immediately. Timeout errors identify the fixed port, configuration
+file, doctor command, and likely conflict without reallocating.
+
+**TDD gate:** Six focused assertions failed on the former missing port state,
+hard-coded `--port 0`, and absent readiness boundary. The focused configuration,
+platform, lifecycle, daemon-process, and updater suites now pass 25/25 with
+TypeScript typechecking. Review added updater-order coverage: rejected and true
+no-op updates do not prepare endpoint state, while successful updates do so only
+after dependencies and backup and before daemon stop. A pre-feature updater
+cannot execute this new preparation step, so its one-time transition or rollback
+may allocate the initial sticky port; later fixed-endpoint updates retain it.
+
+**Verification:** `npm run typecheck`, 99/99 Vitest tests, `npm run build`,
+`cargo test --workspace`, `cargo fmt --check`, and `git diff --check` passed.
+Independent Standards and Spec reviews both ended with no remaining findings.
+
 ## Rust Core Migration
 
 **Status:** Stage 5 complete; Stage 6 in progress (2026-07-16)

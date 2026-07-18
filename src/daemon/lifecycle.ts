@@ -5,6 +5,7 @@ import { homedir } from 'node:os'
 import { DaemonClient, createDaemonBackend, type DaemonTimingSample } from './client.js'
 import {
   ensureDaemonCredentials,
+  ensureDaemonPort,
   migrateLegacyDataDirectory,
   readDaemonDescriptor,
   resolveDaemonPaths,
@@ -41,7 +42,8 @@ export function initializeDaemonCredentials(options: {
   }
   migrateLegacyDataDirectory(resolveOptions)
   const paths = resolveDaemonPaths(resolveOptions)
-  return { paths, ...ensureDaemonCredentials({ paths }) }
+  const credentials = ensureDaemonCredentials({ paths })
+  return { paths, ...credentials, port: ensureDaemonPort({ paths }) }
 }
 
 export async function ensureInstalledDaemon(options: {
@@ -64,7 +66,7 @@ export async function ensureInstalledDaemon(options: {
   try { return await connect() } catch { /* start once below */ }
   const nativeBinary = options.nativeBinary ?? defaultNativeBinary(options.platform ?? process.platform)
   const detached = options.detached ?? true
-  const child = spawn(nativeBinary, nativeDaemonArguments(initialized.paths), {
+  const child = spawn(nativeBinary, nativeDaemonArguments(initialized.paths, initialized.port), {
     detached,
     stdio: 'ignore',
   })
@@ -74,5 +76,9 @@ export async function ensureInstalledDaemon(options: {
     await new Promise((resolve) => setTimeout(resolve, 25))
     try { return await connect() } catch { /* bounded poll */ }
   }
-  throw new Error('Fishbowl daemon did not become ready. Run `fishbowl daemon doctor`.')
+  throw new Error(
+    `Fishbowl daemon did not become ready on fixed port ${initialized.port}. ` +
+    `The port is stored in ${initialized.paths.portFile}; run \`fishbowl daemon doctor\`. ` +
+    'If another process owns the port, stop it or replace daemon.port with an unused port from 49152 through 65535, then retry.',
+  )
 }
