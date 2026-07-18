@@ -14,8 +14,8 @@ If the `fishbowl` MCP namespace or a required Fishbowl MCP tool is missing, stop
 Choose the smallest workflow profile that fits the work, and escalate if risk or scope grows. Project resolution means calling `resolve_project` with the current repository root; if it is not registered, call `register_project` once with that explicit root.
 
 - LIGHT — a read-only question, status/configuration check, or small fact lookup. Resolve the project once per session, call `query_knowledge` only when history is relevant, and expand at most the best Case with `get_case` summary. Do not call `get_preflight_guidance`, disk observation, or checkpoint tools for a LIGHT task unless the task unexpectedly produces a reusable engineering fact.
-- STANDARD — an ordinary bounded code, documentation, or configuration change, or bounded debugging. Resolve the project, call brief `get_preflight_guidance` with limit 3, query relevant history, expand only selected Cases, and write one checkpoint after verification when the result is notable. Routine success needs no checkpoint.
-- FULL — a deployment, migration, production incident, security/data-sensitive change, destructive change, cross-day investigation, or complex handoff. Resolve, preflight, query and selectively expand relevant Cases; finalize or checkpoint verified facts and use idempotency lookup after ambiguous writes.
+- STANDARD — an ordinary bounded code, documentation, or configuration change, or bounded debugging. Resolve the project, call brief `get_preflight_guidance` with limit 3, query relevant history, expand only selected Cases, create a Problem when a concrete reusable issue is first observed, and after commit plus verification call `finalize_work` once when the result is notable. Routine success needs no write.
+- FULL — a deployment, migration, production incident, security/data-sensitive change, destructive change, cross-day investigation, or complex handoff. Resolve, preflight, query and selectively expand relevant Cases; create a Problem when the issue is concrete; record only failed Attempts that change the investigation; then call `finalize_work` once after final commit and verification.
 
 Default `query_knowledge` to at most 5 results and prefer Case-diverse compact results. Use `get_case` to expand only a selected Case. A verified blocking Guardrail is never skipped merely because the result limit is small.
 
@@ -23,7 +23,9 @@ Only use disk observation when the task is expected to create material regenerab
 
 During work, use project-scoped MCP write tools only for useful, redacted engineering facts. Never store secrets, full logs, credentials, environment values, user media, or private chat transcripts.
 
-Before completing STANDARD or FULL work that produced notable reusable knowledge, call `checkpoint_work` or `finalize_work` with the explicit project reference, objective, key decision, files changed, observed verification result, and unresolved risks. Do not force a write for a routine LIGHT answer. The MCP tool records evidence; it does not execute Git or verification commands.
+Use `checkpoint_work` only for a real context compaction, interruption, cross-day pause, or handoff before final delivery. Do not call it merely because implementation is complete, and do not follow it with a second full set of facts. If finalization follows a necessary checkpoint, pass the checkpoint's `caseId`; Fishbowl reuses equivalent Attempt, RootCause, and Solution nodes. After final commit and verification, call `finalize_work` once with the explicit project reference, Case, objective, key decision, files changed, observed verification result, and unresolved risks. Its string collections are arrays; omit `merge` when the correct disposition is `not-required`. Do not force a write for a routine LIGHT answer.
+
+Never infer human Verification from an automated test, simulator, screenshot, or expected behavior. Record human Verification and close the Case only after the user explicitly confirms the real target behavior, such as successful access from the Windows machine.
 
 If an idempotent write returns an ambiguous transport or output-validation failure, call `get_operation_result` with the same explicit project, `operationId`, and operation kind before retrying. Retry only when no durable result exists.
 

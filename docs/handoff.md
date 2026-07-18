@@ -386,3 +386,32 @@ lifecycle/process/updater set passes. Final `npm run typecheck`, 99/99 Vitest
 tests, `npm run build`, `cargo test --workspace`, `cargo fmt --check`, and
 `git diff --check` all pass. Independent Standards and Spec reviews ended with
 no remaining findings.
+
+## Single-finalization discipline handoff (2026-07-18)
+
+The supported Agent flow now creates a Problem when an issue becomes concrete,
+records only investigation-changing failed Attempts, and calls `finalize_work`
+once after final commit and verification. `checkpoint_work` is reserved for a
+real interruption, context compaction, cross-day pause, or handoff. If a later
+finalization is necessary, it passes the checkpoint Case ID.
+
+Rust finalization now reuses an existing checkpoint-produced,
+same-project/same-Case Attempt only when its complete redacted canonical data
+and Problem target match; ordinary Attempts remain distinct. RootCause/Solution
+reuse additionally requires exact canonical redacted data and the same causal
+edge target; desired failed-Attempt links must already exist. No fuzzy merge or
+history rewrite occurs. New commit, merge, and Verification facts are still
+recorded.
+
+MCP finalization exposes concrete string array item schemas, documents its
+conditional field dependencies, and defaults an omitted merge disposition to
+`not-required`. Preflight ignores additional low-information workflow words
+and requires a more specific context match alongside Vite/npm/Node terms. The
+verified-knowledge trust boost also requires a fingerprint, blocking Guardrail,
+exact file/command, or specific text relevance anchor. The
+Agent prompt skips disk scans for small non-artifact changes and waits for
+explicit real-person confirmation before human Verification or Case closure.
+Focused RED/GREEN Rust tests and 22 focused Vitest assertions pass. Final
+verification passed: TypeScript typecheck, 101/101 Vitest tests, production
+build, the complete Rust workspace, rustfmt, and diff checks. Independent
+Standards and Spec reviews found no remaining Critical or Important issues.

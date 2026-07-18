@@ -27,6 +27,12 @@ const fileList = z.array(
 const evidenceList = z.array(
   text.describe('One concise evidence statement string; objects are not accepted.'),
 ).min(1).max(MAX_ARRAY_LENGTH)
+const applicabilityList = z.array(
+  text.describe('One context where the solution applies; provide an array even for one item.'),
+).min(1).max(MAX_ARRAY_LENGTH)
+const limitationList = z.array(
+  text.describe('One known limitation; provide an array even for one item.'),
+).min(1).max(MAX_ARRAY_LENGTH)
 const argv = z.array(z.string().min(1).max(MAX_TEXT_LENGTH)).min(1).max(MAX_ARRAY_LENGTH)
 const nodeType = z.enum([
   'Problem',
@@ -173,7 +179,9 @@ const finalizeWorkInputBase = z.object({
   operationId: id,
   caseId: id.optional(),
   task: text,
-  outcome: z.enum(['failed', 'succeeded', 'inconclusive']),
+  outcome: z.enum(['failed', 'succeeded', 'inconclusive']).describe(
+    'succeeded requires commit and at least one succeeded verification; failed or inconclusive requires failedAttempts.',
+  ),
   summary: text,
   fingerprint: text.optional(),
   files: fileList.optional(),
@@ -181,7 +189,7 @@ const finalizeWorkInputBase = z.object({
     sha: text,
     message: text,
     branch: text.optional(),
-  }).strict().optional(),
+  }).strict().optional().describe('Required when outcome is succeeded.'),
   failedAttempts: z.array(z.object({
     hypothesis: text,
     change: text,
@@ -191,23 +199,27 @@ const finalizeWorkInputBase = z.object({
   rootCause: z.object({
     explanation: text,
     confidence: z.number().min(0).max(1),
-    evidence: nonEmptyStringList,
+    evidence: evidenceList,
     rejectedAlternatives: stringList.optional(),
-  }).strict().optional(),
+  }).strict().optional().describe('Required when solution is present.'),
   solution: z.object({
     summary: text,
-    applicability: nonEmptyStringList,
-    limitations: nonEmptyStringList,
+    applicability: applicabilityList,
+    limitations: limitationList,
     decisiveDifference: text,
-  }).strict().optional(),
-  verifications: z.array(finalizeVerification).max(MAX_ARRAY_LENGTH).optional(),
+  }).strict().optional().describe(
+    'Required when verifications are present; also requires rootCause.',
+  ),
+  verifications: z.array(finalizeVerification).max(MAX_ARRAY_LENGTH).optional().describe(
+    'A succeeded outcome requires at least one succeeded item. Automated items require command; device items require environment.destination.',
+  ),
   merge: z.object({
     status: z.enum(['merged', 'pending', 'not-required', 'conflict']),
     sourceBranch: text.optional(),
     targetBranch: text.optional(),
     mergeCommit: text.optional(),
     summary: text.optional(),
-  }).strict(),
+  }).strict().default({ status: 'not-required' }),
 }).strict()
 
 const checkpointWorkInputBase = z.object({
@@ -230,8 +242,8 @@ const checkpointWorkInputBase = z.object({
   }).strict().optional(),
   solution: z.object({
     summary: text,
-    applicability: nonEmptyStringList,
-    limitations: nonEmptyStringList,
+    applicability: applicabilityList,
+    limitations: limitationList,
     decisiveDifference: text,
   }).strict().optional(),
   humanConfirmed: z.boolean().optional(),
@@ -1240,7 +1252,7 @@ export function createMcpServer(
   server.registerTool(
     'finalize_work',
     {
-      description: 'Atomically record commit, failed routes, root cause, solution, verification, and merge facts. This records facts only and never executes Git, tests, builds, or device validation.',
+      description: 'Final delivery write: call once after commit and verification. succeeded requires commit plus a successful verification; failed/inconclusive requires failedAttempts; verifications require solution, and solution requires rootCause. Automated verification requires command; device verification requires environment.destination. If checkpoint_work already recorded the same Case, pass its caseId; exactly equivalent checkpoint facts are reused. Omitted merge defaults to not-required. This records facts only and never executes Git, tests, builds, or device validation.',
       inputSchema: finalizeWorkInputBase,
       outputSchema: outputSchema(z.object({
         recorded: z.literal(true),

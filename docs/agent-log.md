@@ -847,3 +847,33 @@
   `git diff --check` passed. Independent Standards and Spec re-reviews both
   returned PASS after the updater-boundary and diagnostic fixes.
 - Next: Commit and push the completed change.
+
+## 2026-07-18 23:10 CST - Single-finalization and graph-noise hardening
+
+- Goal: Prevent checkpoint→finalize duplication and make Agent recording
+  proportional to engineering value.
+- Completed: Reproduced real duplicate Attempt/RootCause/Solution insertion;
+  added project/Case-scoped exact-equivalent reuse with causal-target checks;
+  published concrete finalize array schemas; defaulted omitted merge to
+  `not-required`; filtered low-information workflow terms; rewrote the Agent
+  workflow around one finalization after commit and verification.
+- Changed files: Rust write/relevance code and tests, MCP schema/tests, Agent
+  prompt, English/Chinese READMEs, MCP configuration, context, ADR, plan, log,
+  and handoff.
+- Decisions: Checkpoint is only for interruption/compaction/handoff. Exact
+  equality may reuse immutable knowledge; fuzzy write-time merging is forbidden.
+  Small edits do not scan disk, and only explicit user confirmation creates
+  human Verification.
+- Verification: Transaction and relevance tests failed on the reported
+  symptoms before implementation. Focused Rust, 22 focused Vitest assertions,
+  and TypeScript typechecking now pass.
+- Review fix: Verified RootCause/Solution trust no longer recalls unrelated
+  high-confidence history by itself; it requires a fingerprint, blocking
+  Guardrail, exact file/command, or specific text relevance anchor. A dedicated
+  `Vite npm` negative regression covers this boundary.
+- Verification: Final `npm run typecheck`, 101/101 Vitest tests,
+  `npm run build`, `cargo test --workspace`, `cargo fmt --check`, and
+  `git diff --check` passed. Independent Standards and Spec reviews found no
+  remaining Critical or Important issues.
+- Blockers: None. The unrelated untracked design document remains untouched.
+- Next: Commit and push the completed change.

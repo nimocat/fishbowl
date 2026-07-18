@@ -156,7 +156,7 @@ The daemon RPC contract is versioned. Protocol generation 2 rejects generation
 1 descriptors so a stale installed process cannot silently receive requests
 whose operation or response shape has changed.
 
-Use `finalize_work` as the fixed “提交事实＋验证事实＋合并事实” recording template. It never runs Git or validation commands. Its arrays contain strings, its retry key is `operationId`, and device evidence does not become human-confirmed unless the caller explicitly supplies `humanConfirmed: true`. Prefer an explicit `caseId`; without one, only an exact normalized fingerprint may reuse a Case.
+Use `finalize_work` once, after the final commit and verification, as the fixed “提交事实＋验证事实＋合并事实” recording template. It never runs Git or validation commands. Its arrays contain strings, its retry key is `operationId`, and an omitted `merge` defaults to `not-required`. Prefer an explicit `caseId`; without one, only an exact normalized fingerprint may reuse a Case. `checkpoint_work` is reserved for a real interruption, context compaction, cross-day pause, or handoff. If finalization follows one, pass that checkpoint's `caseId`; exactly equivalent Attempt, RootCause, and Solution facts are reused instead of duplicated. Device or automated evidence never becomes human-confirmed unless the caller explicitly supplies `humanConfirmed: true` after a real person confirms the target behavior.
 
 If a write response is ambiguous, call `get_operation_result` with the same project, `operationId`, and operation kind before retrying. `get_operation_metrics` also requires an explicit project and is aggregated by the persistent daemon, so project-owned counts survive MCP bridge restarts but reset with the daemon process.
 

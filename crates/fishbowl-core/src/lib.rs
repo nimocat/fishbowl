@@ -127,8 +127,11 @@ pub fn evaluate_regression(
 
 const COMMON_TERMS: &[&str] = &[
     "build", "test", "tests", "project", "change", "update", "error", "issue", "fix", "with",
-    "from", "this", "that", "keep", "verify", "the", "and", "for",
+    "from", "this", "that", "keep", "verify", "the", "and", "for", "when", "followed", "generic",
+    "workflow",
 ];
+
+const LOW_SIGNAL_TECH_TERMS: &[&str] = &["node", "npm", "vite"];
 
 #[derive(Debug, Clone)]
 pub struct RelevanceCandidate {
@@ -179,8 +182,14 @@ pub fn rank_cases(
         .to_lowercase();
         let mut reasons = Vec::new();
         let mut score = 0.0;
+        let has_verified_knowledge = candidate.nodes.iter().any(|node| {
+            node.status == NodeStatus::Verified
+                && matches!(node.node_type, NodeType::RootCause | NodeType::Solution)
+        });
+        let mut has_relevance_anchor = false;
         if fingerprint_cases.contains(&candidate.case_id) {
             score += 1000.0;
+            has_relevance_anchor = true;
             reasons.push(MatchReason {
                 kind: MatchKind::ExactFingerprint,
                 value: "normalized failure fingerprint".into(),
@@ -188,6 +197,7 @@ pub fn rank_cases(
         }
         if candidate.guardrails.iter().any(|item| item.blocks) {
             score += 900.0;
+            has_relevance_anchor = true;
             reasons.push(MatchReason {
                 kind: MatchKind::BlockingGuardrail,
                 value: "verified blocking guardrail".into(),
@@ -198,6 +208,7 @@ pub fn rank_cases(
             .find(|file| !file.is_empty() && serialized.contains(file.as_str()))
         {
             score += 500.0;
+            has_relevance_anchor = true;
             reasons.push(MatchReason {
                 kind: MatchKind::ExactFile,
                 value: file.clone(),
@@ -205,19 +216,10 @@ pub fn rank_cases(
         }
         if !command.is_empty() && serialized.contains(&command) {
             score += 350.0;
+            has_relevance_anchor = true;
             reasons.push(MatchReason {
                 kind: MatchKind::ExactCommand,
                 value: command.clone(),
-            });
-        }
-        if candidate.nodes.iter().any(|node| {
-            node.status == NodeStatus::Verified
-                && matches!(node.node_type, NodeType::RootCause | NodeType::Solution)
-        }) {
-            score += 200.0;
-            reasons.push(MatchReason {
-                kind: MatchKind::VerifiedKnowledge,
-                value: "verified root cause or solution".into(),
             });
         }
         let matches = meaningful_terms
@@ -226,16 +228,30 @@ pub fn rank_cases(
             .take(4)
             .cloned()
             .collect::<Vec<_>>();
-        if !matches.is_empty() {
-            score += (matches.len() * 40) as f64;
+        let specific_matches = matches
+            .iter()
+            .filter(|term| !LOW_SIGNAL_TECH_TERMS.contains(&term.as_str()))
+            .cloned()
+            .collect::<Vec<_>>();
+        if !specific_matches.is_empty() {
+            has_relevance_anchor = true;
+            let low_signal_count = matches.len() - specific_matches.len();
+            score += (specific_matches.len() * 40 + low_signal_count * 10) as f64;
             reasons.push(MatchReason {
                 kind: MatchKind::Text,
-                value: matches
+                value: specific_matches
                     .iter()
                     .take(3)
                     .cloned()
                     .collect::<Vec<_>>()
                     .join(", "),
+            });
+        }
+        if has_verified_knowledge && has_relevance_anchor {
+            score += 200.0;
+            reasons.push(MatchReason {
+                kind: MatchKind::VerifiedKnowledge,
+                value: "verified root cause or solution".into(),
             });
         }
         let newest = candidate

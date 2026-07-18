@@ -47,6 +47,9 @@ describe('Codex Fishbowl access policy', () => {
     expect(bootstrapPrompt).toContain('Do not call `get_preflight_guidance`, disk observation, or checkpoint tools for a LIGHT task')
     expect(bootstrapPrompt).toContain('Only use disk observation when the task is expected to create material regenerable artifacts')
     expect(bootstrapPrompt).toContain('Default `query_knowledge` to at most 5 results')
+    expect(bootstrapPrompt).toContain('Use `checkpoint_work` only for a real context compaction, interruption, cross-day pause, or handoff')
+    expect(bootstrapPrompt).toContain('call `finalize_work` once')
+    expect(bootstrapPrompt).toContain('Never infer human Verification')
   })
 
   it('documents a reproducible Windows update and MCP reconnect flow', () => {

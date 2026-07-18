@@ -262,6 +262,39 @@ may allocate the initial sticky port; later fixed-endpoint updates retain it.
 `cargo test --workspace`, `cargo fmt --check`, and `git diff --check` passed.
 Independent Standards and Spec reviews both ended with no remaining findings.
 
+## Single-finalization discipline and checkpoint enrichment
+
+**Status:** Complete (2026-07-18)
+
+**Scope:** Reduce over-recording when a checkpoint is followed by finalization,
+make the final MCP call easier to construct, and prevent low-information
+workflow words from outranking engineering-specific context.
+
+**Implementation:** `finalize_work` now reuses checkpoint-produced,
+same-project, same-Case Attempts only when their complete redacted canonical
+data and Problem target match; ordinary Attempts remain distinct. RootCause and Solution
+reuse requires canonical redacted data equality plus the same causal target;
+failed-Attempt links must already be present. MCP publishes concrete string
+array items for finalization semantics and defaults omitted merge status to
+`not-required`. Preflight excludes additional low-information workflow terms
+and treats Vite/npm/Node matches as supporting rather than sufficient signals.
+Verified RootCause/Solution trust boosts now require a fingerprint, blocking
+Guardrail, exact file/command, or specific text relevance anchor.
+The Agent contract now treats checkpoint as an interruption/handoff primitive,
+finalizes once after commit and verification, skips disk observation for small
+non-artifact changes, and requires explicit human confirmation before human
+Verification or Case closure.
+
+**TDD gate:** The transaction regression first failed with a second successful
+Attempt ID after checkpoint→finalize. A relevance regression first returned two
+Cases because generic workflow text matched. Both now pass, alongside 18 MCP
+adapter tests, four policy tests, and TypeScript typechecking.
+
+**Verification:** `npm run typecheck`, 101/101 Vitest tests, `npm run build`,
+the complete `cargo test --workspace`, `cargo fmt --check`, and
+`git diff --check` pass. Independent Standards and Spec reviews report no
+remaining Critical or Important findings.
+
 ## Rust Core Migration
 
 **Status:** Stage 5 complete; Stage 6 in progress (2026-07-16)

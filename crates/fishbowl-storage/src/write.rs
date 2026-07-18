@@ -1770,8 +1770,12 @@ impl WriteRepository {
                     outcome: input.outcome.clone(),
                     command: input.command.clone(),
                     failure_explanation: (input.outcome == "failed").then(|| input.summary.clone()),
-                    decisive_difference: (input.outcome == "succeeded")
-                        .then(|| input.summary.clone()),
+                    decisive_difference: (input.outcome == "succeeded").then(|| {
+                        input.solution.as_ref().map_or_else(
+                            || input.summary.clone(),
+                            |solution| solution.decisive_difference.clone(),
+                        )
+                    }),
                 },
             })?;
             let root_cause_id = if let Some(root) = &input.root_cause {
@@ -1895,100 +1899,166 @@ impl WriteRepository {
                 };
             let mut attempt_ids = Vec::new();
             for (index, failed) in input.failed_attempts.iter().enumerate() {
-                let attempt = self.record_attempt(RecordAttemptInput {
-                    project: input.project.clone(),
-                    operation_id: Some(format!("{}:failed-attempt:{index}", input.operation_id)),
-                    source_key: None,
-                    case_id: case_id.clone(),
-                    problem_id: problem_id.clone(),
-                    previous_attempt_id,
-                    data: WriteAttemptData {
-                        hypothesis: failed.hypothesis.clone(),
-                        change: failed.change.clone(),
-                        outcome: "failed".into(),
-                        command: failed.command.clone(),
-                        failure_explanation: Some(failed.failure_explanation.clone()),
-                        decisive_difference: None,
-                    },
-                })?;
-                previous_attempt_id = Some(attempt.node_id.clone());
-                attempt_ids.push(attempt.node_id);
-            }
-            if input.outcome == "succeeded" {
-                let attempt = self.record_attempt(RecordAttemptInput {
-                    project: input.project.clone(),
-                    operation_id: Some(format!("{}:succeeded-attempt", input.operation_id)),
-                    source_key: None,
-                    case_id: case_id.clone(),
-                    problem_id: problem_id.clone(),
-                    previous_attempt_id,
-                    data: WriteAttemptData {
-                        hypothesis: input.task.clone(),
-                        change: input.summary.clone(),
-                        outcome: "succeeded".into(),
-                        command: None,
-                        failure_explanation: None,
-                        decisive_difference: Some(
-                            input
-                                .solution
-                                .as_ref()
-                                .map_or(input.summary.clone(), |value| {
-                                    value.decisive_difference.clone()
-                                }),
-                        ),
-                    },
-                })?;
-                attempt_ids.push(attempt.node_id);
-            }
-            let root_cause_id = if let Some(root) = &input.root_cause {
-                Some(
-                    self.record_root_cause(RecordRootCauseInput {
+                let attempt_data = WriteAttemptData {
+                    hypothesis: failed.hypothesis.clone(),
+                    change: failed.change.clone(),
+                    outcome: "failed".into(),
+                    command: failed.command.clone(),
+                    failure_explanation: Some(failed.failure_explanation.clone()),
+                    decisive_difference: None,
+                };
+                let attempt_id = if let Some(node_id) = find_equivalent_attempt(
+                    &self.connection,
+                    &project_id,
+                    &case_id,
+                    &problem_id,
+                    &attempt_data,
+                )? {
+                    node_id
+                } else {
+                    self.record_attempt(RecordAttemptInput {
                         project: input.project.clone(),
-                        operation_id: Some(format!("{}:root-cause", input.operation_id)),
+                        operation_id: Some(format!(
+                            "{}:failed-attempt:{index}",
+                            input.operation_id
+                        )),
                         source_key: None,
                         case_id: case_id.clone(),
                         problem_id: problem_id.clone(),
-                        failed_attempt_ids: attempt_ids
-                            .iter()
-                            .take(input.failed_attempts.len())
-                            .cloned()
-                            .collect(),
-                        status: Some(NodeStatus::Candidate),
-                        human_confirmed: false,
-                        data: WriteRootCauseData {
-                            explanation: root.explanation.clone(),
-                            evidence: root.evidence.clone(),
-                            rejected_alternatives: root.rejected_alternatives.clone(),
-                            confidence: root.confidence,
-                        },
+                        previous_attempt_id,
+                        data: attempt_data,
                     })?
-                    .node_id,
-                )
+                    .node_id
+                };
+                previous_attempt_id = Some(attempt_id.clone());
+                attempt_ids.push(attempt_id);
+            }
+            if input.outcome == "succeeded" {
+                let attempt_data = WriteAttemptData {
+                    hypothesis: input.task.clone(),
+                    change: input.summary.clone(),
+                    outcome: "succeeded".into(),
+                    command: None,
+                    failure_explanation: None,
+                    decisive_difference: Some(
+                        input
+                            .solution
+                            .as_ref()
+                            .map_or(input.summary.clone(), |value| {
+                                value.decisive_difference.clone()
+                            }),
+                    ),
+                };
+                let attempt_id = if let Some(node_id) = find_equivalent_attempt(
+                    &self.connection,
+                    &project_id,
+                    &case_id,
+                    &problem_id,
+                    &attempt_data,
+                )? {
+                    node_id
+                } else {
+                    self.record_attempt(RecordAttemptInput {
+                        project: input.project.clone(),
+                        operation_id: Some(format!("{}:succeeded-attempt", input.operation_id)),
+                        source_key: None,
+                        case_id: case_id.clone(),
+                        problem_id: problem_id.clone(),
+                        previous_attempt_id,
+                        data: attempt_data,
+                    })?
+                    .node_id
+                };
+                attempt_ids.push(attempt_id);
+            }
+            let root_cause_id = if let Some(root) = &input.root_cause {
+                let root_data = WriteRootCauseData {
+                    explanation: root.explanation.clone(),
+                    evidence: root.evidence.clone(),
+                    rejected_alternatives: root.rejected_alternatives.clone(),
+                    confidence: root.confidence,
+                };
+                let existing = find_equivalent_causal_node(
+                    &self.connection,
+                    &project_id,
+                    &case_id,
+                    "RootCause",
+                    &root_data,
+                    "CAUSES",
+                    &problem_id,
+                )?;
+                let reusable = if let Some(node_id) = existing {
+                    root_cause_covers_attempts(
+                        &self.connection,
+                        &project_id,
+                        &case_id,
+                        &node_id,
+                        &attempt_ids[..input.failed_attempts.len()],
+                    )?
+                    .then_some(node_id)
+                } else {
+                    None
+                };
+                if let Some(node_id) = reusable {
+                    Some(node_id)
+                } else {
+                    Some(
+                        self.record_root_cause(RecordRootCauseInput {
+                            project: input.project.clone(),
+                            operation_id: Some(format!("{}:root-cause", input.operation_id)),
+                            source_key: None,
+                            case_id: case_id.clone(),
+                            problem_id: problem_id.clone(),
+                            failed_attempt_ids: attempt_ids
+                                .iter()
+                                .take(input.failed_attempts.len())
+                                .cloned()
+                                .collect(),
+                            status: Some(NodeStatus::Candidate),
+                            human_confirmed: false,
+                            data: root_data,
+                        })?
+                        .node_id,
+                    )
+                }
             } else {
                 None
             };
             let solution_id =
                 if let (Some(solution), Some(root_cause_id)) = (&input.solution, &root_cause_id) {
-                    Some(
-                        self.record_solution(RecordSolutionInput {
-                            project: input.project.clone(),
-                            operation_id: Some(format!("{}:solution", input.operation_id)),
-                            source_key: None,
-                            case_id: case_id.clone(),
-                            root_cause_id: root_cause_id.clone(),
-                            data: WriteSolutionData {
-                                summary: solution.summary.clone(),
-                                applicability: solution.applicability.clone(),
-                                limitations: solution.limitations.clone(),
-                                side_effects: Vec::new(),
-                                decisive_difference: solution.decisive_difference.clone(),
-                                applicability_boundary: Default::default(),
-                                human_verification_required: false,
-                                non_automatable_reason: None,
-                            },
-                        })?
-                        .node_id,
-                    )
+                    let solution_data = WriteSolutionData {
+                        summary: solution.summary.clone(),
+                        applicability: solution.applicability.clone(),
+                        limitations: solution.limitations.clone(),
+                        side_effects: Vec::new(),
+                        decisive_difference: solution.decisive_difference.clone(),
+                        applicability_boundary: Default::default(),
+                        human_verification_required: false,
+                        non_automatable_reason: None,
+                    };
+                    if let Some(node_id) = find_equivalent_causal_node(
+                        &self.connection,
+                        &project_id,
+                        &case_id,
+                        "Solution",
+                        &solution_data,
+                        "ADDRESSES",
+                        root_cause_id,
+                    )? {
+                        Some(node_id)
+                    } else {
+                        Some(
+                            self.record_solution(RecordSolutionInput {
+                                project: input.project.clone(),
+                                operation_id: Some(format!("{}:solution", input.operation_id)),
+                                source_key: None,
+                                case_id: case_id.clone(),
+                                root_cause_id: root_cause_id.clone(),
+                                data: solution_data,
+                            })?
+                            .node_id,
+                        )
+                    }
                 } else {
                     None
                 };
@@ -2105,6 +2175,64 @@ fn case_anchor(
         )
         .optional()?;
     Ok((problem_id, previous))
+}
+
+fn find_equivalent_attempt(
+    connection: &Connection,
+    project_id: &str,
+    case_id: &str,
+    problem_id: &str,
+    data: &WriteAttemptData,
+) -> Result<Option<String>, WriteError> {
+    let data = serde_json::to_string(&redact_value(serde_json::to_value(data)?))?;
+    connection
+        .query_row(
+            "SELECT nodes.id FROM nodes JOIN cases ON cases.id=nodes.case_id WHERE cases.project_id=? AND nodes.case_id=? AND nodes.type='Attempt' AND nodes.status IN('open','candidate','verified') AND nodes.data=? AND EXISTS(SELECT 1 FROM edges WHERE edges.case_id=nodes.case_id AND edges.source_id=nodes.id AND edges.relation='ATTEMPTS_TO_SOLVE' AND edges.target_id=?) AND EXISTS(SELECT 1 FROM operation_results WHERE operation_results.project_id=cases.project_id AND operation_results.kind='checkpoint_work' AND json_extract(operation_results.result,'$.caseId')=nodes.case_id AND json_extract(operation_results.result,'$.attemptId')=nodes.id) ORDER BY nodes.created_at DESC,nodes.id DESC LIMIT 1",
+            params![project_id, case_id, data, problem_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(WriteError::from)
+}
+
+fn find_equivalent_causal_node<T: Serialize>(
+    connection: &Connection,
+    project_id: &str,
+    case_id: &str,
+    node_type: &str,
+    data: &T,
+    relation: &str,
+    target_id: &str,
+) -> Result<Option<String>, WriteError> {
+    let data = serde_json::to_string(&redact_value(serde_json::to_value(data)?))?;
+    connection
+        .query_row(
+            "SELECT nodes.id FROM nodes JOIN cases ON cases.id=nodes.case_id WHERE cases.project_id=? AND nodes.case_id=? AND nodes.type=? AND nodes.status IN('candidate','verified') AND nodes.data=? AND EXISTS(SELECT 1 FROM edges WHERE edges.case_id=nodes.case_id AND edges.source_id=nodes.id AND edges.relation=? AND edges.target_id=?) ORDER BY nodes.created_at DESC,nodes.id DESC LIMIT 1",
+            params![project_id, case_id, node_type, data, relation, target_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(WriteError::from)
+}
+
+fn root_cause_covers_attempts(
+    connection: &Connection,
+    project_id: &str,
+    case_id: &str,
+    root_cause_id: &str,
+    failed_attempt_ids: &[String],
+) -> Result<bool, WriteError> {
+    for attempt_id in failed_attempt_ids {
+        let linked = connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM edges JOIN cases ON cases.id=edges.case_id WHERE cases.project_id=? AND edges.case_id=? AND edges.source_id=? AND edges.relation='FAILED_BECAUSE' AND edges.target_id=?)",
+            params![project_id, case_id, attempt_id, root_cause_id],
+            |row| row.get::<_, i64>(0),
+        )? != 0;
+        if !linked {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 fn validate_finalize(input: &FinalizeWorkInput) -> Result<(), WriteError> {

@@ -36,6 +36,54 @@ describe('MCP protocol adapter', () => {
     expect(tools).toHaveLength(35)
   })
 
+  it('publishes concrete finalize string-array items and a default merge disposition', async () => {
+    const client = await connect({} as AwaitableKnowledgeBackend)
+    const { tools } = await client.listTools()
+    const finalize = tools.find(({ name }) => name === 'finalize_work')
+    const schema = finalize?.inputSchema as {
+      properties?: Record<string, {
+        default?: unknown
+        description?: string
+        properties?: Record<string, { type?: string; items?: { type?: string } }>
+      }>
+    }
+
+    expect(schema.properties?.rootCause?.properties?.evidence).toMatchObject({
+      type: 'array', items: { type: 'string' },
+    })
+    expect(schema.properties?.solution?.properties?.applicability).toMatchObject({
+      type: 'array', items: { type: 'string' },
+    })
+    expect(schema.properties?.solution?.properties?.limitations).toMatchObject({
+      type: 'array', items: { type: 'string' },
+    })
+    expect(schema.properties?.merge?.default).toEqual({ status: 'not-required' })
+    expect(schema.properties?.outcome?.description).toContain('succeeded requires commit')
+    expect(schema.properties?.commit?.description).toContain('Required when outcome is succeeded')
+    expect(schema.properties?.solution?.description).toContain('requires rootCause')
+    expect(schema.properties?.verifications?.description).toContain('Automated items require command')
+    expect(finalize?.description).toContain('failed/inconclusive requires failedAttempts')
+  })
+
+  it('defaults an omitted finalize merge disposition before backend dispatch', async () => {
+    const finalizeWork = vi.fn(async (input) => ({
+      recorded: true, createdCase: false, caseId: 'case-1', problemId: 'problem-1',
+      attemptIds: [], verificationIds: [], artifactIds: [], mergeRecorded: true,
+      promotion: { status: 'candidate', missingRequirements: [] },
+    }))
+    const client = await connect({ finalizeWork } as unknown as AwaitableKnowledgeBackend)
+    const response = await client.callTool({ name: 'finalize_work', arguments: {
+      project: { projectId: 'project-1' }, operationId: 'failed-with-default-merge',
+      task: 'Investigate failure', outcome: 'failed', summary: 'Still failing',
+      failedAttempts: [{ hypothesis: 'Route', change: 'Tried route', failureExplanation: 'No change' }],
+    } }) as CallToolResult
+
+    expect(response.isError, JSON.stringify(response)).not.toBe(true)
+    expect(finalizeWork).toHaveBeenCalledWith(expect.objectContaining({
+      merge: { status: 'not-required' },
+    }))
+  })
+
   it('adapts MCP list_projects to the native backend without core logic', async () => {
     const listProjects = vi.fn(() => [{ id: 'p1', name: 'P', description: null, root: '/p', createdAt: new Date().toISOString(), aliases: [] }])
     const client = await connect({ listProjects } as unknown as AwaitableKnowledgeBackend)

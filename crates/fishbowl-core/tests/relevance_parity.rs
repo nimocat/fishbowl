@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 
-use fishbowl_contracts::{NodeRecord, NodeStatus, NodeType, PreflightGuardrail, PreflightResult};
+use fishbowl_contracts::{
+    MatchKind, NodeRecord, NodeStatus, NodeType, PreflightGuardrail, PreflightResult,
+};
 use fishbowl_core::{RelevanceCandidate, RelevanceContext, compact_preflight, rank_cases};
 use serde_json::{Value, json};
 
@@ -26,7 +28,7 @@ fn exact_and_trusted_reasons_outrank_common_lexical_terms() {
             "verified-node",
             NodeType::Solution,
             NodeStatus::Verified,
-            json!({"summary":"build test fix"}),
+            json!({"summary":"camera performance regression"}),
         )],
         guardrails: vec![],
     };
@@ -44,7 +46,7 @@ fn exact_and_trusted_reasons_outrank_common_lexical_terms() {
     };
     let ranked = rank_cases(
         &RelevanceContext {
-            task_description: "build test fix".into(),
+            task_description: "camera build test fix".into(),
             changed_files: vec!["Sources/CameraView.swift".into()],
             command: vec![],
             fingerprint_case_ids: vec![],
@@ -59,6 +61,121 @@ fn exact_and_trusted_reasons_outrank_common_lexical_terms() {
     );
     assert!(ranked.iter().any(|card| card.case_id == "case-verified"));
     assert!(!ranked.iter().any(|card| card.case_id == "case-common"));
+}
+
+#[test]
+fn low_information_workflow_terms_do_not_recall_unrelated_cases() {
+    let unrelated = RelevanceCandidate {
+        case_id: "case-unrelated".into(),
+        case_title: "Generic workflow documentation".into(),
+        case_status: NodeStatus::Candidate,
+        nodes: vec![node(
+            "unrelated-node",
+            NodeType::Problem,
+            NodeStatus::Open,
+            json!({"summary":"when one record is followed by another generic work item"}),
+        )],
+        guardrails: vec![],
+    };
+    let relevant = RelevanceCandidate {
+        case_id: "case-relevant".into(),
+        case_title: "Deduplicate checkpoint and finalize knowledge".into(),
+        case_status: NodeStatus::Candidate,
+        nodes: vec![node(
+            "relevant-node",
+            NodeType::Problem,
+            NodeStatus::Open,
+            json!({"summary":"duplicate checkpoint_work finalize_work knowledge"}),
+        )],
+        guardrails: vec![],
+    };
+
+    let ranked = rank_cases(
+        &RelevanceContext {
+            task_description: "Prevent duplicate knowledge when checkpoint_work is followed by finalize_work under generic workflow discipline".into(),
+            changed_files: vec![],
+            command: vec![],
+            fingerprint_case_ids: vec![],
+            now_epoch_ms: 1_752_624_000_000,
+        },
+        vec![unrelated, relevant],
+    );
+
+    assert_eq!(ranked.len(), 1);
+    assert_eq!(ranked[0].case_id, "case-relevant");
+}
+
+#[test]
+fn vite_and_npm_require_a_more_specific_context_match() {
+    let unrelated = RelevanceCandidate {
+        case_id: "case-generic-vite".into(),
+        case_title: "Vite npm build setup".into(),
+        case_status: NodeStatus::Candidate,
+        nodes: vec![node(
+            "generic-vite-node",
+            NodeType::Problem,
+            NodeStatus::Open,
+            json!({"summary":"configure Vite npm scripts"}),
+        )],
+        guardrails: vec![],
+    };
+    let relevant = RelevanceCandidate {
+        case_id: "case-windows-host".into(),
+        case_title: "Allow Windows host access in Vite".into(),
+        case_status: NodeStatus::Candidate,
+        nodes: vec![node(
+            "windows-host-node",
+            NodeType::Problem,
+            NodeStatus::Open,
+            json!({"summary":"Vite allowedHosts blocked Windows access"}),
+        )],
+        guardrails: vec![],
+    };
+
+    let ranked = rank_cases(
+        &RelevanceContext {
+            task_description: "Fix Vite npm allowedHosts Windows access".into(),
+            changed_files: vec![],
+            command: vec![],
+            fingerprint_case_ids: vec![],
+            now_epoch_ms: 1_752_624_000_000,
+        },
+        vec![unrelated, relevant],
+    );
+
+    assert_eq!(ranked.len(), 1);
+    assert_eq!(ranked[0].case_id, "case-windows-host");
+    assert_eq!(ranked[0].why_matched[0].kind, MatchKind::Text);
+    assert!(ranked[0].why_matched[0].value.contains("allowedhosts"));
+}
+
+#[test]
+fn low_signal_technology_terms_do_not_recall_unrelated_verified_knowledge() {
+    let unrelated_verified = RelevanceCandidate {
+        case_id: "case-verified-tooling".into(),
+        case_title: "Verified Vite npm dependency setup".into(),
+        case_status: NodeStatus::Verified,
+        nodes: vec![node(
+            "verified-tooling-solution",
+            NodeType::Solution,
+            NodeStatus::Verified,
+            json!({"summary":"install Vite npm dependencies for a different application"}),
+        )],
+        guardrails: vec![],
+    };
+
+    let ranked = rank_cases(
+        &RelevanceContext {
+            task_description: "Vite npm".into(),
+            changed_files: vec![],
+            command: vec![],
+            fingerprint_case_ids: vec![],
+            now_epoch_ms: 1_752_624_000_000,
+        },
+        vec![unrelated_verified],
+    );
+
+    assert!(ranked.is_empty());
 }
 
 #[test]

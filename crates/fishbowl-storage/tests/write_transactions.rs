@@ -878,6 +878,223 @@ fn checkpoint_work_and_finalize_are_atomic_compact_and_idempotent() {
 }
 
 #[test]
+fn finalize_reuses_equivalent_checkpoint_knowledge_in_the_same_case() {
+    let path = database("checkpoint-finalize-deduplication");
+    let mut repository = WriteRepository::open(path.to_str().unwrap()).unwrap();
+    let checkpoint = repository
+        .checkpoint_work(CheckpointWorkInput {
+            project: project("project-a"),
+            operation_id: "vite-checkpoint".into(),
+            case_id: None,
+            task: "allow Windows Vite access".into(),
+            outcome: "succeeded".into(),
+            summary: "configure the bounded Vite host allowlist".into(),
+            importance: Some("notable".into()),
+            fingerprint: Some("vite-host-access".into()),
+            files: vec!["vite.config.ts".into()],
+            command: None,
+            evidence: vec!["focused configuration test passed".into()],
+            root_cause: Some(CheckpointRootCauseAssertion {
+                explanation: "the development server rejected the requested host".into(),
+                confidence: 0.95,
+                rejected_alternatives: vec!["network route failure".into()],
+            }),
+            solution: Some(CheckpointSolutionAssertion {
+                summary: "allow the expected Windows host explicitly".into(),
+                applicability: vec!["local Vite development".into()],
+                limitations: vec!["human Windows access remains pending".into()],
+                decisive_difference: "the requested host is explicitly bounded".into(),
+            }),
+            human_confirmed: false,
+        })
+        .unwrap();
+    let case_id = checkpoint.case_id.clone().unwrap();
+
+    let finalized = repository
+        .finalize_work(FinalizeWorkInput {
+            project: project("project-a"),
+            operation_id: "vite-finalize".into(),
+            case_id: Some(case_id.clone()),
+            task: "allow Windows Vite access".into(),
+            outcome: "succeeded".into(),
+            summary: "configure the bounded Vite host allowlist".into(),
+            fingerprint: Some("vite-host-access".into()),
+            files: vec!["vite.config.ts".into()],
+            commit: Some(FinalizeCommitInput {
+                sha: "def456".into(),
+                message: "fix: allow bounded Vite host".into(),
+                branch: Some("main".into()),
+            }),
+            failed_attempts: Vec::new(),
+            root_cause: Some(FinalizeRootCauseInput {
+                explanation: "the development server rejected the requested host".into(),
+                confidence: 0.95,
+                evidence: vec!["focused configuration test passed".into()],
+                rejected_alternatives: vec!["network route failure".into()],
+            }),
+            solution: Some(FinalizeSolutionInput {
+                summary: "allow the expected Windows host explicitly".into(),
+                applicability: vec!["local Vite development".into()],
+                limitations: vec!["human Windows access remains pending".into()],
+                decisive_difference: "the requested host is explicitly bounded".into(),
+            }),
+            verifications: vec![FinalizeVerificationInput {
+                kind: "automated".into(),
+                succeeded: true,
+                command: Some(vec!["npm".into(), "test".into()]),
+                excerpt: "passed".into(),
+                environment: BTreeMap::new(),
+                human_confirmed: false,
+            }],
+            merge: FinalizeMergeInput {
+                status: "not-required".into(),
+                source_branch: Some("main".into()),
+                target_branch: Some("main".into()),
+                merge_commit: None,
+                summary: None,
+            },
+        })
+        .unwrap();
+
+    assert_eq!(finalized.attempt_ids, vec![checkpoint.attempt_id.unwrap()]);
+    assert_eq!(finalized.root_cause_id, checkpoint.root_cause_id);
+    assert_eq!(finalized.solution_id, checkpoint.solution_id);
+    drop(repository);
+    let connection = Connection::open(&path).unwrap();
+    for node_type in ["Attempt", "RootCause", "Solution"] {
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT count(*) FROM nodes JOIN cases ON cases.id=nodes.case_id WHERE cases.project_id='project-a' AND nodes.case_id=? AND nodes.type=?",
+                    [&case_id, node_type],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap(),
+            1,
+            "finalize duplicated {node_type}",
+        );
+    }
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn finalize_never_collapses_an_ordinary_attempt_into_checkpoint_enrichment() {
+    let path = database("finalize-preserves-ordinary-attempt");
+    let mut repository = WriteRepository::open(path.to_str().unwrap()).unwrap();
+    let problem = repository
+        .record_problem(problem_input("ordinary-attempt-problem"))
+        .unwrap();
+    let ordinary = repository
+        .record_attempt(RecordAttemptInput {
+            project: project("project-a"),
+            operation_id: Some("ordinary-attempt".into()),
+            source_key: None,
+            case_id: problem.case_id.clone(),
+            problem_id: problem.node_id,
+            previous_attempt_id: None,
+            data: WriteAttemptData {
+                hypothesis: "the route is missing".into(),
+                change: "try the alternate route".into(),
+                outcome: "failed".into(),
+                command: Some(vec!["curl".into(), "http://127.0.0.1".into()]),
+                failure_explanation: Some("the first probe failed".into()),
+                decisive_difference: None,
+            },
+        })
+        .unwrap();
+
+    let finalized = repository
+        .finalize_work(FinalizeWorkInput {
+            project: project("project-a"),
+            operation_id: "ordinary-finalize".into(),
+            case_id: Some(problem.case_id),
+            task: "investigate the route".into(),
+            outcome: "failed".into(),
+            summary: "the route remains unavailable".into(),
+            fingerprint: None,
+            files: Vec::new(),
+            commit: None,
+            failed_attempts: vec![fishbowl_contracts::FinalizeFailedAttemptInput {
+                hypothesis: "the route is missing".into(),
+                change: "try the alternate route".into(),
+                failure_explanation: "the final probe failed differently".into(),
+                command: Some(vec!["curl".into(), "http://127.0.0.1".into()]),
+            }],
+            root_cause: None,
+            solution: None,
+            verifications: Vec::new(),
+            merge: FinalizeMergeInput {
+                status: "not-required".into(),
+                source_branch: None,
+                target_branch: None,
+                merge_commit: None,
+                summary: None,
+            },
+        })
+        .unwrap();
+
+    assert_ne!(finalized.attempt_ids, vec![ordinary.node_id]);
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn finalize_preserves_a_checkpoint_attempt_when_any_attempt_detail_differs() {
+    let path = database("finalize-preserves-different-checkpoint-attempt");
+    let mut repository = WriteRepository::open(path.to_str().unwrap()).unwrap();
+    let checkpoint = repository
+        .checkpoint_work(CheckpointWorkInput {
+            project: project("project-a"),
+            operation_id: "failed-checkpoint".into(),
+            case_id: None,
+            task: "probe the Windows route".into(),
+            outcome: "failed".into(),
+            summary: "the npm probe timed out".into(),
+            importance: Some("notable".into()),
+            fingerprint: None,
+            files: Vec::new(),
+            command: Some(vec!["npm".into(), "run".into(), "probe".into()]),
+            evidence: Vec::new(),
+            root_cause: None,
+            solution: None,
+            human_confirmed: false,
+        })
+        .unwrap();
+
+    let finalized = repository
+        .finalize_work(FinalizeWorkInput {
+            project: project("project-a"),
+            operation_id: "failed-finalize".into(),
+            case_id: checkpoint.case_id,
+            task: "probe the Windows route".into(),
+            outcome: "failed".into(),
+            summary: "the npm probe timed out".into(),
+            fingerprint: None,
+            files: Vec::new(),
+            commit: None,
+            failed_attempts: vec![fishbowl_contracts::FinalizeFailedAttemptInput {
+                hypothesis: "probe the Windows route".into(),
+                change: "the npm probe timed out".into(),
+                failure_explanation: "the host rejected the request instead".into(),
+                command: Some(vec!["npm".into(), "run".into(), "probe".into()]),
+            }],
+            root_cause: None,
+            solution: None,
+            verifications: Vec::new(),
+            merge: FinalizeMergeInput {
+                status: "not-required".into(),
+                source_branch: None,
+                target_branch: None,
+                merge_commit: None,
+                summary: None,
+            },
+        })
+        .unwrap();
+
+    assert_ne!(finalized.attempt_ids, vec![checkpoint.attempt_id.unwrap()]);
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
 fn operation_result_lookup_is_project_scoped_and_reports_missing_without_mutation() {
     let path = database("operation-result");
     let mut writer = WriteRepository::open(path.to_str().unwrap()).unwrap();

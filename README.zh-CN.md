@@ -118,9 +118,9 @@ fishbowl checkpoint \
 
 先一次性配置用户级 stdio MCP 服务，再把 [MCP Agent 会话提示](docs/agent-bootstrap-prompt.md) 原样复制给编码 Agent。它会要求 Agent：
 
-1. 直接调用 Fishbowl MCP 工具完成项目解析和预检。
-2. 开始实质工作前查询相关历史。
-3. 任务结束时通过 MCP 写入简洁、脱敏的检查点。
+1. 直接调用 Fishbowl MCP 工具并明确项目作用域。
+2. 按任务规模选择轻量、标准或完整流程，只展开真正相关的历史。
+3. 提交并验证后只调用一次 `finalize_work`；`checkpoint_work` 仅用于上下文压缩、中断或交接。
 4. MCP 不可用时上报问题，不降级到 CLI。
 
 MCP 客户端会根据服务配置启动这个持久化 stdio 桥接进程：
@@ -134,8 +134,16 @@ node /absolute/path/to/fishbowl/dist/cli/main.js mcp --stdio
 ## 工程工作循环
 
 ```text
-预检 -> 查询历史知识 -> 实施 -> 验证 -> 写入脱敏检查点
+轻量：解析 -> 必要时查询 -> 回答
+标准：解析 -> 简短预检/查询 -> Problem -> 实施 -> 提交/验证 -> 一次 finalize
+完整：解析 -> 预检/查询 -> 必要时观察产物 -> Problem/有价值的失败 -> 提交/验证 -> 一次 finalize
 ```
+
+不要把 `checkpoint_work` 当作 `finalize_work` 的固定前置步骤。只有发生
+上下文压缩、跨日暂停或交接时才写 checkpoint；之后 finalization 必须传入
+同一个 `caseId`，服务端会复用完全等价的 Attempt、RootCause 和 Solution。
+小型配置修改默认不做磁盘观察。只有用户明确确认真实目标环境成功后，
+才记录人工 Verification 并关闭 Case。
 
 Fishbowl 会区分不同记录，让图谱在复盘时仍然可信：
 
